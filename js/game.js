@@ -76,6 +76,10 @@ class Game {
     this.camAngle = Math.PI; // radians, π = behind the tank
     this.camMode = 'arrows';
 
+    // Camera angle progression: 20° at min zoom (close), ~85° at max zoom (top-down)
+    this._camAngleMin = 20 * Math.PI / 180;
+    this._camAngleMax = 85 * Math.PI / 180;
+
     // aim/trajectory line (from muzzle, length = shellRange)
     this._initAimLine();
     // ricochet indicator (2 colored lines on target tank faces)
@@ -552,6 +556,7 @@ class Game {
   applySettings(s){
     this.settings = s;
     this.camMode = s.camMode || 'arrows';
+    this.cameraMode = s.cameraMode || 'dynamic';
     if(this.input){
       this.input.binds = s.binds;
       this.input.settings = s;
@@ -2615,7 +2620,7 @@ _gladZoneNotice(text){
       const angle = this.camAngle;
       const camTarget = new THREE.Vector3(
         t.x + Math.sin(angle)*this.camDist,
-        this.camDist*1.43 + 1.2,
+        this._getCameraHeight(this.camDist),
         t.z + Math.cos(angle)*this.camDist);
       const camLim = (this.world && this.world.half || 75) - 8;
       camTarget.x = Math.max(-camLim, Math.min(camLim, camTarget.x));
@@ -2778,6 +2783,13 @@ _gladZoneNotice(text){
     this.renderer.render(this.scene, this.camera);
   }
 
+  // Calculate camera height based on distance with dynamic angle (40° at min zoom → 85° at max zoom)
+  _getCameraHeight(camDist) {
+    const t = (camDist - CONFIG.CAM_DIST_MIN) / (CONFIG.CAM_DIST_MAX - CONFIG.CAM_DIST_MIN);
+    const angle = this._camAngleMin + t * (this._camAngleMax - this._camAngleMin);
+    return 1.2 + camDist * Math.tan(angle);
+  }
+
   /* Cinematic intro camera (runs during the match-start countdown).
      Progress 0→1 maps to the countdown duration (5s). The camera starts
      at the tank's left side, low and close, then rises while rotating
@@ -2789,13 +2801,14 @@ _gladZoneNotice(text){
     const p = Math.min(1, Math.max(0, (5 - dur) / 5));
     // Smooth easing so launch and handoff feel natural
     const e = p * p * (3 - 2 * p);
-    if((this.camMode || 'arrows') === 'auto') this.camAngle = t.heading + Math.PI;
+    if(this.cameraMode === 'hull') this.camAngle = t.heading + Math.PI;
     // Orbit from the left side (heading + PI/2) around to the back (camAngle)
     const endA = this.camAngle;
     const startA = endA - Math.PI / 2;
     const ang = startA + (endA - startA) * e;
     const dist = this.camDist * (0.7 + 0.3 * e);
-    const h = 3 + (this.camDist * 1.43 + 1.2 - 3) * e;
+    const finalH = this._getCameraHeight(this.camDist);
+    const h = 3 + (finalH - 3) * e;
     const camLim = (this.world && this.world.half || 75) - 8;
     const cx = Math.max(-camLim, Math.min(camLim, t.x + Math.sin(ang) * dist));
     const cz = Math.max(-camLim, Math.min(camLim, t.z + Math.cos(ang) * dist));
@@ -2815,18 +2828,63 @@ _gladZoneNotice(text){
       this.camDist = Math.max(CONFIG.CAM_DIST_MIN, Math.min(CONFIG.CAM_DIST_MAX,
         this.camDist - zoom*CONFIG.CAM_ZOOM_STEP));
     }
+    
+    // Calculate current camera angle from horizontal (for Automatic mode detection)
+    const tAngle = (this.camDist - CONFIG.CAM_DIST_MIN) / (CONFIG.CAM_DIST_MAX - CONFIG.CAM_DIST_MIN);
+    const currentCamAngleDeg = (this._camAngleMin + tAngle * (this._camAngleMax - this._camAngleMin)) * 180 / Math.PI;
+    
     const camRot = this.input.consumeCamRotate();
-    const camMode = this.camMode || 'arrows';
-    if(camMode === 'arrows'){
+    const camMode = this.cameraMode || 'dynamic';
+    const inv = (this.settings && this.settings.invertCamRot) ? -1 : 1;
+    // Mouse movement rotation without LMB (when enabled in settings)
+    const mouseRotate = this.settings && this.settings.cameraMouseRotate 
+      ? this.input.consumeCamMouseRotate() 
+      : 0;
+    
+    if(camMode === 'dynamic'){
+      // Dynamic: angle changes with zoom, manual rotation with arrows/swipe/mouse-move
+      // Left arrow = orbit left, Drag right = orbit right, Mouse right = orbit right
       if(camRot !== 0){
-        const inv = (this.settings && this.settings.invertCamRot) ? -1 : 1;
-        this.camAngle -= camRot * inv * CONFIG.CAM_ROTATE_SPEED * dt;
+        this.camAngle += camRot * CONFIG.CAM_ROTATE_SPEED * dt;
+      } else {
+        const swipe = this.input.consumeCamSwipe();
+        if(swipe !== 0) this.camAngle += swipe * CONFIG.CAM_SWIPE_SENSITIVITY;
+        else if(mouseRotate !== 0) this.camAngle += mouseRotate * CONFIG.CAM_SWIPE_SENSITIVITY;
+      }
+    } else if(camMode === 'automatic'){
+      // Automatic: when zoomed in (20-30°), camera smoothly follows turret; otherwise manual
+      if(currentCamAngleDeg <= 30 && this.localTank && this.localTank.alive){
+        // Smoothly follow turret - camera looks where turret aims
+        const turretWorldAngle = this.localTank.turretAngle || this.localTank.heading;
+        const targetCamAngle = turretWorldAngle + Math.PI;
+        // Smooth interpolation for natural camera movement
+        const diff = ((targetCamAngle - this.camAngle + Math.PI) % (Math.PI * 2)) - Math.PI;
+        this.camAngle += diff * Math.min(1, dt * 8);
+      } else {
+        // Manual rotation
+        if(camRot !== 0){
+          this.camAngle += camRot * CONFIG.CAM_ROTATE_SPEED * dt;
+        } else {
+          const swipe = this.input.consumeCamSwipe();
+          if(swipe !== 0) this.camAngle += swipe * CONFIG.CAM_SWIPE_SENSITIVITY;
+          else if(mouseRotate !== 0) this.camAngle += mouseRotate * CONFIG.CAM_SWIPE_SENSITIVITY;
+        }
+      }
+    } else if(camMode === 'hull'){
+      // Hull follow: camera always behind tank hull
+      if(this.localTank && this.localTank.alive){
+        this.camAngle = this.localTank.heading + Math.PI;
+      }
+    } else if(camMode === 'arrows'){
+      if(camRot !== 0){
+        this.camAngle += camRot * CONFIG.CAM_ROTATE_SPEED * dt;
+      } else if(mouseRotate !== 0){
+        this.camAngle += mouseRotate * CONFIG.CAM_SWIPE_SENSITIVITY;
       }
     } else if(camMode === 'swipe'){
       const swipe = this.input.consumeCamSwipe();
-      if(swipe !== 0){
-        this.camAngle += swipe * CONFIG.CAM_SWIPE_SENSITIVITY;
-      }
+      if(swipe !== 0) this.camAngle += swipe * CONFIG.CAM_SWIPE_SENSITIVITY;
+      else if(mouseRotate !== 0) this.camAngle += mouseRotate * CONFIG.CAM_SWIPE_SENSITIVITY;
     }
 
     // Local tank input (keyboard/mouse OR touch)
@@ -3136,13 +3194,24 @@ _gladZoneNotice(text){
         : (this.localTank && this.localTank.alive && !this.localTank.dying ? this.localTank : null);
       if(camFocus){
       const t = camFocus;
-      if((this.camMode || 'arrows') === 'auto'){
+      // Handle camera modes that override camAngle
+      if(this.cameraMode === 'hull'){
         this.camAngle = t.heading + Math.PI;
+      } else if(this.cameraMode === 'automatic'){
+        const tAngle = (this.camDist - CONFIG.CAM_DIST_MIN) / (CONFIG.CAM_DIST_MAX - CONFIG.CAM_DIST_MIN);
+        const currentCamAngleDeg = (this._camAngleMin + tAngle * (this._camAngleMax - this._camAngleMin)) * 180 / Math.PI;
+        if(currentCamAngleDeg <= 30){
+          const turretWorldAngle = t.turretAngle || t.heading;
+          const targetCamAngle = turretWorldAngle + Math.PI;
+          // Smooth interpolation for natural camera movement
+          const diff = ((targetCamAngle - this.camAngle + Math.PI) % (Math.PI * 2)) - Math.PI;
+          this.camAngle += diff * Math.min(1, dt * 8);
+        }
       }
       const angle = this.camAngle;
       const camTarget = new THREE.Vector3(
         t.x + Math.sin(angle) * this.camDist,
-        this.camDist * 1.43 + 1.2,
+        this._getCameraHeight(this.camDist),
         t.z + Math.cos(angle) * this.camDist);
       // Never let the camera cross a border wall (keeps walls out of view)
       const camLim = (this.world && this.world.half || 75) - 8;

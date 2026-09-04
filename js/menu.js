@@ -23,6 +23,7 @@ const Menu = {
     this._renderAimSettings();
     this._renderViewSettings();
     this._renderCamSettings();
+    this._renderCameraSettings();
     this._renderGraphicsSettings();
     this._renderOtherSettings();
     this._renderCollections();
@@ -1566,6 +1567,83 @@ this._renderCamSettings();
         if(this.game) this.game.applySettings(this.settings);
       };
     });
+  },
+
+  /* ---------- camera behavior (Dynamic / Automatic / Hull Follow / Arrows / Swipe) ---------- */
+  _renderCameraSettings(){
+    const wrap = document.getElementById('camera-settings');
+    if(!wrap) return;
+    const camBehavior = this.settings.cameraMode || 'dynamic';
+    const seg = (m, label) => `<div class="seg-opt${camBehavior===m?' active':''}" data-cammode="${m}">${label}</div>`;
+    wrap.innerHTML = `
+      <label>Camera Behavior</label>
+      <div class="seg" style="display:grid; grid-template-columns:repeat(3,1fr); gap:4px;">
+        ${seg('dynamic','Dynamic')}
+        ${seg('automatic','Auto (Turret)')}
+        ${seg('hull','Auto (Hull)')}
+        ${seg('arrows','Manual (Arrows)')}
+        ${seg('swipe','Swipe')}
+      </div>
+      <div class="hint" id="camera-hint"></div>
+      <label style="margin-top:16px">Invert Rotation Direction</label>
+      <div class="seg">
+        <div class="seg-opt${this.settings.invertCamRot?' active':''}" data-invcam="1">On</div>
+        <div class="seg-opt${this.settings.invertCamRot?'':' active'}" data-invcam="0">Off</div>
+      </div>
+      <div class="hint">Swap the direction: Left rotates right, Right rotates left</div>
+      <label style="margin-top:16px">Mouse Rotate (No LMB)</label>
+      <div class="seg">
+        <div class="seg-opt${this.settings.cameraMouseRotate?' active':''}" data-mouserot="1">On</div>
+        <div class="seg-opt${this.settings.cameraMouseRotate?'':' active'}" data-mouserot="0">Off</div>
+      </div>
+      <div class="hint">Rotate camera by moving mouse cursor without holding LMB</div>`;
+    
+    const hints = {
+      dynamic: 'Camera angle changes with zoom: 20° (close) → 85° (far). Manual rotation. Left arrow = orbit left.',
+      automatic: 'When zoomed in (20°–30°), camera smoothly follows turret. Otherwise manual.',
+      hull: 'Camera always stays behind tank hull (follows hull rotation).',
+      arrows: 'Use arrow keys (or rebound keys) to rotate camera manually.',
+      swipe: 'Swipe/drag to rotate camera. On desktop: hold mouse button and drag.'
+    };
+    
+    wrap.querySelectorAll('[data-cammode]').forEach(el=>{
+      el.onclick = ()=>{
+        this.settings.cameraMode = el.dataset.cammode;
+        // Also update legacy camMode for compatibility
+        if(el.dataset.cammode === 'hull') this.settings.camMode = 'auto';
+        else if(el.dataset.cammode === 'arrows') this.settings.camMode = 'arrows';
+        else if(el.dataset.cammode === 'swipe') this.settings.camMode = 'swipe';
+        else this.settings.camMode = 'arrows';
+        saveSettings(this.settings);
+        if(this.game) this.game.applySettings(this.settings);
+        this._renderCameraSettings();
+        this._renderCamSettings();
+      };
+    });
+    
+    wrap.querySelectorAll('[data-invcam]').forEach(el=>{
+      el.onclick = ()=>{
+        wrap.querySelectorAll('[data-invcam]').forEach(x=>x.classList.remove('active'));
+        el.classList.add('active');
+        this.settings.invertCamRot = el.dataset.invcam === '1';
+        saveSettings(this.settings);
+        if(this.game) this.game.applySettings(this.settings);
+      };
+    });
+    
+    wrap.querySelectorAll('[data-mouserot]').forEach(el=>{
+      el.onclick = ()=>{
+        wrap.querySelectorAll('[data-mouserot]').forEach(x=>x.classList.remove('active'));
+        el.classList.add('active');
+        this.settings.cameraMouseRotate = el.dataset.mouserot === '1';
+        saveSettings(this.settings);
+        if(this.game) this.game.applySettings(this.settings);
+        this._renderCameraSettings();
+      };
+    });
+    
+    const hintEl = document.getElementById('camera-hint');
+    if(hintEl) hintEl.textContent = hints[camBehavior] || '';
   },
 
   /* ---------- graphics quality ---------- */

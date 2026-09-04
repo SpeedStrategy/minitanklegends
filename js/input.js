@@ -311,6 +311,7 @@ class Input {
     this._camSwipeMouseDown = false;
     this._camSwipeMouseLastX = 0;
     this._camSwipeMouseLastY = 0;
+    this._camMouseRotateAccum = 0; // For mouse-move rotation without LMB
     document.addEventListener('mousedown', (e) => {
       if(e.button !== 0) return;
       if(isControlSurface(e.target)) return;
@@ -319,6 +320,15 @@ class Input {
       this._camSwipeMouseLastY = e.clientY;
     });
     document.addEventListener('mousemove', (e) => {
+      // Track mouse movement for camera rotation without LMB (when enabled in settings)
+      if(this.settings && this.settings.cameraMouseRotate && !this._camSwipeMouseDown){
+        if(this._camSwipeMouseLastX !== 0 || this._camSwipeMouseLastY !== 0){
+          this._camMouseRotateAccum += e.clientX - this._camSwipeMouseLastX;
+        }
+        this._camSwipeMouseLastX = e.clientX;
+        this._camSwipeMouseLastY = e.clientY;
+      }
+      // Standard swipe (requires LMB)
       if(!this._camSwipeMouseDown) return;
       this._camSwipeAccum += e.clientX - this._camSwipeMouseLastX;
       this._camSwipeAccumY += e.clientY - this._camSwipeMouseLastY;
@@ -328,7 +338,7 @@ class Input {
     document.addEventListener('mouseup', (e) => {
       if(e.button === 0) this._camSwipeMouseDown = false;
     });
-    this.resetCamSwipe = () => { this._camSwipeAccum = 0; this._camSwipeAccumY = 0; };
+    this.resetCamSwipe = () => { this._camSwipeAccum = 0; this._camSwipeAccumY = 0; this._camMouseRotateAccum = 0; this._camSwipeMouseLastX = 0; this._camSwipeMouseLastY = 0; };
 
     // Prevent iOS in standalone mode (home screen) from intercepting
     // the first touch as a system gesture
@@ -448,6 +458,13 @@ class Input {
   consumeCamSwipe(){
     const a = this._camSwipeAccum || 0;
     this._camSwipeAccum = 0;
+    return a;
+  }
+
+  // Mouse movement rotation without holding LMB (when cameraMouseRotate setting is enabled)
+  consumeCamMouseRotate(){
+    const a = this._camMouseRotateAccum || 0;
+    this._camMouseRotateAccum = 0;
     return a;
   }
 

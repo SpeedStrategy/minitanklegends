@@ -387,6 +387,8 @@ function loadSettings(){
       muzzleFx:         s.muzzleFx !== false,
       showFps:          !!s.showFps,
       invertCamRot:     !!s.invertCamRot,
+      cameraMode:       s.cameraMode || 'dynamic',
+      cameraMouseRotate: !!s.cameraMouseRotate,
     };
   }catch(e){
     return {binds:defaults(), selectedTank:'coolbuddy', playerName:'Player'+Math.floor(Math.random()*9000+1000), playerClan:'', cash:0, coins:0, gems:0,
@@ -395,7 +397,7 @@ function loadSettings(){
             viewRangeWidth:CONFIG.VIEW_RANGE_WIDTH, graphicsQuality:'default', camRotation:0, camMode:'arrows', pinchZoom:true, ricochetIndicator:true,
             unlockedTanks:['coolbuddy'], allUnlocked:false, clanWeeklyXP:0, clanWeekKey:0, clanWeeklyRewarded:false,
             clanWeekWins:0, clanWeekWinsBonus:false, clanWeekLoginXP:0, clanLastLoginDay:0, tlPlus:false,
-            screenShake:100, muzzleFx:true, showFps:false, invertCamRot:false};
+            screenShake:100, muzzleFx:true, showFps:false, invertCamRot:false, cameraMode:'dynamic', cameraMouseRotate:false};
   }
 }
 function saveSettings(s){
