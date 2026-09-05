@@ -1580,6 +1580,7 @@ this._renderCamSettings();
       <div class="seg" style="display:grid; grid-template-columns:repeat(3,1fr); gap:4px;">
         ${seg('dynamic','Dynamic')}
         ${seg('automatic','Auto (Turret)')}
+        ${seg('crosshair','Crosshair')}
         ${seg('hull','Auto (Hull)')}
         ${seg('arrows','Manual (Arrows)')}
         ${seg('swipe','Swipe')}
@@ -1600,7 +1601,8 @@ this._renderCamSettings();
     
     const hints = {
       dynamic: 'Camera angle changes with zoom: 20° (close) → 85° (far). Manual rotation. Left arrow = orbit left.',
-      automatic: 'When zoomed in (20°–30°), camera smoothly follows turret. Otherwise manual.',
+      automatic: 'When zoomed in (20°–30°), mouse rotates camera, turret aims at center crosshair. Otherwise manual.',
+      crosshair: 'Fixed center crosshair. Mouse rotates camera, turret always aims at crosshair.',
       hull: 'Camera always stays behind tank hull (follows hull rotation).',
       arrows: 'Use arrow keys (or rebound keys) to rotate camera manually.',
       swipe: 'Swipe/drag to rotate camera. On desktop: hold mouse button and drag.'

@@ -84,6 +84,8 @@ class Game {
     this._initAimLine();
     // ricochet indicator (2 colored lines on target tank faces)
     this._initRicoIndicator();
+    // center crosshair (for crosshair/auto camera modes)
+    this._initCrosshair();
     // water foam (created on the fly in _updateWaterFoam)
 
     // probe available tank models (async)
@@ -2831,7 +2833,7 @@ _gladZoneNotice(text){
     
     // Calculate current camera angle from horizontal (for Automatic mode detection)
     const tAngle = (this.camDist - CONFIG.CAM_DIST_MIN) / (CONFIG.CAM_DIST_MAX - CONFIG.CAM_DIST_MIN);
-    const currentCamAngleDeg = (this._camAngleMin + tAngle * (this._camAngleMax - this._camAngleMin)) * 180 / Math.PI;
+    this._currentCamAngleDeg = (this._camAngleMin + tAngle * (this._camAngleMax - this._camAngleMin)) * 180 / Math.PI;
     
     const camRot = this.input.consumeCamRotate();
     const camMode = this.cameraMode || 'dynamic';
@@ -2852,16 +2854,18 @@ _gladZoneNotice(text){
         else if(mouseRotate !== 0) this.camAngle += mouseRotate * CONFIG.CAM_SWIPE_SENSITIVITY;
       }
     } else if(camMode === 'automatic'){
-      // Automatic: when zoomed in (20-30°), camera smoothly follows turret; otherwise manual
-      if(currentCamAngleDeg <= 30 && this.localTank && this.localTank.alive){
-        // Smoothly follow turret - camera looks where turret aims
-        const turretWorldAngle = this.localTank.turretAngle || this.localTank.heading;
-        const targetCamAngle = turretWorldAngle + Math.PI;
-        // Smooth interpolation for natural camera movement
-        const diff = ((targetCamAngle - this.camAngle + Math.PI) % (Math.PI * 2)) - Math.PI;
-        this.camAngle += diff * Math.min(1, dt * 8);
+      // Automatic: when zoomed in (20-30°), mouse rotates camera, turret aims at screen center
+      if(this._currentCamAngleDeg <= 30 && this.localTank && this.localTank.alive){
+        // Mouse rotates camera (same as manual modes)
+        if(camRot !== 0){
+          this.camAngle += camRot * CONFIG.CAM_ROTATE_SPEED * dt;
+        } else {
+          const swipe = this.input.consumeCamSwipe();
+          if(swipe !== 0) this.camAngle += swipe * CONFIG.CAM_SWIPE_SENSITIVITY;
+          else if(mouseRotate !== 0) this.camAngle += mouseRotate * CONFIG.CAM_SWIPE_SENSITIVITY;
+        }
       } else {
-        // Manual rotation
+        // Manual rotation when zoomed out
         if(camRot !== 0){
           this.camAngle += camRot * CONFIG.CAM_ROTATE_SPEED * dt;
         } else {
@@ -2885,6 +2889,15 @@ _gladZoneNotice(text){
       const swipe = this.input.consumeCamSwipe();
       if(swipe !== 0) this.camAngle += swipe * CONFIG.CAM_SWIPE_SENSITIVITY;
       else if(mouseRotate !== 0) this.camAngle += mouseRotate * CONFIG.CAM_SWIPE_SENSITIVITY;
+    } else if(camMode === 'crosshair'){
+      // Crosshair mode: mouse always rotates camera, turret aims at center
+      if(camRot !== 0){
+        this.camAngle += camRot * CONFIG.CAM_ROTATE_SPEED * dt;
+      } else {
+        const swipe = this.input.consumeCamSwipe();
+        if(swipe !== 0) this.camAngle += swipe * CONFIG.CAM_SWIPE_SENSITIVITY;
+        else if(mouseRotate !== 0) this.camAngle += mouseRotate * CONFIG.CAM_SWIPE_SENSITIVITY;
+      }
     }
 
     // Local tank input (keyboard/mouse OR touch)
@@ -2921,7 +2934,24 @@ _gladZoneNotice(text){
         throttle = (this.input.pressed('forward')?1:0) - (this.input.pressed('backward')?1:0);
         turn = (this.input.pressed('right')?1:0) - (this.input.pressed('left')?1:0);
 
-        turretAngle = this._mouseWorldAngle();
+        // In Automatic and Crosshair modes: turret aims at screen center (camera look-at point)
+        // Mouse rotates camera, crosshair stays fixed in center
+        if(this.cameraMode === 'automatic' || this.cameraMode === 'crosshair'){
+          // Turret aims where camera looks (screen center = camera forward direction)
+          // Camera looks at tank position (t.x, 1.2, t.z), so turret aims at that point from tank
+          // But we want turret to aim at camera's forward direction projected to ground
+          const camForward = new THREE.Vector3();
+          this.camera.getWorldDirection(camForward);
+          camForward.y = 0; // Project to horizontal plane
+          if(camForward.length() > 0.001){
+            camForward.normalize();
+            turretAngle = Math.atan2(camForward.x, camForward.z);
+          } else {
+            turretAngle = this.localTank.turretAngle;
+          }
+        } else {
+          turretAngle = this._mouseWorldAngle();
+        }
         fire = this.input.pressed('fire');
         handbrake = this.input.pressed('handbrake');
       }
@@ -3197,17 +3227,9 @@ _gladZoneNotice(text){
       // Handle camera modes that override camAngle
       if(this.cameraMode === 'hull'){
         this.camAngle = t.heading + Math.PI;
-      } else if(this.cameraMode === 'automatic'){
-        const tAngle = (this.camDist - CONFIG.CAM_DIST_MIN) / (CONFIG.CAM_DIST_MAX - CONFIG.CAM_DIST_MIN);
-        const currentCamAngleDeg = (this._camAngleMin + tAngle * (this._camAngleMax - this._camAngleMin)) * 180 / Math.PI;
-        if(currentCamAngleDeg <= 30){
-          const turretWorldAngle = t.turretAngle || t.heading;
-          const targetCamAngle = turretWorldAngle + Math.PI;
-          // Smooth interpolation for natural camera movement
-          const diff = ((targetCamAngle - this.camAngle + Math.PI) % (Math.PI * 2)) - Math.PI;
-          this.camAngle += diff * Math.min(1, dt * 8);
-        }
       }
+      // Automatic and Crosshair modes: camAngle is controlled by mouse input in _update()
+      // No override needed here - camAngle already updated based on mouse movement
       const angle = this.camAngle;
       const camTarget = new THREE.Vector3(
         t.x + Math.sin(angle) * this.camDist,
@@ -3474,6 +3496,13 @@ _gladZoneNotice(text){
         this._aimLabels.forEach(s=>s.visible = false);
       }
     }
+    // Update crosshair visibility
+    if(this._crosshairEl){
+      const showCrosshair = this.localTank && this.localTank.alive && 
+        (this.cameraMode === 'crosshair' || 
+         (this.cameraMode === 'automatic' && this._currentCamAngleDeg <= 30));
+      this._crosshairEl.style.display = showCrosshair ? 'block' : 'none';
+    }
   }
 
   /* Ricochet indicator: 2 colored lines + white end-caps on visible faces */
@@ -3502,6 +3531,32 @@ _gladZoneNotice(text){
     this._ricoFrame.visible = false;
     this._ricoFrame.frustumCulled = false;
     this.scene.add(this._ricoFrame);
+  }
+
+  _initCrosshair(){
+    // Create screen-space crosshair as HTML overlay (fixed in center of screen)
+    const el = document.createElement('div');
+    el.id = 'center-crosshair';
+    el.style.cssText = `
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 100;
+      width: 32px; height: 32px;
+      display: none;
+    `;
+    el.innerHTML = `
+      <svg width="32" height="32" viewBox="0 0 32 32" style="filter: drop-shadow(0 0 2px #000);">
+        <circle cx="16" cy="16" r="10" fill="none" stroke="#fff" stroke-width="2"/>
+        <line x1="16" y1="2" x2="16" y2="6" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+        <line x1="16" y1="26" x2="16" y2="30" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+        <line x1="2" y1="16" x2="6" y2="16" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+        <line x1="26" y1="16" x2="30" y2="16" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    `;
+    document.getElementById('game-root').appendChild(el);
+    this._crosshairEl = el;
   }
 
   spawnRicoLabel(x, z){
