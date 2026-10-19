@@ -15,6 +15,29 @@ class Shell {
     const iv = inheritVel || {x:0, z:0};
     this.speed = def.shellSpeed;
     this._baseSpeed = def.shellSpeed;
+    /* THE VERTICAL HALF OF THE SHOT, CARRIED FOR REAL.
+
+       dir.y used to be read at spawn and then ignored: the Rapier body was
+       launched with linvel y=0 and the manual branch stepped only x/z, so a
+       pitched shot flew flat no matter where the gun pointed. Now the launch
+       carries the aimed pitch as real vertical velocity and receives a light
+       gravity pull every frame (SHELL_GRAVITY), so a shot aimed up crests and
+       comes down and a shot dug in dips — the arc the aim line draws is the
+       arc the shell flies. Mortar solves its own much stronger arc in
+       game._mortarAim and does not go through this gravity. */
+    this.vy = this.dir.y * this.speed;
+    this._gravity = (typeof CONFIG !== 'undefined' && CONFIG.SHELL_GRAVITY) || 9.8;
+    this._manualFlight = true;
+    /* Closed-form launch frame, snapshotted so the ballistics never drift
+       when the aim ray mutates after spawn. _launchYaw is the horizontal
+       heading in the same convention the rest of the game uses
+       (Math.sin/cos of yaw = x/z direction), _launchPitch is the vertical
+       angle above/below horizon, and _ox/_oy/_oz is the muzzle — all read
+       once, here, from the aim ray the player actually fired along. */
+    this._launchYaw = Math.atan2(this.dir.x, this.dir.z);
+    this._launchPitch = Math.asin(Math.max(-1, Math.min(1, this.dir.y)));
+    this._ox = pos.x; this._oy = pos.y; this._oz = pos.z;
+    this._age = 0;
     this._inheritX = iv.x;
     this._inheritZ = iv.z;
     this.damage = Math.round((def.damage||34) * (owner && owner.powerMult ? owner.powerMult() : 1));
@@ -168,8 +191,69 @@ class Shell {
     // Network-controlled: don't move, position set by host snapshots
     if(this._networked){ return; }
 
-    // Use Rapier body position if available, otherwise manual movement
-    if(this._physBody){
+    /* THE MANUAL FLIGHT MODEL: gravity-integrated ballistic step.
+
+       Shells fly flat here no longer. The launcher's y-velocity decays by
+       SHELL_GRAVITY every second, and the horizontal legs step x/z as before,
+       so the shot's path is a shallow arc the GAME can predict — the aim
+       ribbon samples this same closed-form at the same muzzle, so what is
+       drawn is what flies. When a Rapier body exists we drive IT (sync the
+       body to the solved position) so collisions still fire, rather than
+       letting the flat-linvel body walk the shot straight. */
+    if(this._manualFlight){
+      /* Closed-form at time since LAUNCH. _age is the accumulator; keeps the
+         arc consistent even when a frame hitches, and is the same expression
+         the aim line uses, so drawn and flown agree exactly. */
+      this._age = (this._age || 0) + dt;
+      const T = this._age;
+      const horiz = this.speed * T * Math.cos(this._launchPitch || 0);
+      const pitch = this._launchPitch || 0;
+      const g = this._gravity;
+
+      const nx = this._ox + Math.sin(this._launchYaw) * horiz;
+      const nz = this._oz + Math.cos(this._launchYaw) * horiz;
+      const ny = this._oy + this.speed * Math.sin(pitch) * T - 0.5 * g * T * T;
+
+      /* WALL HIT — in 3D this time.
+
+         The old check used only the x/z leg, so 'does a wall block it'
+         answered the WRONG QUESTION: a shell aimed over a wall was declared
+         blocked, and the aim line said the same. Walls have height; the shell
+         flies over the SHORT ones and the ARC RESUMES on the far side. The
+         wall's top edge (h, from its mesh, affects border and custom walls
+         alike) decides which; the shell only dies when it is below that edge
+         AT the wall's footprint.
+
+         ALSO THE HIT INDICATOR. When the shot IS blocked the explosion is
+         anchored right here — at the real impact point on the wall face (not
+         1.0 units above the ground somewhere near it) — and a red flash at
+         the corner of the aim point tells the player 'this shot stops HERE'. */
+      this.x = nx; this.y = ny; this.z = nz;
+      if(world.collidesWallsOnly(nx, nz, this.radius)){
+        const wallH = this._wallHeightAt(world, nx, nz);
+        if(ny <= wallH){
+          this.dead = true;
+          /* Slight pullback so the explosion reads ON the wall face, not
+             inside the wall volume. */
+          if(this._physBody){
+            try { this._physBody.setTranslation({x:nx, y:ny, z:nz}, true); } catch(e){}
+          }
+          game.spawnExplosion(this.x, Math.max(0.3, this.y), this.z, 0xffaa33, 6, 'wall');
+          game.spawnBurst && game.spawnBurst(this.x, Math.max(0.5, this.y), this.z,
+            {count: 3, tex: 'dust', speed: 3.5, size: 0.9, life: 0.4, rise: 1.2, gravity: 5, blend: 'normal', fade: 0.7});
+          return;
+        }
+        /* Above the wall: the shell crests it and carries on. No reaction. */
+      }
+      if(ny < -10){ this.dead = true; return; }
+
+      /* Keep the physics body FOLLOWING the solved ballistics so Rapier
+         collision events fire at the right place against real colliders.
+         set_translation, not setLinvel — we own the trajectory. */
+      if(this._physBody){
+        try { this._physBody.setTranslation({x:nx, y:ny, z:nz}, false); } catch(e){}
+      }
+    } else {
       var t = this._physBody.translation();
       this.x = t.x; this.y = t.y; this.z = t.z;
       // Kill if below world
@@ -181,19 +265,6 @@ class Shell {
         game.spawnBurst && game.spawnBurst(this.x, 1.0, this.z, {count: 3, tex: 'dust', speed: 3.5, size: 0.9, life: 0.4, rise: 1.2, gravity: 5, blend: 'normal', fade: 0.7});
         return;
       }
-    } else {
-      const vx = this.dir.x * this.speed + this._inheritX;
-      const vz = this.dir.z * this.speed + this._inheritZ;
-      this._inheritX = 0; this._inheritZ = 0; // one-time boost
-      const nx = this.x + vx * dt;
-      const nz = this.z + vz * dt;
-      if(world.collidesWallsOnly(nx, nz, this.radius)){
-        this.dead = true;
-        game.spawnExplosion(this.x, 1.0, this.z, 0xffaa33, 6, 'wall');
-        game.spawnBurst && game.spawnBurst(this.x, 1.0, this.z, {count: 3, tex: 'dust', speed: 3.5, size: 0.9, life: 0.4, rise: 1.2, gravity: 5, blend: 'normal', fade: 0.7});
-        return;
-      }
-      this.x = nx; this.z = nz;
     }
 
     // world border

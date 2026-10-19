@@ -52,6 +52,26 @@ const CONFIG = {
   FLAME_RANGE:     18,
   FLAME_DPS:       0,
 
+  /* How far a direct-fire shell flies at MOST, regardless of the tank's own
+     shellRange. The aim line and _buildSpreadCentreRibbon read this as their
+     draw ceiling — it was referenced in two places and NEVER DEFINED, so the
+     aim ribbon silently fell back to 500 m and drew far past the point the
+     shell actually dies at (shellRange / shellSpeed seconds of flight).
+     Defined now so 'the path does not align to the crosshair' has one honest
+     number behind it: a shell from a 40 m tank dies at 40 m and the drawn line
+     dies there too. Direct fire has NO real gravity in this game, so range is
+     a hard wall, not an arc — the line and the flight agree exactly. */
+  SHELL_MAX_RANGE: 500,
+
+  /* Downward pull on direct-fire shells, in units/s². Direct fire used to be
+     strictly straight-line: y was carried from the muzzle and never updated,
+     so 'aiming up' sent the shell flatter and farther than any real arc and a
+     shell whose muzzle rode up a hill never came down. A light pull gives
+     aimed-up shots a real (shallow) arc — enough to crest low cover without
+     turning every duel into artillery. Mortar keeps its own, much stronger,
+     gravity in _mortarAim. */
+  SHELL_GRAVITY: 9.8,
+
   // Trajectory line (aim assist)
   AIM_LINE_OPACITY: 0.5,
   AIM_LINE_COLOR:   '#ffffff',

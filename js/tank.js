@@ -4283,6 +4283,10 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       return;
     }
 
+    /* A SIMULATED tank is placed through its physics body. _syncTransform()
+       reads x/z/heading back OUT of the body, so writing this.x/this.z and
+       syncing alone would be overridden on the very next line — the body is
+       the source of truth for anything that is simulated. */
     if(this._physBody){
       try {
         const cur = this._physBody.translation();
@@ -4292,6 +4296,36 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       } catch(e){}
     }
     this._syncTransform();
+  }
+
+  /* Aim-pitch writer for the LOCAL PLAYER. Fires on every game.js tick where
+     it owns _aimPitch. Turret and hull steer with YawGroup and Body, so a
+     dedicated PitchGroup for the barrel elevation cannot be unwound by them.
+     _applyAimPitch is safe to call at any frequency; it no-ops when the pitch
+     is already applied. */
+  _applyAimPitch(pitch){
+    const g = (this._pitchGroup && this._pitchGroup.parent === this.turretGroup)
+      ? this._pitchGroup : this._makePitchGroup();
+    if(!g) return;
+    g.rotation.x = -(pitch || 0);
+  }
+
+  /* Construct-once PitchGroup that wraps the barrel (never turret yaw, never
+     hull). Called from _applyAimPitch on demand; no cost once built. */
+  _makePitchGroup(){
+    if(this._pitchGroup) return this._pitchGroup;
+    if(!this.barrelEnd || !this.turretGroup) return null;
+    const g = new THREE.Group();
+    const be = this.barrelEnd;
+    this.turretGroup.add(g);
+    this.turretGroup.remove(be);
+    g.add(be);
+    this._pitchGroup = g;
+    /* Keep barrelEnd's world transform identical through the re-parent, so
+       muzzle(), the aim line and the spawned shell all keep reading the
+       same spot they read before the group existed. */
+    this.root.updateMatrixWorld(true);
+    return g;
   }
 
   _syncTransform(){
@@ -4378,6 +4412,11 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     } else {
       this.turretGroup.rotation.set(0, this.turretAngle + myaw, 0, 'YXZ');
     }
+    /* AIM PITCH: the barrel's own elevation group rides on TOP of whatever
+       the yaw wrote here, so writing turretGroup.rotation every frame cannot
+       unwind it. _applyAimPitch sets _pitchGroup.rotation.x directly and does
+       not go through _syncTransform, so the two never fight. */
+    if(this._pitchGroup) this._pitchGroup.rotation.x = -(this._aimPitch || 0);
   }
 
   /* TREAD MARKS — one batched mesh per tank.

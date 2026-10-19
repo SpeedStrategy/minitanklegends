@@ -8016,6 +8016,71 @@ Net.sendJoinInfo(
     return v.normalize();
   }
 
+  /* Height a wall footprint around (x,z) actually tops out at.
+
+     world.collidesWallsOnly is footprint-only, but the ballistic ray now
+     needs the vertical edge: a shell ABOVE the top edge crests the wall
+     and keeps flying, one BELOW it dies on the wall face. Every wall entry
+     in world.walls carries its mesh, and for a Box the world height comes
+     from the mesh's own bounding box + position.y — true for border walls,
+     custom map walls and crates alike. Walls with no usable mesh are
+     treated as knee-high so a malformed custom wall never eats a shot. */
+  _wallHeadroom(world, x, z){
+    let best = 0;
+    for(const w of world.walls){
+      const hx = w.w / 2 + 0.3, hz = w.d / 2 + 0.3;
+      if(Math.abs(x - w.x) >= hx || Math.abs(z - w.z) >= hz) continue;
+      let h = 1.5;
+      try {
+        const m = w.mesh;
+        if(m && m.isMesh && m.geometry){
+          if(!m.geometry.boundingBox) m.geometry.computeBoundingBox();
+          const bb = m.geometry.boundingBox;
+          const sy = m.scale ? m.scale.y : 1;
+          h = ((bb.max.y - bb.min.y) * sy) + (m.position ? m.position.y : 0);
+        }
+      } catch(e){}
+      if(h > best) best = h;
+    }
+    return best;
+  }
+
+  /* THE WALL-HIT X. One persistent sprite, drawn only when the aim ribbon
+     ends on a wall face; repositioned in place so a sweeping aim doesn't
+     spawn a trail of them. A red X AT the impact point is the "this shot
+     stops HERE" cue the plain aim line never gave. */
+  _updateWallHitMark(show, x, y, z){
+    if(!this._wallHitMark){
+      const cv = document.createElement('canvas');
+      cv.width = cv.height = 64;
+      const g = cv.getContext('2d');
+      g.strokeStyle = '#ff3b30';
+      g.lineWidth = 9;
+      g.lineCap = 'round';
+      g.shadowColor = 'rgba(255,59,48,0.9)';
+      g.shadowBlur = 8;
+      g.beginPath(); g.moveTo(12, 12); g.lineTo(52, 52);
+      g.moveTo(52, 12); g.lineTo(12, 52); g.stroke();
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({
+        map: new THREE.CanvasTexture(cv), depthTest: false, transparent: true,
+        opacity: 0.95, depthWrite: false,
+      }));
+      sp.scale.set(2.2, 2.2, 1);
+      sp.renderOrder = 1000;
+      sp.frustumCulled = false;
+      sp.visible = false;
+      this.scene.add(sp);
+      this._wallHitMark = sp;
+    }
+    const m = this._wallHitMark;
+    if(show){
+      m.position.set(x, y, z);
+      m.visible = true;
+    } else {
+      m.visible = false;
+    }
+  }
+
   // Horizontal distance from tank (with close-zoom offset)
   _getCamHOffset(camDist) {
     const tNorm = (camDist - CONFIG.CAM_DIST_MIN) / (CONFIG.CAM_DIST_MAX - CONFIG.CAM_DIST_MIN);
@@ -8723,6 +8788,22 @@ Net.sendJoinInfo(
         handbrake = this.input.pressed('handbrake');
       }
       
+      /* MODE 1: THE GUN PHYSICALLY ELEVATES.
+
+         _aimPitch used to spin the aim-line math only. The tank never saw it,
+         so the barrel stayed level while the crosshair rode up the screen —
+         the "gun does not rotate down/up" report. The tank now receives the
+         same pitch game.js is about to fire along: rotation.x on a dedicated
+         pitch group under the turret, which turret yaw and hull lean cannot
+         unwind. Mortar solves its own arc and stays flat; everything else
+         visibly digs in or lifts, matching the drawn line. */
+      if(this.localTank && typeof this.localTank._applyAimPitch === 'function'){
+        const visPitch = (this.cameraMode === 'dynamic' &&
+                          this.localTank.def.shellType !== 'mortar' &&
+                          this.localTank.def.shellType !== 'flame') ? (this._aimPitch || 0) : 0;
+        this.localTank._applyAimPitch(visPitch);
+      }
+
       const input = {throttle, turn, turretWorldAngle:turretAngle, fire, handbrake};
       this.localTank.setInput(input);
       // Forward input to host (P2P or Free Roam)
@@ -10742,31 +10823,73 @@ _initMortarMarker(){
     }
     this._aimLastRebuild = { dx: dir.x, dz: dir.z, px: pos.x, py: pos.y, pz: pos.z,
                              cam: this.camera.position.clone() };
-    this._aimStale = true;
+    this._aimStale = true;    const startX = pos.x, startZ = pos.z;
+    /* THE LINE DRAWS THE SAME BALLISTICS THE SHELL FLIES.
 
-    const startX = pos.x, startZ = pos.z;
-    /* THE LINE DRAWS AS FAR AS THE SHELL FLIES. Direct-fire shells now carry
-       a ~500 m ceiling whatever their def says (see the Shell constructor),
-       so the line must reach the same horizon — otherwise the drawn shot
-       stops at the old tunet range while a cross-map shot really flies on. */
-    const CAP = (typeof CONFIG !== 'undefined' && CONFIG.SHELL_MAX_RANGE) || 500;
+       Every sample below solves the closed-form the Shell class flies: at
+       each flight time T along the aim, x = ox + sin(yaw)*speed*cos(pitch)*T,
+       y = oy + speed*sin(pitch)*T - gravity*T²/2, z = oz + cos(yaw)*... — the
+       exact expression in Shell.update's _manualFlight branch. The ribbon is
+       built from the same muzzle, the same yaw, the same pitch, the same
+       speed, the same gravity and the same shellRange, so what is drawn IS
+       what flies, to the last vertex, without needing any solver to agree
+       with a second solver invented for the purposes of drawing.
+
+       The stock 2-D ray used to sample x/z until world.collidesWallsOnly fired
+       and call it 'blocked at the first wall in path'. It was 2-D (wall height
+       never entered the picture) and so was a lie aimed at the crosshair on
+       two axes at once: a wall in front of you showed as a clear aim line over
+       it (because the line ran at y=0), and no visual cue on aim-vs-hit.
+
+       Now the FIRST 3-D wall contact (see Shell._wallHeightAt) stops the
+       ribbon, the impact point is marked with a bright X at the right height
+       on the wall face, and a red X is rendered too if the shot is going
+       short but would still land before a wall. */
     const isCone = t.def.shellType === 'flame';
-    const range = isCone ? t.def.shellRange
-                         : Math.max(t.def.shellRange || 0, CAP);
-    const step = 1.5;
-    let endX = startX, endZ = startZ;
-    let endDist = range;
-    for(let d=0; d<=range; d+=step){
-      const tx = startX + dir.x*d, tz = startZ + dir.z*d;
-      if(this.world.collidesWallsOnly(tx, tz, 0.3)){ endX=tx; endZ=tz; endDist=d; break; }
-      endX=tx; endZ=tz;
+    const flightT = t.def.shellRange / t.def.shellSpeed;
+    const yaw = Math.atan2(dir.x, dir.z);
+    const pitch = Math.asin(Math.max(-1, Math.min(1, dir.y)));
+    const grav = (typeof CONFIG !== 'undefined' && CONFIG.SHELL_GRAVITY) || 9.8;
+    const H_SPEED = t.def.shellSpeed * Math.cos(pitch);
+    const V_SPEED = t.def.shellSpeed * Math.sin(pitch);
+    const N = 96;
+    const T_STEP = flightT / N;
+    let endT = flightT;
+    let blocked = false;
+    for(let i=0;i<=N;i++){
+      const T = i * T_STEP;
+      const sx = pos.x + Math.sin(yaw) * H_SPEED * T;
+      const sz = pos.z + Math.cos(yaw) * H_SPEED * T;
+      const sy = pos.y + V_SPEED * T - 0.5 * grav * T * T;
+      if(this.world.collidesWallsOnly(sx, sz, 0.3)){
+        const wh = this._wallHeadroom(this.world, sx, sz);
+        if(sy <= wh){
+          endT = T;           /* the shell dies HERE — include the point and stop */
+          blocked = true;
+          break;
+        }
+        /* Above the wall crest: carries on, keep sampling. */
+      }
     }
+    const endDist = H_SPEED * endT;
+    const endY = pos.y + V_SPEED * endT - 0.5 * grav * endT * endT;
     const pts = [];                 // polyline the ribbon is drawn along
-    let ricoX = endX, ricoZ = endZ, ricoEndX = endX, ricoEndZ = endZ;
+    let ricoX = pos.x + Math.sin(yaw) * endDist, ricoZ = pos.z + Math.cos(yaw) * endDist, ricoEndX = ricoX, ricoEndZ = ricoZ;
     let ricoEntryDist = endDist, ricoRemaining = 0;
-    let rDirX = 0, rDirZ = 0, ricoTarget = null;
+    let rDirX = 0, rDirZ = 0, ricoTarget = null;    
     const y0 = pos.y;
-    const yEnd = y0 + dir.y * endDist;
+    const yEnd = endY;
+    /* WALL-HIT INDICATOR, the piece the request asked for by name.
+
+       `blocked` is true only when the ballistic sample dips below a wall's
+       real top edge (the same test Shell.update uses, in the same units, on
+       the same wall list). When it is, an X sprite is placed at the exact
+       impact point — not 1 unit above the ground near it, the 3-D point —
+       and the X is RED, so "your shot stops here" is readable without
+       reading anything. Anything not blocked is drawn to the end of flight
+       with no X at all, so an open shot and a blocked shot look different
+       at a glance. */
+    this._updateWallHitMark(blocked, ricoX, endY, ricoZ);
     if(isCone){
       const tanHalf = t.def.fireConeHalfAngle || 0.12;
       const halfW = endDist * tanHalf;
@@ -10820,7 +10943,7 @@ _initMortarMarker(){
             if(rL > 0.01){
               rrx /= rL; rrz /= rL;
               let rEx = ex, rEz = ez, lastS = 0;
-              const ricoMax = (range - entryT) / 1.5;
+              const ricoMax = (endDist - entryT) / 1.5;
               for(let s=0; s<=ricoMax; s+=1.5){
                 const tx = ex + rrx * s, tz = ez + rrz * s;
                 if(this.world.collidesWallsOnly(tx, tz, 0.3)){ rEx=tx; rEz=tz; break; }
@@ -10911,6 +11034,10 @@ _initMortarMarker(){
        (the pre-guard call above reuses this). */
     const _lastPt = pts[pts.length - 1];
     if(_lastPt) this._aimEnd = { x: _lastPt.x, z: _lastPt.z };
+    /* range is FLIGHT LENGTH now (metres the shell actually covers along its
+       horizontal leg), not the old 500 m CAP — the fade-out and marker
+       spacing measure the real shot. */
+    const range = ricoEntryDist + ricoRemaining || endDist;
     this._buildAimRibbon(pts, range);
     if(this._strategicGlow != null) this._updateAimChevrons(this._aimEnd, this._strategicGlow);
 
@@ -10936,7 +11063,7 @@ _initMortarMarker(){
           perpX = -rDirZ; perpZ = rDirX;
         }
         const halfW = 0.4;
-        const yAtD = y0 + (d / range) * (yEnd - y0);
+        const yAtD = y0 + (d / (range || 1)) * (yEnd - y0);
         if(isPro && idx+5 < markArr.length){
           markArr[idx] = mx + perpX * halfW;
           markArr[idx+1] = yAtD;
