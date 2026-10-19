@@ -2358,88 +2358,88 @@
 
     // Game scripts, in exactly the order this page used to list them.
     const GAME_SCRIPTS = [
-      'js/toon.js?v=20260929b',
-      'js/xray.js?v=20261008p',
-      'js/config.js?v=20261011d',
-      'js/vfx.js?v=1787330007',
-      'js/fireball.js?v=20260929m',
-      'js/mortar-blast.js?v=20261006a',
-      'js/muzzle-pop.js?v=20260930h',
-      'js/shaders.js?v=1787330007',
-      'js/video-vfx.js?v=20260926b',
-      'js/decal.js?v=20260927e',
+      'js/toon.js',
+      'js/xray.js',
+      'js/config.js',
+      'js/vfx.js',
+      'js/fireball.js',
+      'js/mortar-blast.js',
+      'js/muzzle-pop.js',
+      'js/shaders.js',
+      'js/video-vfx.js',
+      'js/decal.js',
       
-      'js/obj_data.js?v=1787330007',
-      'js/models.js?v=20261010a',
-      'js/water-shader.js?v=20260929a',
-      'js/water-tsl.js?v=20260926a',
-      'js/world.js?v=20261011c',
+      'js/obj_data.js',
+      'js/models.js',
+      'js/water-shader.js',
+      'js/water-tsl.js',
+      'js/world.js',
       /* BEFORE tank.js: Tank._drawHp calls HPBarStyles.draw for the nameplate,
          and falls back to a plain solid bar if the module is not there yet. The
          style preview page loads this same file to render the five options. */
-      'js/hpbar-styles.js?v=20261006a',
-      'js/tank.js?v=20261018c',
-      'js/tank-sprays.js?v=20261012b',
+      'js/hpbar-styles.js',
+      'js/tank.js',
+      'js/tank-sprays.js',
       /* Styles (cosmetics): tank.js calls TankStyles.apply once the model is
          on, so the module has to exist by the tank build — place it with the
          other cosmetic modules, before the menus that show it. */
-      'js/tank-styles.js?v=20261011a',
-      'js/projectile.js?v=20261018c',
-      'js/bullet-trail.js?v=20260929a',
-      'js/input.js?v=1787330007',
-      'js/bot-nav.js?v=20261008a',
-      'js/bot.js?v=20261008b',
+      'js/tank-styles.js',
+      'js/projectile.js',
+      'js/bullet-trail.js',
+      'js/input.js',
+      'js/bot-nav.js',
+      'js/bot.js',
       /* net.js BEFORE matchmaking.js. matchmaking.js binds itself to Net's
          callbacks, and it used to be listed first, so at load time Net did not
          exist and the binding silently never happened. matchmaking.js also
          wires lazily on first use, so this ordering is belt and braces rather
          than the only thing holding it up. */
-      'js/session-guard.js?v=20261003b',
-    'js/roster-factory.js?v=20261003a',
-    'js/net.js?v=20261006a',
-      'js/net-cursors.js?v=20261003a',
-      'js/matchmaking.js?v=20261004a',
-      'js/nakama-net.js?v=1787330007',
-      'js/audio.js?v=20261010c',
-      'js/shopdata.js?v=20260929a',
-      'js/clan-default-layout.js?v=1787330007',
-      'js/menu.js?v=20261011f',
-      'js/garage.js?v=20261003a',
-      'js/missions.js?v=20261010b',
+      'js/session-guard.js',
+    'js/roster-factory.js',
+    'js/net.js',
+      'js/net-cursors.js',
+      'js/matchmaking.js',
+      'js/nakama-net.js',
+      'js/audio.js',
+      'js/shopdata.js',
+      'js/clan-default-layout.js',
+      'js/menu.js',
+      'js/garage.js',
+      'js/missions.js',
       /* PROGRESSION 2.0 — per-tank XP/levels/tree/currencies. Must precede
          tank-menu.js because the reworked tank window reads window.Progression
          at render time. */
-      'js/upgrade-tree.js?v=20261018c',
-      'js/tank-menu.js?v=20261018d',
-      'js/menu-editor.js?v=1787330007',
-      'js/editor123.js?v=20260926a',
-      'js/tank-editor.js?v=20261010y',
-      'js/map-importer.js?v=20260908a',
-      'js/graphics-settings.js?v=20260915a',
-      'js/capture-circle.js?v=20260929a',
+      'js/upgrade-tree.js',
+      'js/tank-menu.js',
+      'js/menu-editor.js',
+      'js/editor123.js',
+      'js/tank-editor.js',
+      'js/map-importer.js',
+      'js/graphics-settings.js',
+      'js/capture-circle.js',
       /* Base Defend. Must load BEFORE game.js: the mode starter calls
          BaseDefend.init(), and every file here is a plain script tag with no
          module resolution, so load order is the only dependency ordering there
          is. Placed next to capture-circle.js because it is that mode's sibling
          and is disposed in the same place. */
-      'js/base-defend.js?v=20261007a',
-      'js/map-voting.js?v=20261011b',
-      'js/default-map.js?v=1787330007',
-      'js/gladiator-map.js?v=1787330007',
-      'js/boot-watchdog.js?v=20261008a',
-      'js/game.js?v=20261018c',
-      'js/results.js?v=20261018c',
-      'js/auth.js?v=1787330007',
+      'js/base-defend.js',
+      'js/map-voting.js',
+      'js/default-map.js',
+      'js/gladiator-map.js',
+      'js/boot-watchdog.js',
+      'js/game.js',
+      'js/results.js',
+      'js/auth.js',
       /* Real-money store. After auth.js because the return trip calls into Auth,
          and before menu.js because the store render asks it for the table. */
-      'js/payments.js?v=20261012a',
-      'js/platoon.js?v=1787330007',
-      'js/sandbox-room.js?v=20261007a',
+      'js/payments.js',
+      'js/platoon.js',
+      'js/sandbox-room.js',
       /* The Tab+P command panel. Loaded LAST on purpose: it registers a capture
          keydown listener and calls into Game (for the skip, the perf overlay and
          the scoreboard), so it needs Game to already exist. Nothing depends on
          it, so a failure here costs the panel and nothing else. */
-      'js/dev-commands.js?v=20261011c'
+      'js/dev-commands.js'
     ];
 
     const loadScript = (src) => new Promise((resolve, reject) => {
