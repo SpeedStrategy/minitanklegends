@@ -1,0 +1,919 @@
+/* ============================================================================
+   LOGIN GATE
+   ============================================================================
+   Full screen. No framed card — the game fills the screen and so does this.
+
+   THE SEQUENCE
+   ------------
+     1. assets/TL_loadingscreen.jpg, with the game's own loading bar   (BootLoading)
+     2. THIS screen, the moment boot finishes
+     3. the menu, once the player has chosen
+
+   The gate does not replace the loading screen. It follows it. That ordering is
+   the difference between a game that feels built and one that feels assembled.
+
+   THE PALETTE
+   -----------
+   One accent, taken from the game's own buttons: #ffb12b -> #ff6b00. The three
+   choice icons are ALL white, because three different coloured icons is a
+   poster, not a menu. Colour is spent on exactly two things: the selection, and
+   the green OK button. Everything else is white on the photograph.
+
+   THE GAME'S BUTTON CONSTRUCTION
+   ------------------------------
+   Lilita One, a 3px black border, and a hard `0 Npx 0 #000` shadow that the
+   button physically presses into. Copied from .shop-buy-btn and .platoon-btn so
+   this screen cannot read as a different product from the one behind it.
+   ============================================================================ */
+
+.login-gate {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  z-index: 300000;
+  overflow: hidden;
+  /* The game locks the cursor while a match is live; it must not do that here. */
+  cursor: default;
+}
+
+/* --- the photograph ------------------------------------------------------ */
+
+/* The same image the loading screen uses, restated rather than inherited so the
+   gate is correct on its own and cannot depend on script order.
+
+   THE PATH IS ABSOLUTE ON PURPOSE.
+
+   A relative url() in a stylesheet resolves against the STYLESHEET, not the
+   document. This file lives in css/, so `url('assets/...')` asked the browser
+   for /css/assets/TL_loadingscreen.jpg — a 404 — and the gate rendered as flat
+   dark grey. The loading screen never had the problem because its background is
+   an inline style on an element, which resolves against the document.
+
+   That is the whole reason the gate looked like a plain grey screen while the
+   loading screen had the game's photograph on it. */
+.login-gate-bg {
+  position: absolute;
+  inset: -2%;
+  background: #1c2230 url('/assets/TL_loadingscreen.jpg') center center / cover no-repeat;
+  /* A very slow push. Barely perceptible frame to frame, but over ten seconds it
+     reads as a living screen rather than a photograph stuck on a wall. */
+  animation: lg-drift 26s ease-in-out infinite alternate;
+  will-change: transform;
+}
+
+@keyframes lg-drift {
+  from { transform: scale(1.00) translate3d(0, 0, 0); }
+  to   { transform: scale(1.07) translate3d(-1.2%, -0.8%, 0); }
+}
+
+/* Darker than the loading screen's. There is text on top of this, and the
+   photograph has to fall away enough for white 700-weight type to stay
+   readable on a phone in daylight. */
+.login-gate-vignette {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 120% 90% at 50% 42%, rgba(8,11,17,0.30) 0%, rgba(8,11,17,0.72) 68%, rgba(6,8,13,0.92) 100%),
+    linear-gradient(180deg, rgba(8,11,17,0.62) 0%, rgba(8,11,17,0.20) 34%, rgba(8,11,17,0.55) 78%, rgba(8,11,17,0.86) 100%);
+}
+
+/* A faint film grain over the whole thing. It hides the banding that a big
+   dark gradient shows on cheap phone screens, and costs one tiny SVG. */
+.login-gate-grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.035;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+.login-gate[hidden] { display: none; }
+
+/* ============================================================================
+   CUSTOM CURSOR
+   ============================================================================
+   Four white sticks in a plus, with the centre cut out.
+
+   Why a crosshair and not an arrow: this is a tank game's account screen, and a
+   sight is the shape the rest of the game is about. It reads as belonging here
+   rather than as a web form that happens to be on top of a game.
+
+   WHY FOUR BARS AND NOT ONE CROSSED PAIR
+   -------------------------------------
+   Two crossed bars would touch in the middle and read as a solid blob with the
+   pointer hidden underneath it. Stopping each bar short of the centre leaves a
+   gap, which is what keeps the exact point under the cursor visible — the one
+   job a crosshair has. It is also why the bars are four elements rather than
+   one div with ::before and ::after: there is no pseudo-element count that
+   gives four, and faking it with a rotated pair cannot produce the gap.
+
+   BOLD ON PURPOSE. A 1px hairline vanishes against the photograph; 4px does not.
+   ============================================================================ */
+
+.lg-cursor {
+  position: fixed;
+  top: 0; left: 0;
+  width: 38px; height: 38px;
+  margin: -19px 0 0 -19px;
+  pointer-events: none;
+  z-index: 300010;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  will-change: transform;
+}
+
+.lg-cursor.on { opacity: 1; }
+
+/* The bar itself. Four of them, one per side. */
+.lg-stick {
+  position: absolute;
+  background: #ffffff;
+  border-radius: 1px;
+  /* A dark outline so the white stays visible over the bright desert in the
+     loading photograph, and a soft dark halo so it survives the dark vignette
+     on the other side of the image. One shadow cannot do both; two can. */
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.65),
+    0 0 6px rgba(0, 0, 0, 0.55);
+  transition: transform 0.16s cubic-bezier(0.34, 1.5, 0.64, 1), background 0.16s ease;
+}
+
+/* 13px bars in a 38px box leaves a 12px hole in the middle. That gap IS the
+   design — it is what stops the cursor covering the thing it is pointing at. */
+.lg-stick-t { top: 0; left: 50%; width: 4px; height: 13px; margin-left: -2px; }
+.lg-stick-b { bottom: 0; left: 50%; width: 4px; height: 13px; margin-left: -2px; }
+.lg-stick-l { left: 0; top: 50%; height: 4px; width: 13px; margin-top: -2px; }
+.lg-stick-r { right: 0; top: 50%; height: 4px; width: 13px; margin-top: -2px; }
+
+/* Over anything clickable: the bars push outward and turn gold, so the
+   affordance is on the pointer rather than only on the target. */
+.lg-cursor.hot .lg-stick { background: #ffb12b; box-shadow: 0 0 0 1px rgba(0,0,0,.7), 0 0 10px rgba(255, 177, 43, .75); }
+.lg-cursor.hot .lg-stick-t { transform: translateY(-4px); }
+.lg-cursor.hot .lg-stick-b { transform: translateY(4px); }
+.lg-cursor.hot .lg-stick-l { transform: translateX(-4px); }
+.lg-cursor.hot .lg-stick-r { transform: translateX(4px); }
+
+/* Pressed: the crosshair tightens. */
+.lg-cursor.down .lg-stick-t { transform: translateY(3px); }
+.lg-cursor.down .lg-stick-b { transform: translateY(-3px); }
+.lg-cursor.down .lg-stick-l { transform: translateX(3px); }
+.lg-cursor.down .lg-stick-r { transform: translateX(-3px); }
+
+/* ============================================================================
+   LAYOUT — full screen, no frame
+   ============================================================================ */
+
+.login-gate-inner {
+  position: relative;
+  z-index: 2;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(14px, 2.4vh, 26px);
+  padding: clamp(20px, 4vh, 44px) clamp(16px, 4vw, 40px);
+  box-sizing: border-box;
+  /* Room for the footnote pinned to the bottom. */
+  padding-bottom: clamp(48px, 8vh, 76px);
+}
+
+/* --- header -------------------------------------------------------------- */
+
+.lg-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: clamp(6px, 1.4vh, 14px);
+  text-align: center;
+  animation: lg-rise 0.6s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* THE logo. assets/icons/favicon.png — the same 512x512 mark the browser tab
+   and a phone's home screen already show, so nothing new has to be learned
+   before clicking anything.
+
+   It is a square with real alpha, so it can sit directly on the photograph with
+   no plate behind it. The earlier logo was RGB with a baked-in black
+   background and needed a mask to hide it; this one does not. */
+.lg-logo {
+  /* A touch larger than the wide logo was, because a square mark reads smaller
+     than a rectangle of the same width — most of it is empty corner. */
+  width: clamp(108px, 17vh, 172px);
+  height: auto;
+  aspect-ratio: 1 / 1;
+  object-fit: contain;
+  filter:
+    drop-shadow(0 5px 0 rgba(0, 0, 0, 0.55))
+    drop-shadow(0 14px 30px rgba(0, 0, 0, 0.55));
+  animation: lg-logo-in 0.85s cubic-bezier(0.34, 1.4, 0.5, 1) both;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* It settles with a small overshoot and then breathes. */
+@keyframes lg-logo-in {
+  0%   { transform: translateY(-26px) scale(0.82) rotate(-4deg); opacity: 0; }
+  60%  { transform: translateY(4px) scale(1.04) rotate(1.5deg); opacity: 1; }
+  100% { transform: none; opacity: 1; }
+}
+
+@keyframes lg-breathe {
+  0%, 100% { transform: translateY(0) scale(1); }
+  50%      { transform: translateY(-5px) scale(1.022); }
+}
+
+.lg-logo { animation: lg-logo-in 0.85s cubic-bezier(0.34, 1.4, 0.5, 1) both, lg-breathe 4.5s ease-in-out 0.9s infinite; }
+
+.lg-wordmark { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+
+.lg-wordmark-main {
+  font-family: 'Lilita One', 'Fredoka', Arial, sans-serif;
+  font-size: clamp(30px, 5.6vh, 54px);
+  line-height: 0.98;
+  letter-spacing: 5px;
+  color: #fff;
+  text-shadow: 0 4px 0 #000, 0 10px 30px rgba(0, 0, 0, 0.8);
+}
+
+.lg-wordmark-sub {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: clamp(11px, 1.5vh, 14px);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.62);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
+}
+
+@keyframes lg-rise {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* ============================================================================
+   THE CHOICE
+   ============================================================================ */
+
+.choose-panel { display: none; width: 100%; max-width: 880px; }
+.choose-panel.active { display: block; animation: lg-rise 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+.choose-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: clamp(10px, 1.6vw, 18px);
+  margin-bottom: clamp(14px, 2.2vh, 22px);
+}
+
+/* --- one option ---------------------------------------------------------- */
+
+.choose-card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: clamp(10px, 1.4vw, 16px);
+  padding: clamp(14px, 2.2vh, 20px) clamp(14px, 1.8vw, 20px);
+  border: 3px solid #000;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(38, 44, 58, 0.86) 0%, rgba(22, 27, 36, 0.90) 100%);
+  box-shadow: 0 7px 0 #000, 0 16px 34px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  text-align: left;
+  /* The press. Identical construction to the game's own buttons. */
+  transition: transform 0.14s cubic-bezier(0.34, 1.3, 0.64, 1),
+              box-shadow 0.14s ease,
+              background 0.2s ease,
+              border-color 0.2s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.choose-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 11px 0 #000, 0 22px 44px rgba(0, 0, 0, 0.55);
+  background: linear-gradient(180deg, rgba(48, 56, 72, 0.90) 0%, rgba(28, 34, 46, 0.94) 100%);
+}
+
+.choose-card:active {
+  transform: translateY(5px);
+  box-shadow: 0 2px 0 #000, 0 6px 14px rgba(0, 0, 0, 0.45);
+}
+
+/* SELECTED. The card lifts, the border goes gold, and it tilts very slightly —
+   the tilt is what separates "chosen" from "hovered" at a glance. */
+.choose-card.selected {
+  transform: translateY(-5px) rotate(-0.7deg);
+  border-color: #ffb12b;
+  background: linear-gradient(180deg, rgba(255, 177, 43, 0.20) 0%, rgba(255, 124, 0, 0.10) 100%);
+  box-shadow: 0 11px 0 #000, 0 0 34px rgba(255, 177, 43, 0.42), 0 20px 44px rgba(0, 0, 0, 0.5);
+}
+
+.choose-card.selected:active { transform: translateY(0) rotate(-0.7deg); box-shadow: 0 5px 0 #000, 0 0 28px rgba(255, 177, 43, 0.35); }
+
+/* A gold sweep across the selected card. */
+.choose-card.selected::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 13px;
+  pointer-events: none;
+  background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.16) 48%, transparent 62%);
+  background-size: 260% 100%;
+  animation: lg-sweep 2.6s ease-in-out infinite;
+}
+
+@keyframes lg-sweep {
+  0%   { background-position: 160% 0; }
+  55%  { background-position: -60% 0; }
+  100% { background-position: -60% 0; }
+}
+
+/* --- icon: WHITE, all three, identical ----------------------------------- */
+
+/* One treatment for all three. Earlier they were green/white/orange, which
+   read as three different products stacked in a row. All white, and the gold
+   comes from the selection ring on the card. */
+.choose-icon {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: clamp(40px, 5.4vh, 54px);
+  height: clamp(40px, 5.4vh, 54px);
+  border-radius: 13px;
+  background: rgba(0, 0, 0, 0.38);
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+.choose-icon svg { width: 62%; height: 62%; display: block; }
+
+.choose-card:hover .choose-icon { transform: scale(1.07) rotate(-4deg); }
+
+.choose-card.selected .choose-icon {
+  background: rgba(255, 177, 43, 0.22);
+  border-color: #ffb12b;
+  color: #ffffff;
+  transform: scale(1.08);
+  animation: lg-icon-pop 0.5s cubic-bezier(0.34, 1.6, 0.5, 1);
+}
+
+@keyframes lg-icon-pop {
+  0%   { transform: scale(0.7) rotate(14deg); }
+  55%  { transform: scale(1.2) rotate(-5deg); }
+  100% { transform: scale(1.08) rotate(0); }
+}
+
+/* --- text ---------------------------------------------------------------- */
+
+.choose-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+
+.choose-name {
+  font-family: 'Lilita One', 'Fredoka', Arial, sans-serif;
+  font-size: clamp(15px, 2.3vh, 21px);
+  letter-spacing: 1.2px;
+  color: #fff;
+  line-height: 1.05;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.6);
+}
+
+.choose-tag {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 700;
+  font-size: clamp(10px, 1.4vh, 12px);
+  color: rgba(255, 255, 255, 0.55);
+  line-height: 1.2;
+}
+
+/* --- the tick ------------------------------------------------------------ */
+
+/* Appears only on the selected card. Positioned so it never shifts the layout
+   when it appears — an absolutely-positioned tick, not a flex child. */
+.choose-check {
+  position: absolute;
+  top: 8px; right: 8px;
+  width: 22px; height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #ffb12b;
+  color: #17120a;
+  opacity: 0;
+  transform: scale(0.3) rotate(-25deg);
+  transition: opacity 0.2s ease, transform 0.34s cubic-bezier(0.34, 1.6, 0.5, 1);
+  pointer-events: none;
+}
+
+.choose-check svg { width: 14px; height: 14px; }
+
+.choose-card.selected .choose-check {
+  opacity: 1;
+  transform: scale(1) rotate(0);
+}
+
+/* --- the explanation ----------------------------------------------------- */
+
+.choose-note {
+  position: relative;
+  padding: clamp(13px, 2vh, 18px) clamp(16px, 2.2vw, 22px);
+  border-radius: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.42);
+  min-height: clamp(74px, 11vh, 96px);
+  display: flex;
+  align-items: center;
+  transition: border-color 0.25s ease, background 0.25s ease;
+}
+
+/* The note picks up the selection's gold. The two read as one decision rather
+   than a card and then a separate paragraph. */
+.choose-note.is-picked {
+  border-color: rgba(255, 177, 43, 0.5);
+  background: rgba(20, 14, 4, 0.55);
+}
+
+.choose-note-body {
+  font-family: 'Nunito', sans-serif;
+  font-weight: 700;
+  font-size: clamp(12.5px, 1.75vh, 15px);
+  line-height: 1.6;
+  color: rgba(238, 244, 252, 0.9);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+}
+
+.choose-note-body strong { color: #ffb12b; font-weight: 900; }
+
+.choose-note-change {
+  display: block;
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.18);
+  font-size: 0.92em;
+  color: rgba(190, 210, 235, 0.72);
+  font-style: italic;
+}
+
+/* --- OK ------------------------------------------------------------------ */
+
+.choose-ok {
+  width: 100%;
+  margin-top: clamp(13px, 2vh, 20px);
+  padding: clamp(15px, 2.4vh, 20px) 0;
+  border: 3px solid #000;
+  border-radius: 15px;
+  background: linear-gradient(180deg, #5fd68f 0%, #2f9c5e 100%);
+  color: #fff;
+  font-family: 'Lilita One', 'Fredoka', Arial, sans-serif;
+  font-size: clamp(20px, 3vh, 27px);
+  letter-spacing: 4px;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.32);
+  cursor: pointer;
+  box-shadow: 0 7px 0 #000, 0 16px 34px rgba(47, 156, 94, 0.42);
+  transition: transform 0.14s cubic-bezier(0.34, 1.3, 0.64, 1), box-shadow 0.14s ease, filter 0.18s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.choose-ok:hover:not(:disabled) {
+  transform: translateY(-4px);
+  filter: brightness(1.08);
+  box-shadow: 0 11px 0 #000, 0 22px 44px rgba(47, 156, 94, 0.5);
+}
+
+.choose-ok:active:not(:disabled) {
+  transform: translateY(5px);
+  box-shadow: 0 2px 0 #000, 0 6px 14px rgba(0, 0, 0, 0.4);
+}
+
+/* Dead until something is picked, and visibly dead. A button that is merely
+   quiet still reads as working. */
+.choose-ok:disabled {
+  cursor: not-allowed;
+  background: linear-gradient(180deg, #4b5563 0%, #39424f 100%);
+  box-shadow: 0 4px 0 #000;
+  transform: translateY(3px);
+  color: rgba(255, 255, 255, 0.42);
+  text-shadow: none;
+}
+
+/* ============================================================================
+   THE BURST — shards thrown on confirm
+   ============================================================================ */
+
+.lg-burst { position: absolute; inset: 0; pointer-events: none; z-index: 300005; overflow: hidden; }
+
+.lg-shard {
+  position: absolute;
+  width: 9px; height: 9px;
+  border-radius: 2px;
+  will-change: transform, opacity;
+  animation: lg-shard-fly 0.85s cubic-bezier(0.16, 0.9, 0.3, 1) forwards;
+}
+
+@keyframes lg-shard-fly {
+  0%   { transform: translate(0, 0) rotate(0deg) scale(1); opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)) rotate(var(--rot)) scale(0.3); opacity: 0; }
+}
+
+/* ============================================================================
+   FORMS
+   ============================================================================ */
+
+.login-gate-panel {
+  display: none;
+  width: 100%;
+  max-width: 430px;
+  animation: lg-rise 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.login-gate-panel.active { display: block; }
+
+.lg-form-title {
+  margin: 0 0 4px;
+  font-family: 'Lilita One', 'Fredoka', Arial, sans-serif;
+  font-size: clamp(26px, 4.4vh, 38px);
+  letter-spacing: 2.5px;
+  color: #fff;
+  text-align: center;
+  text-shadow: 0 4px 0 #000, 0 8px 24px rgba(0, 0, 0, 0.8);
+}
+
+.lg-form-sub {
+  margin: 0 0 clamp(14px, 2.4vh, 20px);
+  font-family: 'Nunito', sans-serif;
+  font-weight: 700;
+  font-size: clamp(11.5px, 1.6vh, 13.5px);
+  color: rgba(255, 255, 255, 0.6);
+  text-align: center;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+}
+
+.login-gate-field { margin-bottom: clamp(9px, 1.5vh, 12px); }
+.login-gate-field.hidden { display: none; }
+
+.login-gate-field input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: clamp(12px, 1.9vh, 15px) 16px;
+  border-radius: 12px;
+  /* 2px not 3px: a text field wants a hairline, not a cartoon border. The
+     cartoon weight is on the buttons, where it belongs. */
+  border: 2px solid rgba(0, 0, 0, 0.65);
+  background: rgba(0, 0, 0, 0.48);
+  color: #fff;
+  font-family: 'Nunito', sans-serif;
+  font-weight: 700;
+  font-size: clamp(13.5px, 1.8vh, 15px);
+  outline: none;
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.45);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.login-gate-field input::placeholder { color: rgba(255, 255, 255, 0.38); font-weight: 600; }
+
+.login-gate-field input:focus {
+  border-color: #ffb12b;
+  background: rgba(0, 0, 0, 0.6);
+  box-shadow: 0 0 0 3px rgba(255, 177, 43, 0.22), inset 0 2px 6px rgba(0, 0, 0, 0.45);
+}
+
+.login-gate-msg {
+  margin: 10px 0;
+  padding: 11px 14px;
+  border-radius: 11px;
+  border: 2px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.07);
+  color: #dfe9f5;
+  font-family: 'Nunito', sans-serif;
+  font-weight: 700;
+  font-size: 12.5px;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.login-gate-msg.hidden { display: none; }
+.login-gate-msg.bad { border-color: rgba(255, 92, 92, 0.5); background: rgba(255, 60, 60, 0.14); color: #ffbcbc; animation: lg-shake 0.4s ease; }
+.login-gate-msg.good { border-color: rgba(95, 214, 143, 0.45); background: rgba(47, 156, 94, 0.16); color: #b6f0cd; }
+
+@keyframes lg-shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-7px); }
+  40% { transform: translateX(7px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+
+/* --- primary button ------------------------------------------------------ */
+
+.login-gate-btn {
+  width: 100%;
+  margin-top: 6px;
+  padding: clamp(13px, 2.1vh, 16px) 0;
+  border: 3px solid #000;
+  border-radius: 13px;
+  background: linear-gradient(135deg, #ffb12b 0%, #ff8c00 50%, #ff6b00 100%);
+  color: #fff;
+  font-family: 'Lilita One', 'Fredoka', Arial, sans-serif;
+  font-size: clamp(16px, 2.4vh, 20px);
+  letter-spacing: 2.5px;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  box-shadow: 0 7px 0 #000, 0 16px 32px rgba(255, 120, 0, 0.4);
+  transition: transform 0.14s cubic-bezier(0.34, 1.3, 0.64, 1), box-shadow 0.14s ease, filter 0.18s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.login-gate-btn:hover:not(:disabled) {
+  transform: translateY(-3px);
+  filter: brightness(1.08);
+  box-shadow: 0 10px 0 #000, 0 20px 38px rgba(255, 120, 0, 0.48);
+}
+
+.login-gate-btn:active:not(:disabled) {
+  transform: translateY(5px);
+  box-shadow: 0 2px 0 #000, 0 6px 14px rgba(0, 0, 0, 0.4);
+}
+
+.login-gate-btn:disabled,
+.login-gate-btn.busy {
+  cursor: not-allowed;
+  pointer-events: none;
+  filter: grayscale(0.6) brightness(0.8);
+  transform: translateY(3px);
+  box-shadow: 0 4px 0 #000;
+}
+
+.login-gate-btn.success {
+  background: linear-gradient(180deg, #5fd68f 0%, #2f9c5e 100%);
+  box-shadow: 0 7px 0 #000, 0 16px 32px rgba(47, 156, 94, 0.42);
+}
+
+.login-gate-fine {
+  margin-top: 11px;
+  font-family: 'Nunito', sans-serif;
+  font-weight: 600;
+  font-size: 11px;
+  line-height: 1.5;
+  color: rgba(200, 214, 232, 0.6);
+  text-align: center;
+}
+
+/* The alternatives stack under the form. Previously "Forgot your password?"
+   sat alone as a single small link, and there was no route to Sign Up at all
+   from the login screen — which is precisely how somebody with no account ends
+   up stuck on a login form. */
+.lg-alt {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.lg-alt .lg-link { margin-top: 0; padding: 6px 0; }
+
+.lg-alt .lg-link strong { color: #ffd08a; font-weight: 900; }
+
+/* ============================================================================
+   BACK BUTTON
+   ============================================================================
+   Previously a small grey text link. It is a real navigation control on a
+   screen a player may have arrived at by clicking the wrong card, so it is now
+   a proper button with the game's weight and a tappable target. It used to be
+   "small" because it was sized like a footnote; it is sized like a control.
+   ============================================================================ */
+
+.lg-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-height: 46px;
+  width: 100%;
+  margin-top: clamp(11px, 1.8vh, 16px);
+  padding: 11px 22px;
+  border: 3px solid #000;
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(62, 72, 90, 0.95) 0%, rgba(38, 46, 60, 0.95) 100%);
+  color: #fff;
+  font-family: 'Lilita One', 'Fredoka', Arial, sans-serif;
+  font-size: 15.5px;
+  letter-spacing: 2px;
+  cursor: pointer;
+  box-shadow: 0 6px 0 #000, 0 12px 26px rgba(0, 0, 0, 0.45);
+  transition: transform 0.14s cubic-bezier(0.34, 1.3, 0.64, 1), box-shadow 0.14s ease, filter 0.18s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.lg-back:hover {
+  transform: translateY(-3px);
+  filter: brightness(1.12);
+  box-shadow: 0 9px 0 #000, 0 18px 34px rgba(0, 0, 0, 0.5);
+}
+
+.lg-back:active {
+  transform: translateY(5px);
+  box-shadow: 0 1px 0 #000, 0 5px 12px rgba(0, 0, 0, 0.45);
+}
+
+.lg-back-arrow {
+  font-size: 19px;
+  line-height: 1;
+  transition: transform 0.18s cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+
+.lg-back:hover .lg-back-arrow { transform: translateX(-5px); }
+
+/* A quiet text link for genuinely secondary things (forgot password). */
+.lg-link {
+  display: block;
+  width: 100%;
+  margin-top: 13px;
+  padding: 9px 0;
+  border: 0;
+  background: none;
+  color: rgba(255, 177, 43, 0.92);
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 12.5px;
+  cursor: pointer;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+  transition: color 0.16s ease;
+}
+
+.lg-link:hover { color: #ffd08a; text-decoration: underline; }
+
+/* ============================================================================
+   PASSWORD STRENGTH
+   ============================================================================
+   Four segments, one sentence. A long checklist reads as a form to be
+   defeated; this reads as advice. The segments carry the colour and the words
+   carry the meaning, so the bar is still readable at a glance by someone who
+   is not looking closely.
+   ============================================================================ */
+
+.pw-meter {
+  margin: -2px 0 12px;
+  opacity: 0;
+  max-height: 0;
+  overflow: hidden;
+  transition: opacity 0.24s ease, max-height 0.24s ease;
+}
+
+/* Only present once something has been typed. A strength meter on an empty
+   field is a row of grey bars saying nothing. */
+.pw-meter.on { opacity: 1; max-height: 60px; }
+
+.pw-bars { display: flex; gap: 5px; }
+
+.pw-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.14);
+  transition: background 0.3s ease, box-shadow 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.5, 0.64, 1);
+  transform-origin: left center;
+}
+
+/* Each filled segment snaps in. */
+.pw-meter[data-level="1"] .pw-bar:nth-child(-n+1),
+.pw-meter[data-level="2"] .pw-bar:nth-child(-n+2),
+.pw-meter[data-level="3"] .pw-bar:nth-child(-n+3),
+.pw-meter[data-level="4"] .pw-bar:nth-child(-n+4) { transform: scaleY(1.5); }
+
+.pw-meter[data-level="1"] .pw-bar { background: #ff5c5c; box-shadow: 0 0 10px rgba(255, 92, 92, 0.55); }
+.pw-meter[data-level="2"] .pw-bar { background: #ffb12b; box-shadow: 0 0 10px rgba(255, 177, 43, 0.55); }
+.pw-meter[data-level="3"] .pw-bar { background: #ffe14d; box-shadow: 0 0 10px rgba(255, 225, 77, 0.5); }
+.pw-meter[data-level="4"] .pw-bar { background: #5fd68f; box-shadow: 0 0 12px rgba(95, 214, 143, 0.65); }
+
+.pw-verdict {
+  margin-top: 6px;
+  font-family: 'Nunito', sans-serif;
+  font-weight: 800;
+  font-size: 11.5px;
+  letter-spacing: 0.3px;
+  color: rgba(255, 255, 255, 0.5);
+  transition: color 0.24s ease;
+}
+
+.pw-meter[data-level="1"] .pw-verdict { color: #ff9c9c; }
+.pw-meter[data-level="2"] .pw-verdict { color: #ffc76b; }
+.pw-meter[data-level="3"] .pw-verdict { color: #ffe98a; }
+.pw-meter[data-level="4"] .pw-verdict { color: #9fe8bd; }
+
+/* ============================================================================
+   MISC
+   ============================================================================ */
+
+.login-gate-checking {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.login-gate-checking.active { display: flex; }
+
+.login-gate-spinner {
+  width: 34px; height: 34px;
+  border: 3px solid rgba(255, 255, 255, 0.16);
+  border-top-color: #ffb12b;
+  border-radius: 50%;
+  animation: lg-spin 0.85s linear infinite;
+}
+
+@keyframes lg-spin { to { transform: rotate(360deg); } }
+
+.login-gate-foot {
+  position: absolute;
+  left: 0; right: 0; bottom: clamp(12px, 2.4vh, 22px);
+  z-index: 2;
+  text-align: center;
+  font-family: 'Nunito', sans-serif;
+  font-weight: 700;
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.42);
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+  padding: 0 20px;
+  animation: lg-rise 0.8s ease 0.5s both;
+}
+
+/* The build stamp. Dimmed and small enough to ignore, legible enough to read
+   when you go looking for it. */
+.login-gate-build {
+  display: block;
+  margin-top: 3px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.4px;
+  color: rgba(255, 177, 43, 0.42);
+}
+
+/* ============================================================================
+   RESPONSIVE
+   ============================================================================ */
+
+/* Phone in landscape — the game's own prompt asks for this. Compress the
+   vertical rhythm hard rather than scrolling. */
+@media (max-height: 560px) {
+  .login-gate-inner { gap: 10px; padding: 12px 18px 40px; }
+  .lg-logo { width: clamp(58px, 12vh, 84px); }
+  .lg-wordmark-main { font-size: clamp(22px, 6vh, 30px); letter-spacing: 3px; }
+  .lg-wordmark-sub { font-size: 10px; letter-spacing: 2px; }
+  .choose-card { padding: 10px 13px; border-radius: 13px; }
+  .choose-icon { width: 36px; height: 36px; border-radius: 10px; }
+  .choose-note { min-height: 56px; padding: 10px 14px; }
+  .choose-ok { padding: 12px 0; font-size: 19px; }
+  .login-gate-foot { display: none; }
+  .lg-back { min-height: 40px; }
+}
+
+@media (max-height: 430px) {
+  .lg-wordmark-sub { display: none; }
+  .choose-tag { display: none; }
+}
+
+@media (max-width: 720px) {
+  /* Three columns stop being readable on a phone, so they stack. The OK button
+     stays at the bottom either way, so the flow ends in the same place. */
+  .choose-row { grid-template-columns: 1fr; gap: 9px; }
+  .choose-card { padding: 13px 15px; }
+  .choose-note { min-height: 0; }
+  .lg-wordmark-main { letter-spacing: 3px; }
+}
+
+@media (max-width: 380px) {
+  .login-gate-inner { padding: 12px 12px 34px; }
+  .choose-name { letter-spacing: 0.6px; }
+}
+
+/* --- reduced motion ------------------------------------------------------ */
+
+/* Honour a stated preference. Everything that moves without carrying
+   information is removed; the state changes that DO carry information (the
+   selection ring, the strength bars) stay, because removing those would break
+   the screen rather than calm it. */
+@media (prefers-reduced-motion: reduce) {
+  .login-gate-bg,
+  .lg-logo,
+  .lg-head,
+  .login-gate-foot,
+  .login-gate-panel,
+  .choose-panel.active,
+  .choose-card.selected::before,
+  .choose-icon,
+  .choose-check {
+    animation: none !important;
+  }
+  .choose-card,
+  .choose-ok,
+  .login-gate-btn,
+  .lg-back,
+  .lg-stick {
+    transition-duration: 0.01ms !important;
+  }
+  .login-gate-spinner { animation-duration: 2s; }
+}
+
+/* Coarse pointers (touch) get the native cursor back — a custom reticle that
+   cannot be pointed with a finger is decoration nobody asked for. */
+@media (hover: none), (pointer: coarse) {
+  .lg-cursor { display: none; }
+  .lg-cursor-active, .lg-cursor-active * { cursor: auto !important; }
+}

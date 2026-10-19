@@ -1,0 +1,12 @@
+{
+  "generatedAt": "2026-07-24T11:00:00.000Z",
+  "dayKey": 20637,
+  "offers": [
+    {"reward":"coins","amount":100,"price":0,"currency":"free","priority":1,"stock":-1},
+    {"reward":"gems","amount":10,"price":200,"currency":"coins","priority":2,"stock":-1},
+    {"reward":"coins","amount":500,"price":5,"currency":"gems","priority":1,"stock":-1},
+    {"reward":"basic_crate","amount":1,"price":50,"currency":"gems","priority":2,"stock":5},
+    {"reward":"rare_crate","amount":1,"price":150,"currency":"gems","priority":3,"stock":2},
+    {"reward":"coins","amount":2500,"price":20,"currency":"gems","priority":1,"stock":-1}
+  ]
+}

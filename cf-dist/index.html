@@ -1,0 +1,2590 @@
+<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+
+<meta name="apple-mobile-web-app-capable" content="yes">
+
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+
+<link rel="icon" type="image/png" href="assets/icons/favicon.png">
+
+<link rel="apple-touch-icon" href="assets/icons/favicon.png">
+
+<title>Mini Tank Legends Cline</title>
+
+<link rel="stylesheet" href="css/style.css?v=20261018d">
+<link rel="stylesheet" href="css/results.css?v=20261011d">
+
+<!--
+  BOOT ORDER. This runs before the stylesheet, so the very first paint is the
+  loading screen and never the menu.
+
+  The problem it fixes: the menu markup ships in index.html and is visible by
+  default, while the loading screen had display:none until game.js's bootstrap
+  ran. Between those two moments the browser painted a half-built menu — icons
+  at their natural size, layout unwired — and it stayed visible over the real
+  loading screen, which made the loading screen look like decoration.
+
+  So: mark the document as booting, hide every screen-level layer in CSS while
+  it is set, and let BootLoading (or the menu, once it is genuinely ready)
+  remove it. If scripting is off or the bootstrap dies before it can, the
+  noscript block below removes the flag so the game is still reachable.
+-->
+<script>
+  document.documentElement.className += ' booting';
+  /* Critical styles, inline so they apply on the very first paint without
+     waiting for the stylesheet. The full rule lives in style.css too; this is
+     the copy that cannot be beaten by a slow stylesheet request. */
+  (function(){
+    var s = document.createElement('style');
+    s.textContent =
+      /* Every full-screen layer the game owns. The menus are class="menu" with
+         per-screen ids (menu-main, menu-play-select, ...) rather than one
+         wrapper, so the class is what has to be targeted. */
+      '.booting .menu,.booting #game-root,.booting #menu-transition-overlay,' +
+      '.booting #menu-fullscreen-prompt,.booting #box-overlay,' +
+      '.booting #tank-switch-panel,.booting #bigmap-overlay,' +
+      '.booting #map-vote-overlay,.booting #preview-loading,' +
+      '.booting #loading-overlay{display:none !important}' +
+      '.booting #loading-screen{display:flex !important;opacity:1 !important}';
+    document.head.appendChild(s);
+  })();
+</script>
+<noscript><script>document.documentElement.className = document.documentElement.className.replace(/\bbooting\b/,'');</script></noscript>
+
+<!--
+  OPENED STRAIGHT FROM DISK (file://) -- EXPLAIN INSTEAD OF HANGING.
+
+  Opening index.html by double-clicking it cannot work, and it fails in a way
+  that looks like a broken game rather than a wrong URL:
+
+    * location.origin is the literal string "null", so MATCHMAKING_URL becomes
+      "null/api/match/join" and every queue request is an invalid URL
+    * the browser blocks ES module imports and most fetch() calls for local
+      files under file://, so the Rapier physics engine, the models and the maps
+      simply never arrive
+    * the physics engine comes from a CDN module, which file:// refuses to load
+
+  Net effect: the loading bar fills, then nothing happens, forever. Saying so
+  plainly costs one script tag and saves a lot of confusion.
+-->
+<script>
+  if (location.protocol === 'file:') {
+    document.addEventListener('DOMContentLoaded', function () {
+      document.documentElement.className = document.documentElement.className.replace(/\bbooting\b/, '');
+      var ls = document.getElementById('loading-screen');
+      if (ls) ls.style.display = 'none';
+      var box = document.createElement('div');
+      box.style.cssText = 'position:fixed;inset:0;z-index:200000;display:flex;flex-direction:column;' +
+        'align-items:center;justify-content:center;gap:14px;text-align:center;padding:32px;' +
+        'background:#12161f;color:#e8eef7;font-family:Arial,Helvetica,sans-serif';
+      box.innerHTML =
+        '<div style="font-size:26px;font-weight:700;letter-spacing:1px">This game needs to be served, not opened</div>' +
+        '<div style="font-size:15px;line-height:1.6;max-width:560px;color:#a9b6c8">' +
+        'You opened index.html directly from disk. Browsers block the physics engine, ' +
+        'the models and the maps when a page is loaded this way, so the game cannot start.' +
+        '</div>' +
+        '<div style="font-size:14px;color:#8fa0b5;background:#1b2130;border:1px solid #2a3346;' +
+        'border-radius:8px;padding:12px 16px;line-height:1.7">' +
+        'Start the server, then use the address it prints:<br>' +
+        '<b style="color:#7fd1a0">http://localhost:18123</b>' +
+        '</div>';
+      document.body.appendChild(box);
+    });
+  }
+</script>
+
+</head>
+
+<body>
+  <div id="menu-transition-overlay"></div>
+
+  <!-- Loading Screen (hidden until fullscreen prompt is dismissed) -->
+  <div id="loading-screen" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:100000;display:none;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:28vh;opacity:0;transition:opacity 0.5s ease;">
+    <div id="loading-bg" style="position:absolute;top:0;left:0;width:100%;height:100%;background:#1c2230 url('assets/TL_loadingscreen.jpg') center center / cover no-repeat;"></div>
+    <div id="loading-vignette" style="position:absolute;top:0;left:0;width:100%;height:100%;background:radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.55) 100%);"></div>
+    <div style="position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;gap:10px;width:50vw;max-width:400px;">
+      <div id="loading-status" style="font-size:14px;color:rgba(255,255,255,0.85);letter-spacing:2px;text-shadow:0 0 8px rgba(0,0,0,0.7);font-family:Arial,sans-serif;">Initializing...</div>
+      <div style="width:100%;height:2px;background:rgba(255,255,255,0.15);border-radius:1px;overflow:hidden;">
+        <div id="loading-bar" style="height:100%;width:0%;background:rgba(255,255,255,0.85);border-radius:1px;transition:width 0.3s ease;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3D canvas mount -->
+
+  <div id="game-root"></div>
+
+  <div id="crosshair" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:5;">
+    <div style="width:6px;height:6px;background:#f84;border-radius:50%;box-shadow:0 0 4px #f84, 0 0 8px rgba(255,136,68,0.4);"></div>
+  </div>
+
+
+
+  <!-- ============ OVERLAYS ============ -->
+
+  <div id="ui-layer">
+
+
+
+    <!-- FULLSCREEN / ORIENTATION PROMPT (platform-specific content) -->
+
+    <div class="fullscreen-overlay hidden" id="menu-fullscreen-prompt">
+
+      <div class="fs-close" id="btn-fs-close">&times;</div>
+
+      <div class="menu-card" style="text-align:center">
+
+
+
+        <!-- Section: Desktop fullscreen prompt -->
+
+        <div class="fs-section hidden" id="fs-desktop">
+
+          <div class="fullscreen-icon">&#x26F6;</div>
+
+          <h2>Enter Fullscreen</h2>
+
+          <div class="muted">This game is best played in fullscreen mode.</div>
+
+          <div class="fullscreen-hint">Press <kbd>F11</kbd> or click the button below</div>
+
+          <div class="btn btn-primary" id="btn-enter-fullscreen">Enter Fullscreen</div>
+
+          <div class="btn btn-subtle" id="btn-dismiss-fullscreen">Play anyway (not recommended)</div>
+
+          <!-- WHY THIS LINE EXISTS
+
+               Every control on this card used to carry an inline onclick that
+               hid the overlay the instant it ran, and called requestFullscreen
+               with its rejection swallowed. So the card closed whether or not
+               fullscreen actually worked.
+
+               There were also two copies of every handler: one inline here and
+               one in menu.js, and menu.js overwrote these at init, leaving the
+               inline versions live only in the window before Menu booted, where
+               they could hide the card without recording that it had been
+               dismissed, so it came straight back on the next resize.
+
+               They are all gone. menu.js owns every button on this card now,
+               wires them BEFORE it runs any detection (so a thrown heuristic
+               cannot leave a modal whose buttons are all dead), and keeps the
+               card up until a fullscreen request actually succeeds.
+
+               This is where a refusal gets explained rather than swallowed. -->
+          <div class="fullscreen-hint hidden" id="fs-status" style="margin-top:14px;color:#ffb12b;line-height:1.5"></div>
+
+        </div>
+
+
+
+        <!-- Section: iOS tutorial (not standalone) -->
+
+        <div class="fs-section hidden" id="fs-ios-tutorial">
+
+          <h2>Set Up for Best Experience</h2>
+
+          <div class="muted">Follow these steps for fullscreen gameplay on iPhone/iPad:</div>
+
+          <div class="fs-step">1. Rotate your device to landscape</div>
+
+          <div class="fs-step">2. Tap Share <span class="fs-icon">&#x1F4E4;</span> &#8594; <strong>Add to Home Screen</strong></div>
+
+          <div class="fs-step">3. Open Mini Tank Legends from your home screen</div>
+
+          <div class="btn btn-subtle" id="btn-ios-dismiss">Play anyway (not recommended)</div>
+
+        </div>
+
+
+
+        <!-- Section: iOS standalone + portrait -->
+
+        <div class="fs-section hidden" id="fs-ios-rotate">
+
+          <div class="rotate-icon-wrap"><span class="rotate-icon">&#x1F504;</span></div>
+
+          <h2>Rotate to Landscape</h2>
+
+          <div class="muted">Please rotate your device to landscape mode to play.</div>
+
+          <div class="btn btn-subtle" id="btn-ios-rotate-dismiss">Play in portrait</div>
+
+        </div>
+
+
+
+        <!-- Section: Android portrait (waiting for landscape) -->
+
+        <div class="fs-section hidden" id="fs-android-rotate">
+
+          <div class="rotate-icon-wrap"><span class="rotate-icon">&#x1F504;</span></div>
+
+          <h2>Rotate to Landscape</h2>
+
+          <div class="muted">Please rotate your device to landscape mode.</div>
+
+          <div class="btn btn-subtle" id="btn-android-rotate-dismiss">Play in portrait</div>
+
+        </div>
+
+
+
+        <!-- Section: Android landscape (not fullscreen) -->
+
+        <div class="fs-section hidden" id="fs-android-buttons">
+
+          <h2>Enable Fullscreen</h2>
+
+          <div class="muted">For the best experience on your device</div>
+
+          <div class="btn btn-primary" id="btn-android-fullscreen">Open in Fullscreen</div>
+
+          <div class="btn btn-subtle" id="btn-android-play">Play game (extremely not recommended)</div>
+
+        </div>
+
+
+
+      </div>
+
+    </div>
+
+
+
+    <!-- MAIN MENU -->
+
+    <div class="menu menu-preview" id="menu-main">
+
+      <div id="main-menu-preview-canvas"></div>
+
+      <div id="profile-wrap">
+
+        <div class="profile" id="profile">
+
+<div class="profile-top">
+
+            <!-- THE MAIN-MENU PLAYER BADGE: avatar, name, clan - in that order.
+
+                 This row used to read a hard-coded trophy emoji, then the clan
+                 tag, then the player's name - which platoon.js still documents
+                 as `%trophy% %clan% %nickname%`. Two things were wrong with it:
+                 the trophy looked identical whether you owned one or twenty, and
+                 putting the clan BEFORE the name made the player's own name the
+                 last thing in their own badge.
+
+                 It is the real avatar now - the first owned trophy - and it opens
+                 the profile screen, where the full trophy list lives. It needs
+                 `pointer-events` of its own because `.profile` sets
+                 pointer-events:none for the whole badge, so the strip does not
+                 swallow clicks meant for the menu behind it. -->
+            <button class="profile-strip-avatar" id="profile-strip-avatar" type="button" title="Profile" aria-label="Profile"></button>
+
+            <span class="profile-name" id="profile-name">Player</span>
+
+            <span class="profile-clan" id="profile-clan"></span>
+
+          </div>
+
+          <div class="profile-sep"></div>
+
+          <div class="profile-bottom">
+
+            <span class="profile-coin"><img class="cur-img" src="assets/currency/cash.png" alt="cash"><span id="profile-cash-num">0</span></span>
+
+            <span class="profile-crystal"><img class="cur-img" src="assets/currency/gold.png" alt="gold"><span id="profile-gold-num">0</span></span>
+
+            <span class="profile-coin profile-coins-extra"><img class="cur-img" src="assets/currency/coin.png" alt="coins"><span id="profile-coins-num">0</span></span>
+
+          </div>
+
+          <div class="profile-account hidden" id="profile-account"></div>
+
+        </div>
+
+        <div id="btn-settings-gear" data-open="settings" title="Settings">
+
+          <img src="gear.png" alt="Settings">
+
+        </div>
+
+        <div class="auth-mini-btn" id="auth-mini" title="Account">Log In</div>
+
+      </div>
+
+      <div class="main-menu-side" id="main-menu-side">
+
+        <div class="btn menu-side-btn" data-open="store"><img class="menu-side-chip" src="assets/icons/store.svg" alt=""><span>Store</span></div>
+
+        <div class="btn menu-side-btn" data-open="storage"><img class="menu-side-chip" src="assets/icons/storage.svg" alt=""><span>Storage</span></div>
+
+        <div class="btn menu-side-btn" data-open="collections"><img class="menu-side-chip" src="assets/icons/collections.svg" alt=""><span>Collections</span></div>
+
+        <div class="btn menu-side-btn" data-open="missions"><img class="menu-side-chip" src="assets/icons/missions.svg" alt=""><span>Missions</span></div>
+
+        <div class="btn menu-side-btn" data-open="clans"><img class="menu-side-chip" src="assets/icons/clans.svg" alt=""><span>Clans</span></div>
+
+        <div class="btn menu-side-btn" data-open="codes"><img class="menu-side-chip" src="assets/icons/codes.svg" alt=""><span>Codes</span></div>
+
+      </div>
+
+      <div class="main-menu-play-row">
+        <div class="btn-gamemode" id="btn-gamemode"><svg id="gamemode-icon" xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M16 8h.01"/><path d="M8 8h.01"/><path d="M8 16h.01"/><path d="M16 16h.01"/><path d="M12 12h.01"/></svg><span id="gamemode-emoji" style="display:none">&#x1F3AE;</span></div>
+        <div class="btn-play-wrap" id="btn-play-wrap">
+          <div class="btn-play" id="btn-play"><span class="btn-play-cap">SEARCHING</span><span class="btn-play-num">PLAY</span></div>
+        </div>
+        <div class="platoon-btn" id="btn-platoon" title="Platoon">
+          <img src="assets/icons/platoon.png" alt="Platoon">
+        </div>
+      </div>
+
+      <div class="main-menu-crates" id="main-menu-crates">
+
+        <div class="crate-slot" data-slot="0"><img src="mystery_mtl.png" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
+
+        <div class="crate-slot" data-slot="1"><img src="mystery_mtl.png" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
+
+        <div class="crate-slot" data-slot="2"><img src="mystery_mtl.png" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
+
+        <div class="crate-slot" data-slot="3"><img src="mystery_mtl.png" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
+
+      </div>
+
+      <div class="menu-card hidden" id="menu-custom-card"></div>
+
+    </div>
+
+
+
+    <!-- PLAY MODE SELECT (Free roam landing) -->
+
+    <div class="menu hidden" id="menu-play-select">
+
+      <div class="menu-card" style="text-align:center">
+
+        <h2>Free Roam</h2>
+
+        <div class="muted">Join the persistent world. No timer, no limits.</div>
+
+        <div class="btn btn-primary" id="btn-play-freeroam">Enter World</div>
+
+        <div class="btn" id="btn-play-battle">Battle Mode &#x25B6;</div>
+
+        <div class="btn btn-back" id="btn-play-back"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+
+      </div>
+
+    </div>
+
+
+
+    <!-- BATTLE MODE SELECT -->
+
+    <div class="menu hidden" id="menu-battle-select">
+
+      <div class="menu-card" style="text-align:center">
+
+        <h2>Battle Mode</h2>
+
+        <div class="btn btn-primary" id="btn-battle-sp">Singleplayer (Offline)</div>
+
+        <div class="btn" id="btn-battle-mp">Private Room (P2P)</div>
+
+        <div class="btn btn-back" data-back="menu-play-select"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+
+      </div>
+
+    </div>
+
+
+
+    <!-- GAMEMODE SELECT -->
+
+    <div class="menu hidden" id="menu-gamemode-select">
+
+      <div class="gm-fullscreen">
+
+        <div class="gm-header">
+          <div class="gm-back" id="gm-back" data-back="menu-main">&#x2190; BACK</div>
+          <h2 class="gm-title">SELECT <span class="gm-title-accent">GAMEMODE</span></h2>
+        </div>
+
+        <div class="gm-cards">
+
+          <!-- LOCKED-MODE-START (restore by deleting these two markers)
+          <div class="gm-card" data-gamemode="random-battle">
+            <div class="gm-card-bg" style="background-image:url('assets/gamemodes/random-battle.png')"></div>
+            <div class="gm-card-overlay"></div>
+            <div class="gm-card-content">
+              <div class="gm-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M16 8h.01"/><path d="M8 8h.01"/><path d="M8 16h.01"/><path d="M16 16h.01"/><path d="M12 12h.01"/></svg></div>
+              <div class="gm-card-name">RANDOM BATTLE</div>
+              <div class="gm-card-desc">Fight in rotating game modes. Each battle is a surprise!</div>
+            </div>
+          </div>
+
+          <div class="gm-card" data-gamemode="team-deathmatch">
+            <div class="gm-card-bg" style="background-image:url('assets/gamemodes/team-deathmatch.jpg')"></div>
+            <div class="gm-card-overlay"></div>
+            <div class="gm-card-content">
+              <div class="gm-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.5 17-.5-1-.5 1h1z"/><path d="M15 22a1 1 0 0 0 1-1v-1a2 2 0 0 0 1.56-3.25 8 8 0 1 0-11.12 0A2 2 0 0 0 8 20v1a1 1 0 0 0 1 1z"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="12" r="1"/></svg></div>
+              <div class="gm-card-name">TEAM DEATHMATCH</div>
+              <div class="gm-card-desc">Blue vs Red. Eliminate the enemy team to win.</div>
+            </div>
+          </div>
+
+          <div class="gm-card" data-gamemode="sandbox">
+            <div class="gm-card-overlay"></div>
+            <div class="gm-card-content">
+              <div class="gm-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></div>
+              <div class="gm-card-name">SANDBOX</div>
+              <div class="gm-card-desc">Free roam with custom GLB maps and trimesh physics.</div>
+            </div>
+          LOCKED-MODE-END -->
+
+
+                    <div class="gm-card" data-gamemode="captureTheCircle">
+            <div class="gm-card-overlay"></div>
+            <div class="gm-card-sheen"></div>
+            <div class="gm-card-content">
+              <div class="gm-card-kicker">ZONE CONTROL</div>
+              <div class="gm-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></div>
+              <div class="gm-card-name">CAPTURE THE CIRCLE</div>
+              <div class="gm-card-desc">Stand in the circle to capture. Teams compete to claim the zone.</div>
+            </div>
+            <div class="gm-card-cta">ENTER ▸</div>
+          </div>
+
+          <!-- Base Defend. Its card must exist and must NOT be inside the
+               LOCKED-MODE markers: _selectGamemode refuses any mode with no
+               card, and PLAY validates against the cards too, so a mode
+               without one silently falls back to the Circle. -->
+                    <div class="gm-card" data-gamemode="baseDefend">
+            <div class="gm-card-overlay"></div>
+            <div class="gm-card-sheen"></div>
+            <div class="gm-card-content">
+              <div class="gm-card-kicker">ENDLESS SIEGE</div>
+              <div class="gm-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V10l7-5 7 5v11"/><path d="M9 21v-6h6v6"/><path d="M12 5V2"/><path d="M12 2.8c1.6.5 3 .4 4.4-.4-.2 1.6.2 3 1.6 4.2-1.6.2-2.8 1-3.6 2.4-.8-1.4-2-2.2-3.6-2.4 1.4-1.2 1.8-2.6 1.6-4.2 1.4.8 2.8.9 4.4.4"/></svg></div>
+              <div class="gm-card-name">BASE DEFEND</div>
+              <div class="gm-card-desc">Unlimited respawns. Destroy the enemy team's base before they destroy yours.</div>
+            </div>
+            <div class="gm-card-cta">ENTER ▸</div>
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+
+
+    <!-- MULTIPLAYER ROOT -->
+
+    <div class="menu hidden" id="menu-multiplayer">
+
+      <div class="menu-card">
+
+        <h2>Multiplayer</h2>
+
+        <div class="btn btn-primary" id="btn-host-room">Host Room</div>
+
+        <div class="btn" id="btn-join-room">Join Room</div>
+
+        <div class="btn btn-subtle" id="btn-join-hidden">Join Hidden Room</div>
+
+        <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+
+      </div>
+
+    </div>
+
+
+
+    <!-- HOST SETTINGS -->
+
+    <div class="menu hidden" id="menu-host">
+
+      <div class="menu-card">
+
+        <h2>Host Room</h2>
+
+        <label>Max Players (max 20)</label>
+
+        <input type="number" id="host-maxplayers" min="1" max="20" value="8">
+
+        <div class="hint">&#x1F465; Many players &#x26A0;&#xFE0F; &#x1F465; stronger device recommended</div>
+
+
+
+        <label>Visibility</label>
+
+        <div class="seg">
+
+          <div class="seg-opt active" data-vis="public">Public</div>
+
+          <div class="seg-opt" data-vis="hidden">Hidden</div>
+
+        </div>
+
+
+
+        <label>Max Fake Players (bots)</label>
+
+        <input type="number" id="host-fakeplayers" min="0" max="20" value="4">
+
+
+
+        <label>Game Mode</label>
+
+        <div class="seg" id="host-gamemode-seg">
+
+          <div class="seg-opt active" data-mode="deathmatch">Deathmatch</div>
+
+          <div class="seg-opt" data-mode="gladiator">Gladiator</div>
+
+        </div>
+
+        <div class="hint" id="host-gamemode-hint">Gladiator: battle royale ï¿½ shrinking zone, power drops, airdrops. 10 spawn points recommended.</div>
+
+
+
+        <label>Map</label>
+
+        <div class="map-choice">
+
+          <div class="map-opt selected" id="host-map-big">Big Default Map</div>
+
+          <div class="map-opt" id="host-map-mine">Custom Map (from editor)</div>
+
+        </div>
+
+
+
+        <div id="host-code-row" class="hidden">
+
+          <label>Room Code</label>
+
+          <div class="code-box" id="host-code">--------</div>
+
+          <div class="btn btn-sm" id="btn-copy-link" style="margin-top:8px">Copy Invite Link</div>
+
+        </div>
+
+
+
+        <div class="btn btn-primary" id="btn-start-host">Start Hosting</div>
+
+        <div class="btn btn-back" data-back="menu-multiplayer"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+
+      </div>
+
+    </div>
+
+
+
+    <!-- JOIN ROOM (public list) -->
+
+    <div class="menu hidden" id="menu-join">
+
+      <div class="menu-card wide">
+
+        <h2>Public Rooms</h2>
+
+        <div id="room-list" class="room-list"><div class="muted">Searching for public roomsï¿½</div></div>
+
+        <div class="btn btn-back" data-back="menu-multiplayer"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+
+      </div>
+
+    </div>
+
+
+
+    <!-- JOIN HIDDEN (paste code) -->
+
+    <div class="menu hidden" id="menu-join-hidden">
+
+      <div class="menu-card">
+
+        <h2>Join Hidden Room</h2>
+
+        <label>Paste Room Code</label>
+
+        <input type="text" id="hidden-code-input" placeholder="XXXXXXXX" maxlength="8">
+
+        <div class="btn btn-primary" id="btn-connect-hidden">Connect</div>
+
+        <div class="btn btn-back" data-back="menu-multiplayer"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+
+      </div>
+
+    </div>
+
+
+
+    <!-- COLLECTIONS -->
+
+    <div class="menu hidden" id="menu-collections">
+
+      <div class="collections-fullscreen">
+
+        <div class="collections-scroll" id="collections-scroll">
+
+          <div class="collections-track" id="collections-track"></div>
+
+        </div>
+
+        <div id="collections-bottom-bar">
+
+          <div class="btn btn-back" id="collections-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+
+
+    <!-- STORE -->
+
+    <div class="menu hidden" id="menu-store">
+
+      <div class="shop-overlay" id="shop-overlay">
+
+        <div class="shop-header">
+
+          <div class="shop-currencies">
+
+            <span class="shop-coin-disp"><img class="cur-img cur-lg" src="assets/currency/cash.png" alt="cash"> <span id="shop-cash">0</span></span>
+
+            <span class="shop-coin-disp"><img class="cur-img cur-lg" src="assets/currency/coin.png" alt="coins"> <span id="shop-coins">0</span></span>
+
+            <span class="shop-gold-disp"><img class="cur-img cur-lg" src="assets/currency/gold.png" alt="gold"> <span id="shop-gold">0</span></span>
+
+          </div>
+
+        </div>
+
+        <div class="shop-body">
+
+          <div class="shop-sidebar">
+
+            <div class="shop-store-logo">STORE</div>
+
+            <div class="shop-sidebar-section active" data-section="main" style="--btn-bg:#f97316">MAIN</div>
+
+            <div class="shop-sidebar-section" data-section="offers" style="--btn-bg:#a855f7">OFFERS</div>
+
+            <div class="shop-sidebar-section" data-section="bank" style="--btn-bg:#eab308">BANK</div>
+
+            <div class="shop-sidebar-section" data-section="bundles" style="--btn-bg:#22c55e">BUNDLES</div>
+
+            <div class="shop-sidebar-section" data-section="keys" style="--btn-bg:#ef4444">KEYS</div>
+
+            <div class="shop-sidebar-section" data-section="tlplus" style="--btn-bg:#d97706">TL+</div>
+
+            <div class="shop-sidebar-back" id="shop-back-main"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> BACK</div>
+
+          </div>
+
+          <div class="shop-content">
+
+            <div class="shop-page" id="shop-page-main">
+
+              <h2 class="shop-section-title">ROTATING SHOP</h2>
+
+              <div class="shop-timer" id="shop-timer"></div>
+
+              <div class="shop-deals" id="shop-deals"></div>
+
+              <div class="shop-free-offer" id="shop-free-offer"></div>
+
+            </div>
+
+            <div class="shop-page hidden" id="shop-page-offers">
+
+              <div class="shop-coming-soon">Coming Soon</div>
+
+            </div>
+
+            <div class="shop-page hidden" id="shop-page-bank">
+
+              <div class="shop-coming-soon">Coming Soon</div>
+
+            </div>
+
+            <div class="shop-page hidden" id="shop-page-bundles">
+
+              <h2 class="shop-section-title">BUNDLES</h2>
+
+              <div class="shop-deals" id="shop-bundles"></div>
+
+              <div class="shop-real-note" id="shop-real-note">Real-money purchases. You need to be logged in — a bundle is delivered to your account, not to this browser.</div>
+
+            </div>
+
+            <div class="shop-page hidden" id="shop-page-keys">
+
+              <div class="shop-coming-soon">Coming Soon</div>
+
+            </div>
+
+            <div class="shop-page hidden" id="shop-page-tlplus">
+
+              <div class="shop-coming-soon">Coming Soon</div>
+
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+
+
+    <!-- SHOP BUY PAGE
+
+         A flatbed railcar. The thing you are buying sits on the deck in the
+         middle, the Buy button sits above Back at the bottom, and Back is the
+         only way out before you pay.
+
+         The Buy button is a HOLD, not a click: press and keep it down for three
+         seconds. That is what stops a double-click on an offer card from
+         spending money, and it is the same beat the crate opening already uses
+         for "this is the moment you commit".
+
+         `.stage` is the buy phase and `.done` is the bought phase; menu.js adds
+         `.done` once the purchase has actually been made. -->
+
+    <div class="menu hidden" id="menu-shop-buy">
+
+      <div class="shop-buy-wrapper stage" id="shop-buy-wrapper">
+
+        <!-- The flatbed. `cover` so the deck fills the screen on any aspect,
+             and it scrolls a hair so the light sweep reads as a real surface. -->
+        <div class="shop-buy-bg"></div>
+
+        <div class="shop-buy-stage">
+
+          <!-- WHAT YOU ARE BUYING. Icon on the left, the count beside it, so a
+               750-cash offer reads as "cash icon, x750" at a glance instead of
+               asking the player to match a number to a picture. -->
+          <div class="shop-buy-item">
+            <div class="shop-buy-shadow"></div>
+            <img class="shop-buy-image" id="shop-buy-image" src="" alt="">
+            <div class="shop-buy-count" id="shop-buy-count">x1</div>
+          </div>
+          <div class="shop-buy-name" id="shop-buy-name"></div>
+
+          <!-- Buy phase only. -->
+          <div class="shop-buy-controls" id="shop-buy-controls">
+            <div class="shop-buy-btn" id="shop-buy-btn">
+              <div class="shop-buy-fill" id="shop-buy-fill"></div>
+              <div class="shop-buy-btn-label">
+                <span class="shop-buy-btn-text" id="shop-buy-btn-text">Hold to buy</span>
+                <span class="shop-buy-btn-cost" id="shop-buy-cost"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Bought phase only. Everything else on screen is taken away. -->
+          <div class="shop-buy-done" id="shop-buy-done">
+            <div class="shop-buy-congrats">CONGRADITIONS</div>
+          </div>
+
+          <div class="shop-buy-back" id="shop-back-buy">
+            <img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+
+
+    <!-- SHOP RECEIVE SCREEN
+
+         The reveal. The flatbed dims, the item comes up to 1.3x with light rays
+         spinning out of it, and when that finishes everything but the Back
+         button and CONGRADITIONS is taken away. -->
+
+    <div class="menu hidden" id="menu-shop-receive">
+
+      <div class="shop-receive-wrapper" id="shop-receive-wrapper">
+
+        <div class="shop-receive-bg"></div>
+
+        <div class="shop-receive-dim" id="shop-receive-dim"></div>
+
+        <!-- The rays. A conic gradient spinning behind the icon, revealed as the
+             item scales up. Two of them at different speeds so the light does
+             not read as one flat rotating shape. -->
+        <div class="shop-receive-rays" id="shop-receive-rays">
+          <div class="shop-receive-rays-inner"></div>
+          <div class="shop-receive-rays-inner shop-receive-rays-inner-2"></div>
+        </div>
+
+        <div class="shop-receive-flash" id="shop-receive-flash"></div>
+
+        <div class="shop-receive-reward" id="shop-receive-reward">
+          <img class="shop-receive-image" id="shop-receive-image" src="" alt="">
+        </div>
+
+        <div class="shop-receive-amount" id="shop-receive-amount"></div>
+
+        <!-- Only shown once the reveal is done. -->
+        <div class="shop-receive-done" id="shop-receive-done">
+          <div class="shop-receive-congrats">CONGRADITIONS</div>
+          <div class="shop-receive-back" id="shop-receive-back">
+            <img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+
+
+    <!-- STORAGE -->
+
+    <div class="menu hidden" id="menu-storage">
+
+      <div class="storage-container">
+
+        <h2>Storage</h2>
+
+        <div class="storage-grid" id="storage-grid"></div>
+
+        <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+
+      </div>
+
+    </div>
+
+
+
+    <!-- SETTINGS -->
+
+    <div class="menu hidden" id="menu-settings">
+
+      <div class="menu-card">
+
+        <h2>Settings</h2>
+
+        <div class="settings-topbar">
+
+          <div class="settings-btn" id="btn-settings-reset">Revert to default</div>
+
+          <div class="settings-btn settings-btn-primary" id="btn-settings-saveexit">Save &amp; exit</div>
+
+        </div>
+
+        <div class="settings-layout">
+
+          <div class="settings-tabs">
+
+            <div class="settings-tab active" data-tab="controls">-- Controls --</div>
+
+            <div class="settings-tab" data-tab="aim">-- Aim Line --</div>
+
+            <div class="settings-tab" data-tab="view">-- View Range --</div>
+
+            <div class="settings-tab" data-tab="xray">-- X-Ray --</div>
+
+            <div class="settings-tab" data-tab="camera">-- Camera --</div>
+
+            <div class="settings-tab" data-tab="graphics">-- Graphics --</div>
+
+            <div class="settings-tab" data-tab="other">-- Other --</div>
+
+          </div>
+
+          <div class="settings-content">
+
+            <div id="tab-controls" class="tab-content active">
+
+              <div id="bind-list"></div>
+
+              <div id="cam-settings"></div>
+
+            </div>
+
+            <div id="tab-aim" class="tab-content">
+
+              <div id="aim-settings"></div>
+
+            </div>
+
+            <div id="tab-view" class="tab-content">
+
+              <div id="view-settings"></div>
+
+            </div>
+
+            <div id="tab-xray" class="tab-content">
+
+              <div id="xray-settings"></div>
+
+            </div>
+
+            <div id="tab-camera" class="tab-content">
+
+              <div id="camera-settings"></div>
+
+            </div>
+
+            <div id="tab-graphics" class="tab-content">
+
+              <div id="graphics-settings"></div>
+
+            </div>
+
+            <div id="tab-other" class="tab-content">
+
+              <div id="other-settings"></div>
+
+            </div>
+
+          <div class="btn btn-back" data-back="menu-main">&lt;- Back</div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+    </div>
+
+
+
+    <div class="menu hidden" id="menu-profile">
+
+      <div class="profile-overlay">
+
+        <div class="profile-card">
+
+<div class="profile-card-head">
+
+            <!-- ONE CONTROL, NOT TWO.
+
+                 This used to be two 64px boxes side by side: a gold avatar
+                 showing the trophy, and a dashed "add" slot. Two controls for
+                 one job, where the second one could not actually add anything —
+                 trophies are earned in a match, not attached by hand — and where
+                 the pair left the player's own name pushed a full box to the
+                 right for no reason.
+
+                 It is now the single button: the avatar ON the slot, the slot
+                 gone. Clicking it opens the trophy menu, which is the only
+                 thing the second box ever did. The icon is written by
+                 Menu._renderProfileCard from the owned set rather than being a
+                 hard-coded emoji in the markup, so it always shows the truth. -->
+            <button class="profile-card-avatar" id="pcard-avatar" type="button" title="Trophies" aria-label="Trophies"></button>
+
+            <div class="profile-id">
+
+              <div class="profile-card-nick" id="pcard-name-text">Player</div>
+
+              <!-- Name on top, clan and account beneath it. The old markup ran
+                   clan and nickname together on ONE line with the trophy emoji in
+                   front of them, which put a decoration between the player and
+                   their own name and left the clan reading like a prefix rather
+                   than what it is. -->
+              <div class="profile-card-sub">
+                <span class="profile-card-clan" id="pcard-clan"></span>
+                <span class="profile-card-account" id="pcard-account"></span>
+              </div>
+
+            </div>
+
+          </div>
+
+          <div class="profile-card-grid" id="pcard-grid"></div>
+
+          <div class="btn btn-back" data-back="menu-main">&lt;- Back</div>
+
+        </div>
+
+      </div>
+
+      <!-- THE TROPHY MENU IS A CHILD OF THE OVERLAY, NOT OF THE CARD.
+
+           It used to sit inside the avatar slot and position itself with
+           left/top percentages against that box, which pins it to one anchor
+           forever: it could only open beside one fixed element, and near the
+           right-hand edge of a window it ran off the screen.
+
+           Here it is positioned:fixed and placed from the CLICK coordinates, so
+           it can sit next to the cursor wherever that is, and it flips to the
+           other side of the cursor when there is not enough room. -->
+
+      <div class="trophy-pop hidden" id="pcard-trophy-pop"></div>
+
+    </div>
+
+
+
+        <!-- PLATOON -->
+    <div class="menu hidden" id="menu-platoon">
+      <div class="platoon-overlay">
+        <div class="platoon-card pl-lobby">
+
+          <style>
+            /* ===== FULLSCREEN FIT LOBBY ===== */
+            .pl-lobby {
+              position: fixed; inset: 0; z-index: 40;
+              width: 100vw; height: 100dvh; max-width: none; max-height: none;
+              margin: 0; padding: clamp(6px, 1.1vmin, 12px);
+              overflow: hidden;
+              background: radial-gradient(120% 90% at 50% 0%, #232834 0%, #101318 62%, #0b0e12 100%);
+              display: flex; flex-direction: column; gap: clamp(4px, .9vmin, 10px);
+              text-align: left; box-sizing: border-box;
+              --pl-sq: clamp(64px, 17vmin, 190px);
+            }
+            .pl-lobby * { box-sizing: border-box; font-family: 'Lilita One', sans-serif; margin: 0; }
+            .pl-lobby button { cursor: pointer; }
+            .pl-hidden { display: none !important; }
+
+            /* TOP BAR */
+            .pl-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; flex-shrink: 0; }
+            .pl-mode-wrap { display: flex; align-items: center; gap: 6px; }
+            .pl-mode-wrap label { color: #9aa0ab; font-size: 11px; letter-spacing: 1.5px; white-space: nowrap; }
+            .pl-mode-wrap select { background: #101318; color: #fff; border: 2px solid #000; border-radius: 6px; padding: 6px 8px; font-size: 13px; cursor: pointer; outline: none; box-shadow: 0 3px 0 #000; max-width: 46vw; }
+            .pl-select-note { color: #64748b; font-size: 9px; letter-spacing: 1px; }
+            .pl-room-box { display: flex; align-items: center; gap: 5px; }
+            .pl-room-label { color: #9aa0ab; font-size: 10px; letter-spacing: 1.5px; }
+            .pl-room-code { background: #0b0e12; border: 2px solid #000; border-radius: 6px; padding: 5px 10px; font-size: 16px; letter-spacing: 3px; color: #fbbf24; min-width: 78px; text-align: center; box-shadow: 0 3px 0 #000; }
+            .pl-join-input { background: #101318; border: 2px solid #000; border-radius: 6px; color: #fff; padding: 6px 8px; width: 64px; font-size: 13px; letter-spacing: 2px; text-align: center; outline: none; text-transform: uppercase; box-shadow: 0 3px 0 #000; }
+
+            .pl-btn { border: 2px solid #000; border-radius: 8px; padding: 7px 12px; font-size: 12px; cursor: pointer; letter-spacing: 1px; box-shadow: 0 4px 0 #000; color: #fff; transition: transform .12s, filter .12s, box-shadow .12s; white-space: nowrap; display: inline-flex; align-items: center; gap: 5px; justify-content: center; }
+            .pl-btn:hover { filter: brightness(1.1); }
+            .pl-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #000; }
+            .pl-btn:disabled { filter: grayscale(.7) brightness(.7); cursor: not-allowed; }
+            .pl-btn-orange { background: linear-gradient(160deg, #fbbf24 0%, #f97316 55%, #ea580c 100%); color: #241505; }
+            .pl-btn-gold { background: linear-gradient(160deg, #fde68a 0%, #fbbf24 45%, #f59e0b 100%); color: #241505; }
+            .pl-btn-red { background: linear-gradient(160deg, #f87171 0%, #b91c1c 100%); }
+            .pl-btn-gray { background: linear-gradient(160deg, #4b5563 0%, #1f2937 100%); }
+            .pl-btn-sm { padding: 5px 9px; font-size: 10px; border-radius: 6px; box-shadow: 0 3px 0 #000; }
+            .pl-switch { background: linear-gradient(160deg, #38bdf8 0%, #0369a1 100%); color: #fff; border: 2px solid #000; border-radius: 8px; padding: 7px 12px; font-size: 12px; cursor: pointer; letter-spacing: 1px; box-shadow: 0 4px 0 #000; transition: transform .12s, filter .12s; display: inline-flex; align-items: center; gap: 5px; }
+            .pl-switch:hover { filter: brightness(1.15); }
+            .pl-switch:active { transform: translateY(2px); box-shadow: 0 2px 0 #000; }
+            .pl-switch:disabled { filter: grayscale(.8) brightness(.7); cursor: not-allowed; }
+            /* switch team + mini spectator slot below it */
+            .pl-switch-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; flex-shrink: 0; }
+            .pl-switch-wrap .pl-slots { flex: none; display: flex; }
+            .pl-switch-wrap .pl-slot { flex: none; width: clamp(34px, 5vmin, 52px); height: clamp(34px, 5vmin, 52px); max-height: none; border-radius: 9px; }
+            .pl-switch-wrap .pl-plus { font-size: clamp(12px, 2.6vmin, 20px); }
+            .pl-switch-wrap .pl-open-label { font-size: 7px; letter-spacing: 1px; }
+            .pl-switch-wrap .pl-slot-name { font-size: 8px; }
+            .pl-switch-wrap .pl-slot.pl-spec { border-color: rgba(154,160,171,.55); background: rgba(154,160,171,.07); }
+            .pl-switch-wrap .pl-vico, .pl-switch-wrap .pl-tk { display: none !important; }
+            /* drag grips ï¿½ grab the menu by its edges to move it */
+            .pl-grip { position: absolute; z-index: 61; touch-action: none; cursor: move; }
+            .pl-grip-t, .pl-grip-b { left: 14px; right: 14px; height: 9px; }
+            .pl-grip-t { top: 0; } .pl-grip-b { bottom: 0; }
+            .pl-grip-l, .pl-grip-r { top: 14px; bottom: 14px; width: 9px; }
+            .pl-grip-l { left: 0; } .pl-grip-r { right: 0; }
+            .pl-grip-tl, .pl-grip-tr, .pl-grip-bl, .pl-grip-br { width: 14px; height: 14px; }
+            .pl-grip-tl { top: 0; left: 0; } .pl-grip-tr { top: 0; right: 0; }
+            .pl-grip-bl { bottom: 0; left: 0; } .pl-grip-br { bottom: 0; right: 0; }
+            .pl-grip:hover { background: rgba(251,191,36,.18); }
+
+/* MIDDLE: two teams + center column */
+            .pl-middle { flex: 1; min-height: 0; display: flex; gap: clamp(6px, 1.2vmin, 14px); }
+            .pl-team { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: rgba(255,255,255,.03); border: 2px solid rgba(255,255,255,.08); border-radius: 12px; padding: clamp(6px, 1vmin, 10px); }
+            .pl-team-head { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 5px; flex-wrap: wrap; }
+            .pl-team-head b { font-size: 14px; letter-spacing: 2px; color: #fff; }
+            .pl-team-1 .pl-team-head b { color: #fbbf24; }
+            .pl-team-2 .pl-team-head b { color: #60a5fa; }
+            .pl-team-count { font-size: 10px; color: #9aa0ab; }
+            .pl-ghost-hint { display: none; font-size: 9px; letter-spacing: 1px; color: rgba(255,255,255,.55); background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.25); border-radius: 999px; padding: 2px 8px; }
+            /* 12 rows per team: 9 main/locked + divider + 2 spectators, stretched to fill the column */
+            .pl-slots { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: clamp(2px, .5vmin, 6px); align-items: center; justify-content: space-evenly; }
+            .pl-slot { width: min(100%, var(--pl-sq)); flex: 1 1 0; min-height: 0; max-height: 92px; background: #161a21; border: 2px solid #000; border-radius: 12px; box-shadow: 0 4px 0 #000; position: relative; display: flex; align-items: center; justify-content: center; transition: transform .15s ease, border-color .15s ease, background .15s ease, box-shadow .15s ease; }
+            .pl-slot.pl-open { border: 2px dashed rgba(255,255,255,.35); background: rgba(255,255,255,.02); box-shadow: none; cursor: pointer; }
+            .pl-slot.pl-open:hover { transform: translateY(-3px) scale(1.03); border-color: #fbbf24; background: rgba(251,191,36,.06); box-shadow: 0 6px 0 #000, 0 0 20px rgba(251,191,36,.25); }
+            .pl-slot.pl-you { border-color: #fbbf24; box-shadow: 0 4px 0 #000, 0 0 16px rgba(251,191,36,.4); }
+            .pl-slot.pl-lock { cursor: not-allowed; filter: grayscale(.5) brightness(.85); }
+            .pl-slot.pl-spec { border-style: dashed; border-color: rgba(154,160,171,.55); background: rgba(154,160,171,.07); box-shadow: none; }
+            .pl-slot.pl-spec .pl-plus { color: rgba(154,160,171,.8); font-size: clamp(14px, 3.4vmin, 24px); }
+            .pl-slot.pl-spec .pl-open-label { color: rgba(154,160,171,.85); }
+            /* divider above the spectator slots */
+            .pl-spec-div { width: calc(100% - 6px); flex: 0 0 auto; text-align: center; font-size: 8px; letter-spacing: 3px; color: rgba(154,160,171,.8); border-top: 2px dashed rgba(154,160,171,.3); padding: 1px 0 0; margin: 2px 0 1px; }
+            .pl-slot.pl-pop { animation: plSlotPop .35s cubic-bezier(.34,1.56,.64,1); }
+            @keyframes plSlotPop { 0% { transform: scale(1.14); } 100% { transform: scale(1); } }
+            .pl-slot-body { display: flex; flex-direction: column; align-items: center; gap: clamp(3px, .6vmin, 6px); }
+            .pl-plus { font-size: clamp(24px, 6vmin, 40px); color: rgba(255,255,255,.45); line-height: 1; }
+            .pl-open-label { font-size: 9px; letter-spacing: 2px; color: rgba(255,255,255,.35); }
+            .pl-slot-name { font-size: clamp(10px, 2.2vmin, 15px); color: #fff; letter-spacing: 1px; text-align: center; max-width: 96%; padding: 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .pl-slot.pl-you .pl-slot-name { color: #fbbf24; }
+            .pl-slot-ready { position: absolute; top: -8px; right: -8px; font-size: 9px; letter-spacing: 1px; padding: 3px 8px; border-radius: 999px; background: rgba(249,115,22,.18); color: #fb923c; border: 1px solid rgba(249,115,22,.55); animation: plPop .25s cubic-bezier(.34,1.56,.64,1); }
+            @keyframes plPop { 0% { transform: scale(.5); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+/* ONE crown, follows the owner */
+            .pl-crown { position: absolute; top: -14px; left: 50%; transform: translateX(-50%); z-index: 2; color: #ffb12b; filter: drop-shadow(0 2px 3px rgba(0,0,0,.6)); animation: plCrown .8s ease-in-out infinite alternate; }
+            @keyframes plCrown { from { transform: translateX(-50%) translateY(0) rotate(-3deg); } to { transform: translateX(-50%) translateY(-2px) rotate(3deg); } }
+            /* voice state icon (bottom-right corner of slot) */
+            .pl-vico { position: absolute; bottom: 3px; right: 3px; z-index: 2; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; color: #34d399; background: rgba(0,0,0,.55); border-radius: 50%; }
+            .pl-vico.pl-vico-deaf { color: #f87171; }
+            .pl-vico.pl-vico-muted { color: #f87171; }
+            /* talk level bar */
+            .pl-tk { position: absolute; bottom: 3px; right: 26px; display: flex; flex-direction: column; align-items: center; gap: 1px; opacity: 0; transition: opacity .12s linear; pointer-events: none; }
+            .pl-tk-bar { width: 4px; height: 18px; background: rgba(52,211,153,.2); border-radius: 2px; overflow: hidden; position: relative; }
+            .pl-tk-bar::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 0; background: linear-gradient(180deg, #a3e635, #34d399); transition: height .1s linear; }
+            .pl-tk-live .pl-tk-bar::after { height: 100%; }
+            .pl-tk.pl-tk-deaf { opacity: 1; }
+            .pl-tk.pl-tk-deaf .pl-tk-bar { background: rgba(248,113,113,.4); }
+            .pl-tk.pl-tk-deaf .pl-tk-bar::after { height: 100%; background: linear-gradient(180deg, #f87171, #ef4444); }
+            .pl-tk-muted .pl-tk-bar::after { background: #f87171; }
+            /* team 2 locked */
+            .pl-team.pl-ghost { opacity: .3; filter: grayscale(.6); border-style: dashed; cursor: pointer; transition: opacity .25s ease, filter .25s ease; }
+            .pl-team.pl-ghost:hover { opacity: .55; filter: grayscale(.3); }
+            .pl-team.pl-ghost .pl-ghost-hint { display: inline; }
+
+/* CENTER COLUMN */
+            .pl-center { width: clamp(200px, 34vw, 500px); flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: clamp(4px, .8vmin, 8px); min-height: 0; }
+            /* chat, wide square frame */
+            .pl-chat { width: 100%; aspect-ratio: 1 / 1; max-height: 62vh; flex: none; display: flex; flex-direction: column; background: rgba(0,0,0,.35); border: 2px solid rgba(255,255,255,.1); border-radius: 10px; padding: clamp(4px, .7vmin, 7px); }
+            .pl-chat-list { flex: 1; min-height: 0; overflow-y: auto; font-size: 11px; line-height: 1.45; color: #cbd5e1; scrollbar-width: thin; }
+            .pl-chat-row b { color: #fbbf24; font-weight: normal; }
+            .pl-chat-self b { color: #38bdf8; }
+            .pl-chat-tag { display: inline-block; font-size: 9px; padding: 0 5px; border-radius: 999px; margin-right: 4px; vertical-align: 1px; }
+            .pl-chat-tag.t1 { background: rgba(251,191,36,.15); color: #fbbf24; }
+            .pl-chat-tag.t2 { background: rgba(96,165,250,.15); color: #60a5fa; }
+            .pl-chat-tag.sp { background: rgba(154,160,171,.15); color: #9aa0ab; }
+            .pl-chat-in { display: flex; gap: 5px; margin-top: 4px; flex-shrink: 0; }
+            .pl-chat-input { flex: 1; min-width: 0; background: #101318; border: 2px solid #000; border-radius: 6px; color: #fff; padding: 5px 8px; font-size: 11px; outline: none; box-shadow: 0 3px 0 #000; }
+            /* voice row */
+            .pl-voice { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; flex-shrink: 0; justify-content: center; }
+            .pl-mic-status { font-size: 10px; color: #9aa0ab; letter-spacing: 1px; }
+            .pl-mic-on { background: rgba(251,191,36,.15); color: #fbbf24; border: 1px solid rgba(251,191,36,.5); border-radius: 999px; padding: 2px 8px; font-size: 9px; letter-spacing: 2px; }
+
+            /* voice panel popup */
+            .pl-vpanel { display: none; }
+            .pl-vpanel-on { display: flex; position: fixed; z-index: 120; left: 50%; top: 50%; transform: translate(-50%,-50%); width: min(420px, 92vw); max-height: 82vh; flex-direction: column; gap: 8px; background: linear-gradient(160deg, #23262e 0%, #101318 100%); border: 3px solid #000; border-radius: 14px; box-shadow: 0 5px 0 #000, 0 0 40px rgba(251,191,36,.3); padding: 14px; }
+            .pl-vpanel-on .pl-vtools { display: flex; gap: 6px; flex-wrap: wrap; }
+            .pl-vlist { display: flex; flex-direction: column; gap: 5px; overflow-y: auto; min-height: 0; }
+            .pl-vrow { display: flex; align-items: center; gap: 7px; background: rgba(255,255,255,.04); border-radius: 8px; padding: 5px 7px; flex-wrap: wrap; }
+            .pl-vinfo { display: flex; align-items: center; gap: 7px; min-width: 110px; }
+            .pl-vname { font-size: 12px; color: #fff; letter-spacing: 1px; }
+            .pl-vteam { font-size: 9px; color: #9aa0ab; background: rgba(255,255,255,.08); border-radius: 999px; padding: 1px 7px; }
+            .pl-vmuted { font-size: 10px; color: #f87171; letter-spacing: 1px; }
+            .pl-vvol { width: 60px; accent-color: #fbbf24; }
+            .pl-vbar { flex: 1; min-width: 50px; height: 7px; background: rgba(255,255,255,.08); border-radius: 999px; overflow: hidden; }
+            .pl-vbar-fill { display: block; height: 100%; width: 4%; background: linear-gradient(90deg, #34d399, #a3e635); border-radius: 999px; transition: width .1s linear; }
+
+            /* results */
+            .pl-results { background: rgba(52,211,153,.07); border: 2px solid rgba(52,211,153,.35); border-radius: 10px; padding: 6px 10px; flex-shrink: 0; }
+            .pl-results-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 3px; flex-wrap: wrap; }
+            .pl-results-head b { color: #34d399; letter-spacing: 2px; font-size: 12px; }
+            .pl-results-head span { color: #fbbf24; font-size: 11px; letter-spacing: 1px; }
+            .pl-rrow { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: #e2e8f0; padding: 2px 0; }
+            .pl-rrow b { color: #fff; font-weight: normal; }
+            .pl-r-mvp { color: #fbbf24; font-size: 10px; letter-spacing: 1px; }
+
+            /* bottom bar */
+            .pl-bottom { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-shrink: 0; }
+            .pl-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+            .pl-ready-wrap { display: flex; align-items: center; gap: 6px; }
+            .pl-ready-wrap .pl-btn { min-width: 116px; }
+            #pl-start.pl-btn { font-size: 13px; padding: 9px 12px; animation: plPulse .9s infinite alternate; }
+            @keyframes plPulse { from { box-shadow: 0 4px 0 #000, 0 0 0 rgba(251,191,36,0); } to { box-shadow: 0 4px 0 #000, 0 0 18px rgba(251,191,36,.55); } }
+            .pl-status { font-size: 11px; color: #9aa0ab; letter-spacing: 1px; text-align: center; flex-shrink: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .pl-toast-anim { animation: plToast .35s ease; }
+            @keyframes plToast { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+            /* overlays */
+            .pl-cd { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.55); pointer-events: none; }
+            .pl-cd-box { background: linear-gradient(160deg, #23262e 0%, #101318 100%); border: 3px solid #000; border-radius: 18px; box-shadow: 0 5px 0 #000, 0 0 40px rgba(251,191,36,.35); padding: 22px 40px; text-align: center; pointer-events: auto; }
+            .pl-cd-label { font-size: 13px; letter-spacing: 3px; color: #9aa0ab; }
+            .pl-cd-num { font-size: 72px; color: #fbbf24; text-shadow: 0 4px 0 #000; animation: plCdPop .9s infinite; }
+            @keyframes plCdPop { 0% { transform: scale(1.25); } 100% { transform: scale(1); } }
+            .pl-modal { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.75); }
+            .pl-modal.hidden { display: none; }
+            .pl-modal-box { background: linear-gradient(160deg, #23262e 0%, #101318 100%); border: 3px solid #000; border-radius: 16px; box-shadow: 0 5px 0 #000, 0 0 40px rgba(251,191,36,.35); padding: 22px 28px; text-align: center; min-width: 250px; }
+            .pl-modal-title { font-size: 15px; letter-spacing: 2px; color: #fbbf24; margin-bottom: 10px; }
+            .pl-modal-text { font-size: 12px; color: #cbd5e1; margin-bottom: 16px; line-height: 1.5; }
+            .pl-modal-actions { display: flex; gap: 10px; justify-content: center; }
+            .pl-vote-btn { background: linear-gradient(160deg, #64748b 0%, #334155 100%); color: #fff; border: 2px solid #000; border-radius: 6px; padding: 7px 10px; font-size: 11px; cursor: pointer; letter-spacing: 1px; box-shadow: 0 3px 0 #000; transition: transform .12s, filter .12s; }
+            .pl-vote-btn:hover { filter: brightness(1.15); }
+            .pl-vote-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 #000; }
+            .pl-vote-btn:disabled { filter: grayscale(.6) brightness(.7); cursor: not-allowed; }
+            .pl-vote-btn.pl-vote-on { background: linear-gradient(160deg, #fbbf24 0%, #f97316 100%); color: #241505; }
+
+/* tiny screens */
+            @media (max-width: 420px) {
+              .pl-lobby { --pl-sq: clamp(42px, 12vw, 56px); gap: 4px; padding: 5px; }
+              .pl-mode-wrap label, .pl-room-label { display: none; }
+              .pl-team { padding: 5px; }
+              .pl-center { width: clamp(150px, 40vw, 190px); }
+              .pl-top .pl-btn { padding: 5px 8px; font-size: 10px; }
+              .pl-slot { max-height: 64px; }
+              .pl-grip-t, .pl-grip-b { height: 13px; }
+              .pl-grip-l, .pl-grip-r { width: 13px; }
+              .pl-grip-tl, .pl-grip-tr, .pl-grip-bl, .pl-grip-br { width: 18px; height: 18px; }
+            }
+            /* very short landscape */
+            @media (max-height: 420px) {
+              .pl-lobby { --pl-sq: clamp(34px, 11vh, 48px); }
+              .pl-center { width: clamp(140px, 30vw, 240px); }
+              .pl-chat { max-height: 46vh; }
+              .pl-chat-list { font-size: 10px; }
+              .pl-slot { max-height: 44px; }
+            }
+            /* mobile: 12 slots as 2 columns x 6 rows so taps are big; spectators end up on the bottom row */
+            @media (max-width: 768px) {
+              .pl-team .pl-slots { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: clamp(3px, .6vmin, 7px); }
+              .pl-team .pl-slots .pl-spec-div { grid-column: 1 / -1; width: auto; }
+              .pl-team .pl-slot { width: 100%; }
+            }
+          </style>
+
+          <!-- TOP BAR -->
+          <div class="pl-top">
+            <div class="pl-mode-wrap">
+              <label>GAME MODE</label>
+<select id="pl-mode">
+                <option value="gladiator">GLADIATOR</option>
+                <option value="sandbox">SANDBOX</option>
+                <option value="platform-king">PLATFORM KING</option>
+                <option value="custom">CUSTOM</option>
+              </select>
+              <button class="pl-vote-btn" id="pl-vote" title="Host: enable player voting. Locks until the battle ends.">ENABLE VOTING</button>
+            </div>
+            <div class="pl-switch-wrap">
+              <button class="pl-switch" id="pl-switch" title="Move to the other team (custom mode only)"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M8.59 16.34l4.58-4.59-4.58-4.59L10 5.75l6 6-6 6z"/><path d="M15.41 7.66l-4.58 4.59 4.58 4.59L14 18.25l-6-6 6-6z"/></svg> SWITCH TEAM</button>
+              <div class="pl-slots" id="pl-slots-0"></div>
+              <span id="pl-cs0" class="pl-hidden"></span>
+            </div>
+            <div class="pl-room-box">
+              <span class="pl-room-label">GAME CODE</span>
+              <span class="pl-room-code" id="pl-room-code">----</span>
+              <span class="pl-room-label" id="pl-seat-count" style="margin-left:6px">0/3</span>
+              <button class="pl-btn pl-btn-sm pl-btn-gray" id="pl-copy">COPY</button>
+              <input class="pl-join-input" id="pl-join-code" maxlength="4" placeholder="XXXX" spellcheck="false">
+              <button class="pl-btn pl-btn-sm pl-btn-orange" id="pl-join">JOIN</button>
+            </div>
+          </div>
+
+          <!-- MIDDLE: TEAM 1 (left) + center + TEAM 2 (right) -->
+          <div class="pl-middle">
+<div class="pl-team pl-team-1" id="pl-team-1">
+              <div class="pl-team-head"><b>TEAM 1</b><span class="pl-team-count" id="pl-c1">0/12</span></div>
+              <div class="pl-slots" id="pl-slots-1"></div>
+            </div>
+
+            <div class="pl-center">
+              <!-- CHAT (center of the screen, both teams talk here) -->
+              <div class="pl-chat">
+                <div class="pl-chat-list" id="pl-chat-list"></div>
+                <div class="pl-chat-in">
+                  <input class="pl-chat-input" id="pl-chat-input" maxlength="140" placeholder="Type a messageï¿½" spellcheck="false">
+                  <button class="pl-btn pl-btn-sm pl-btn-orange" id="pl-chat-send">SEND</button>
+                </div>
+              </div>
+
+              <!-- VOICE -->
+              <div class="pl-voice">
+                <button class="pl-btn pl-btn-sm pl-btn-gray" id="pl-mic"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c.4 0 .73.17 1 .44v-3.89c0-.83-.67-1.5-1.5-1.5h-2.41c-.83 0-1.5.67-1.5 1.5v3.89c.27-.27.6-.44 1-.44z"/></svg> VOICE: OFF</button>
+                <button class="pl-btn pl-btn-sm pl-btn-gray" id="pl-vopts"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.59-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.56.24-1.09.56-1.59.94l-2.39-.96c-.22-.07-.47 0-.59.22L2.74 8.87c-.12.2-.07.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.12.22-.07.47.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.59.94l.36 2.54c.04.24.24.41.48.41h3.84c.24 0 .43-.17.47-.41l.36-2.54c.56-.24 1.09-.56 1.59-.94l2.39.96c.22.07.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg> VOICE SETTINGS</button>
+                <span class="pl-mic-status" id="pl-mic-status">Click VOICE to enable lobby voice chat</span>
+                <span class="pl-mic-on" id="pl-mic-tag" style="display:none">VOICE LIVE</span>
+              </div>
+            </div>
+
+            <div class="pl-team pl-team-2 pl-ghost" id="pl-team-2">
+              <div class="pl-team-head"><b>TEAM 2</b><span class="pl-ghost-hint">LOCKED ï¿½ CLICK TO ENABLE CUSTOM</span><span class="pl-team-count" id="pl-c2">0/12</span></div>
+              <div class="pl-slots" id="pl-slots-2"></div>
+            </div>
+          </div>
+
+          <!-- LAST MATCH RESULTS -->
+          <div class="pl-results hidden" id="pl-results">
+            <div class="pl-results-head"><b>LAST MATCH</b><span id="pl-results-mvp"></span></div>
+            <div id="pl-results-list"></div>
+          </div>
+
+          <!-- BOTTOM BAR -->
+          <div class="pl-bottom">
+            <button class="pl-btn pl-btn-orange" id="pl-collections">COLLECTIONS</button>
+            <div class="pl-actions">
+              <button class="pl-btn pl-btn-red" id="pl-delete" style="display:none">DELETE ROOM</button>
+              <button class="pl-btn pl-btn-gray" id="pl-back">BACK</button>
+              <div class="pl-ready-wrap">
+                <button class="pl-btn pl-btn-gold" id="pl-start" style="display:none">START BATTLE</button>
+                <button class="pl-btn pl-btn-orange" id="pl-ready">READY</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="pl-status" id="pl-status"></div>
+
+          <!-- COUNTDOWN OVERLAY -->
+          <div class="pl-cd hidden" id="pl-cd">
+            <div class="pl-cd-box">
+              <div class="pl-cd-label">MATCH STARTS IN</div>
+              <div class="pl-cd-num">3</div>
+            </div>
+          </div>
+
+          <!-- CONFIRM MODAL (for leaving the crown seat) -->
+          <div class="pl-modal hidden" id="pl-confirm-modal">
+            <div class="pl-modal-box">
+              <div class="pl-modal-title">LEAVE OWNER SEAT?</div>
+              <div class="pl-modal-text">Are you sure you want to leave the owner position? Another player may take it.</div>
+              <div class="pl-modal-actions">
+                <button class="pl-btn pl-btn-red" id="pl-confirm-yes">YES, LEAVE</button>
+                <button class="pl-btn pl-btn-gray" id="pl-confirm-no">CANCEL</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- VOICE SETTINGS POPUP -->
+          <div class="pl-vpanel" id="pl-vpanel">
+            <div class="pl-vtools">
+              <button class="pl-btn pl-btn-sm pl-btn-gray" id="pl-vdeaf">DEAFEN: OFF</button>
+              <button class="pl-btn pl-btn-sm pl-btn-gray" id="pl-vptt">PTT: AUTO</button>
+              <button class="pl-btn pl-btn-sm pl-btn-gray" id="pl-vptt-hold"><svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><path d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16.01H3V4.98h18v14.03z"/></svg> HOLD TO TALK</button>
+              <button class="pl-btn pl-btn-sm pl-btn-red" id="pl-vclose">CLOSE</button>
+            </div>
+            <div class="pl-vlist" id="pl-vlist"></div>
+          </div>
+
+          <!-- DRAG GRIPS (grab the menu by its edges to move it) -->
+          <div class="pl-grip pl-grip-t" data-dir="t"></div>
+          <div class="pl-grip pl-grip-b" data-dir="b"></div>
+          <div class="pl-grip pl-grip-l" data-dir="l"></div>
+          <div class="pl-grip pl-grip-r" data-dir="r"></div>
+          <div class="pl-grip pl-grip-tl" data-dir="tl"></div>
+          <div class="pl-grip pl-grip-tr" data-dir="tr"></div>
+          <div class="pl-grip pl-grip-bl" data-dir="bl"></div>
+          <div class="pl-grip pl-grip-br" data-dir="br"></div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== SANDBOX ROOM ====================
+         Your own server. You open it, you hand out the code, you pick the map
+         and you start it. Nothing is queued and nobody is matched in: a room
+         with a door you opened.
+
+         Deliberately text-and-presence only. The Platoon's voice is a WebRTC
+         mesh where every member holds a direct connection to every other, and
+         that is fine at three and unusable at fourteen. Talking in a Sandbox is
+         done out of band until an SFU (a server that mixes the audio) exists. -->
+    <div class="menu hidden" id="menu-sandbox">
+      <div class="sb-room">
+
+        <style>
+        .sb-room{
+          --sb-bg:#1d2430; --sb-panel:#27313f; --sb-line:#3a4759;
+          --sb-orange:#ff9a3c; --sb-gold:#ffd24a; --sb-text:#eef3fa; --sb-dim:#93a3b8;
+          position:absolute; inset:50% auto auto 50%; transform:translate(-50%,-50%);
+          width:min(1020px, 94vw); max-height:min(92vh, 860px);
+          display:flex; flex-direction:column; gap:14px;
+          padding:18px; box-sizing:border-box; border-radius:18px;
+          background:linear-gradient(180deg,#242d3a 0%, var(--sb-bg) 100%);
+          border:2px solid var(--sb-line);
+          box-shadow:0 24px 70px rgba(0,0,0,.65), inset 0 1px 0 rgba(255,255,255,.06);
+          font-family:'Lilita One', system-ui, sans-serif; color:var(--sb-text);
+          overflow:hidden;
+        }
+        .sb-room *{ box-sizing:border-box; margin:0; font-family:inherit; }
+        .sb-room button{ cursor:pointer; border:none; color:var(--sb-text); font-family:inherit; }
+        .sb-room input{ font-family:inherit; }
+
+        .sb-head{ display:flex; align-items:center; gap:12px; flex:0 0 auto; }
+        .sb-title{ font-size:clamp(20px,3.2vw,30px); letter-spacing:1.5px; color:var(--sb-gold);
+                   text-shadow:0 3px 0 rgba(0,0,0,.45); }
+        .sb-sub{ font-size:12px; color:var(--sb-dim); letter-spacing:.6px; }
+        .sb-badge{ margin-left:auto; font-size:11px; letter-spacing:1.2px; padding:5px 12px;
+                   border-radius:999px; background:var(--sb-panel); border:1px solid var(--sb-line);
+                   color:var(--sb-dim); }
+        .sb-badge.is-host{ background:rgba(255,210,74,.16); border-color:var(--sb-gold); color:var(--sb-gold); }
+
+        .sb-btn{ padding:9px 16px; border-radius:10px; font-size:13px; letter-spacing:1px;
+                 background:var(--sb-panel); border:1px solid var(--sb-line); transition:.12s; }
+        .sb-btn:hover:not(:disabled){ background:#33415380; transform:translateY(-1px); }
+        .sb-btn:disabled{ opacity:.34; cursor:not-allowed; }
+        .sb-btn-orange{ background:linear-gradient(180deg,#ffa94f,#f2820f); color:#2a1600; border-color:#c96a08; font-weight:700; }
+        .sb-btn-gold  { background:linear-gradient(180deg,#ffdd6b,#f0b81e); color:#2e2200; border-color:#c99a0c; font-weight:700; }
+        .sb-btn-red   { background:linear-gradient(180deg,#e2604f,#b8352a); color:#fff; border-color:#8e241b; }
+        .sb-btn-sm{ padding:6px 12px; font-size:11.5px; }
+
+        /* Door: open a room, or walk into one that already exists. */
+        .sb-door{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; flex:0 0 auto;
+                  padding:12px; border-radius:14px; background:rgba(0,0,0,.22); border:1px solid var(--sb-line); }
+        .sb-code-in{ width:132px; padding:9px 12px; font-size:15px; letter-spacing:4px; text-align:center;
+                     text-transform:uppercase; border-radius:10px; border:1px solid var(--sb-line);
+                     background:#11161f; color:var(--sb-gold); }
+        .sb-code-in:focus{ outline:none; border-color:var(--sb-orange); }
+        .sb-door-hint{ font-size:11px; color:var(--sb-dim); margin-left:auto; text-align:right; line-height:1.5; }
+
+        .sb-grid{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px;
+                  flex:1 1 auto; min-height:0; }
+        @media (max-width:720px){ .sb-grid{ grid-template-columns:1fr; } }
+
+        .sb-panel{ display:flex; flex-direction:column; min-height:0; gap:10px;
+                   padding:13px; border-radius:14px; background:var(--sb-panel); border:1px solid var(--sb-line); }
+        .sb-panel-head{ display:flex; align-items:baseline; gap:8px; flex:0 0 auto; }
+        .sb-panel-head b{ font-size:13px; letter-spacing:1.4px; color:var(--sb-orange); }
+        .sb-panel-head span{ font-size:11px; color:var(--sb-dim); margin-left:auto; }
+
+        .sb-roster{ flex:1 1 auto; overflow-y:auto; display:flex; flex-direction:column; gap:6px; min-height:90px; padding-right:3px; }
+        .sb-member{ display:flex; align-items:center; gap:8px; padding:8px 11px; border-radius:9px;
+                    background:rgba(0,0,0,.2); border:1px solid transparent; font-size:13px; }
+        .sb-member-host{ border-color:rgba(255,210,74,.5); background:rgba(255,210,74,.09); }
+        .sb-member-name{ flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .sb-member-tag{ font-size:10px; letter-spacing:1px; color:var(--sb-gold); }
+        .sb-kick{ width:22px; height:22px; border-radius:6px; background:rgba(232,85,64,.2); color:#ff9c8c; font-size:14px; line-height:1; }
+        .sb-kick:hover{ background:var(--sb-btn-red); color:#fff; }
+
+        .sb-map{ display:flex; align-items:center; gap:10px; flex:0 0 auto; padding:11px;
+                 border-radius:11px; background:rgba(0,0,0,.2); border:1px solid var(--sb-line); }
+        .sb-map-txt{ flex:1 1 auto; min-width:0; }
+        .sb-map-name{ font-size:14.5px; color:var(--sb-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .sb-map-desc{ font-size:10.5px; color:var(--sb-dim); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .sb-arrow{ width:28px; height:28px; border-radius:8px; background:var(--sb-panel); border:1px solid var(--sb-line); font-size:14px; line-height:1; }
+        .sb-arrow:hover:not(:disabled){ background:#3a4759; }
+
+        .sb-chat{ flex:1 1 auto; min-height:0; display:flex; flex-direction:column;
+                  border-radius:10px; background:rgba(0,0,0,.3); border:1px solid var(--sb-line); }
+        .sb-chat-log{ flex:1 1 auto; overflow-y:auto; padding:9px 11px; display:flex; flex-direction:column; gap:4px; min-height:0; }
+        .sb-msg{ font-size:12.5px; line-height:1.45; font-family:system-ui, sans-serif; }
+        .sb-msg-who{ color:var(--sb-orange); font-weight:600; margin-right:6px; }
+        .sb-msg-text{ color:#cfdae8; }
+        .sb-msg-mine .sb-msg-who{ color:var(--sb-gold); }
+        .sb-form{ display:flex; gap:7px; padding:8px; border-top:1px solid var(--sb-line); flex:0 0 auto; }
+        .sb-chat-input{ flex:1 1 auto; padding:8px 11px; font-size:13px; border-radius:8px;
+                        border:1px solid var(--sb-line); background:#11161f; color:var(--sb-text); }
+        .sb-chat-input:focus{ outline:none; border-color:var(--sb-orange); }
+
+        .sb-foot{ display:flex; align-items:center; gap:10px; flex:0 0 auto; }
+        .sb-code{ font-size:22px; letter-spacing:5px; color:var(--sb-gold); }
+        .sb-status{ font-size:11.5px; color:var(--sb-dim); flex:1 1 auto; line-height:1.4; }
+        </style>
+
+        <div class="sb-head">
+          <div>
+            <div class="sb-title">SANDBOX ROOM</div>
+            <div class="sb-sub">YOUR OWN SERVER · UP TO 14 PLAYERS</div>
+          </div>
+          <div class="sb-badge" id="sb-role"></div>
+        </div>
+
+        <div class="sb-door">
+          <button class="sb-btn sb-btn-orange" id="sb-host">OPEN A ROOM</button>
+          <button class="sb-btn" id="sb-join">JOIN</button>
+          <input class="sb-code-in" id="sb-code-input" maxlength="6" placeholder="CODE" spellcheck="false">
+          <button class="sb-btn sb-btn-sm sb-btn-red" id="sb-leave">LEAVE</button>
+          <button class="sb-btn sb-btn-sm" id="sb-solo">JUST PLAY ALONE</button>
+          <div class="sb-door-hint">OPEN A ROOM makes you the host: you choose the<br>map and you start it. Text chat only — see below.</div>
+        </div>
+
+        <div class="sb-grid">
+          <div class="sb-panel">
+            <div class="sb-panel-head"><b>WHO'S HERE</b><span id="sb-count">0 / 14</span></div>
+            <div class="sb-roster" id="sb-members"></div>
+            <div class="sb-panel-head"><b>MAP</b><span>HOST PICKS</span></div>
+            <div class="sb-map">
+              <button class="sb-arrow" id="sb-map-prev">‹</button>
+              <div class="sb-map-txt">
+                <div class="sb-map-name" id="sb-map-name">No map chosen</div>
+                <div class="sb-map-desc" id="sb-map-desc">the host picks the map</div>
+              </div>
+              <button class="sb-arrow" id="sb-map-next">›</button>
+            </div>
+          </div>
+
+          <div class="sb-panel">
+            <div class="sb-panel-head"><b>CHAT</b><span>NO VOICE IN A ROOM THIS SIZE</span></div>
+            <div class="sb-chat">
+              <div class="sb-chat-log" id="sb-chat-log"></div>
+              <form class="sb-form" id="sb-chat-form">
+                <input class="sb-chat-input" id="sb-chat-input" maxlength="200" placeholder="Say something…" spellcheck="false">
+                <button class="sb-btn sb-btn-sm sb-btn-orange" type="submit">SEND</button>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <div class="sb-foot">
+          <div class="sb-code" id="sb-code">------</div>
+          <div class="sb-status" id="sb-status"></div>
+          <button class="sb-btn sb-btn-sm" data-back="menu-main">BACK</button>
+          <button class="sb-btn sb-btn-gold" id="sb-start" disabled>START</button>
+        </div>
+
+      </div>
+    </div><!-- /menu-sandbox -->
+    </div><!-- HUD -->
+
+    <div id="hud" class="hidden">
+
+      <!-- LOADING OVERLAY -->
+      <div class="loading-overlay hidden" id="loading-overlay">
+        <div class="loading-box">
+          <div class="loading-spinner"></div>
+          <div class="loading-text">Loading map...</div>
+        </div>
+      </div>
+
+      <!-- MATCH COUNTDOWN (10s before battle) -->
+      <div class="match-cd hidden" id="match-cd">
+        <div class="match-cd-box">
+          <div class="match-cd-label" id="match-cd-label">Pre-Battle Preparation</div>
+          <div class="match-cd-num" id="match-cd-num">10</div>
+          <div class="match-cd-go" id="match-cd-go" style="display:none">BATTLE!</div>
+        </div>
+      </div>
+
+      <!-- TANK SWITCH (WoT-style bottom during countdown) -->
+      <div class="tank-switch-panel hidden" id="tank-switch-panel">
+        <div class="tank-switch-header">
+          <span class="ts-label">SELECT TANK</span>
+          <span class="ts-count" id="ts-count"></span>
+        </div>
+        <div class="tank-switch-scroll">
+          <div class="tank-switch-nav">
+            <button class="ts-nav-btn" id="ts-prev" title="Previous">&#9664;</button>
+          </div>
+          <div class="tank-switch-grid" id="tank-switch-grid"></div>
+          <div class="tank-switch-nav">
+            <button class="ts-nav-btn" id="ts-next" title="Next">&#9654;</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="minimap-btn" title="Open map"><svg width="39" height="39" viewBox="0 0 24 24" fill="none" stroke="#ffb12b" stroke-width="2" stroke-linejoin="round"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15"/><path d="M15 6v15"/></svg><span class="map-key-hint">M</span></div>
+
+      <div id="menu-btn" title="Menu"><svg width="39" height="39" viewBox="0 0 24 24" fill="none" stroke="#64a0ff" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg><span class="map-key-hint">TAB</span></div>
+
+      <div id="speed-readout"><span id="speed-val">0</span> <small>km/h</small></div>
+
+      <div id="fps-counter" class="hidden"></div>
+
+      <div id="leaderboard">
+
+        <div class="lb-title">Leaderboard</div>
+
+        <ol id="lb-list"></ol>
+
+      </div>
+
+      <!-- TDM Scoreboard (center-top, horizontal glass) -->
+      <div id="tdm-lb" class="hidden">
+        <div class="tdm-lb-top">
+          <div class="tdm-lb-row tdm-lb-blue" id="tdm-lb-blue"></div>
+          <div class="tdm-lb-row tdm-lb-red" id="tdm-lb-red"></div>
+        </div>
+        <div class="tdm-lb-bottom">
+          <span class="tdm-vs-blue" id="tdm-lb-blue-score">0</span>
+          <span class="tdm-vs-label">VS</span>
+          <span class="tdm-vs-red" id="tdm-lb-red-score">0</span>
+        </div>
+      </div>
+
+      <div id="drown-bar-wrap" class="hidden"><div id="drown-bar"></div></div>
+
+      <!-- Battle score strip: damage, kills and cash earned SO FAR in this
+           battle. Sits directly above the HP bar and is centred with it, so the
+           whole cluster reads as one panel along the screen's centre line.
+           The cash cell is live — it counts up as kills are scored, instead of
+           only being visible on the profile page after the battle is over. -->
+      <div id="score-strip">
+        <div class="score-cell"><span class="score-cap">DMG</span><span class="score-val" id="score-dmg">0</span></div>
+        <div class="score-cell"><span class="score-cap">KILLS</span><span class="score-val" id="score-kills">0</span></div>
+        <div class="score-cell"><span class="score-cap">CASH</span><span class="score-val" id="score-cash">0</span></div>
+      </div>
+
+      <div id="hp-wrap"><div id="hp-bar"></div><span id="hp-text">100 / 100</span></div>
+
+      <div id="super-wrap" class="hidden">
+        <button id="super-btn" title="Super ability (F)">
+          <span class="super-icon">&#x2605;</span>
+          <span class="super-label">READY</span>
+        </button>
+        <span id="super-hint" class="hidden"></span>
+      </div>
+
+      <canvas id="reload-indicator" width="208" height="208"></canvas>
+
+      <div id="camo-indicator"><span id="camo-dot"></span><span id="camo-text">EXPOSED</span></div>
+
+      <!-- Fullscreen TAB scoreboard overlay -->
+      <div id="scoreboard-overlay" class="hidden">
+        <div id="sb-round-info" class="sb-round-info hidden"></div>
+        <div class="sb-inner" id="sb-container"></div>
+        <div class="sb-bottom-bar">
+          <button class="sb-bottom-btn" id="sb-resume">RESUME</button>
+          <button class="sb-bottom-btn sb-exit" id="sb-exit">EXIT TO MENU</button>
+        </div>
+      </div>
+
+      <div id="drift-hint" class="hidden">DRIFT</div>
+
+      <div id="heat-wrap" class="hidden"><div id="heat-bar-outer"><div id="heat-bar"></div></div><span class="heat-tick" style="top:0">1000</span><span class="heat-tick" style="top:50%">500</span><span class="heat-tick" style="top:100%">0</span><span id="heat-text"></span></div>
+
+      <div id="net-status" class="hidden"></div>
+
+      <!-- Gladiator mode HUD -->
+
+      <div id="glad-hud" class="hidden">
+
+        <span id="glad-power">PWR 0 (+0%)</span>
+
+        <span id="glad-left">Alive: -</span>
+
+      </div>
+
+      <div id="glad-banner" class="hidden"></div>
+
+      <!-- BASE DEFEND mode HUD.
+
+           Top centre, under the TDM strip, and it HIDES that strip: the two
+           scoreboards both want the same piece of screen, and this one's numbers
+           are the ones that decide the match. Left column is always YOUR base
+           and right is always THEIRS — base-defend.js fills them from the
+           player's own team, so the labels are fixed words rather than team ids
+           and the colours come from Game._displayColor. -->
+
+      <div id="base-hud" class="hidden">
+        <div class="base-hud-title">BASE DEFEND</div>
+        <div class="base-hud-cols">
+          <div class="base-hud-col">
+            <div class="base-hud-cap"><span class="base-hud-side">YOUR BASE</span><span class="base-hud-src" id="base-hud-mine-team">MAP ENTITY</span></div>
+            <div class="base-hud-track"><div class="base-hud-fill" id="base-hud-mine-fill"></div></div>
+            <div class="base-hud-num" id="base-hud-mine-num">1000 HP</div>
+          </div>
+          <div class="base-hud-vs">VS</div>
+          <div class="base-hud-col">
+            <div class="base-hud-cap"><span class="base-hud-side">ENEMY BASE</span><span class="base-hud-src" id="base-hud-theirs-team">MAP ENTITY</span></div>
+            <div class="base-hud-track"><div class="base-hud-fill" id="base-hud-theirs-fill"></div></div>
+            <div class="base-hud-num" id="base-hud-theirs-num">1000 HP</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Zone placeholders: nearest orange cell (countdown) + nearest red cell (danger) -->
+      <div id="glad-mark-orange" class="glad-mark glad-mark-hidden">
+        <span class="glad-mark-dot" style="background:#ffa500"></span>
+        <span id="glad-mark-orange-txt">RED IN 30s</span>
+      </div>
+      <div id="glad-mark-red" class="glad-mark glad-mark-hidden">
+        <span class="glad-mark-dot" style="background:#ff3535"></span>
+        <span id="glad-mark-red-txt">DANGER ZONE</span>
+      </div>
+
+      <!-- Spectator HUD (platoon spectator slots) -->
+      <div id="spectator-hud" class="hidden">
+        <div id="spectator-hud-box">
+          <span id="spec-hud-label">SPECTATOR</span>
+          <button id="spec-player-btn" class="spec-btn"><span class="spec-ico">&#128065;</span><span id="spec-target-name">NO TARGET</span></button>
+          <button id="spec-free-btn" class="spec-btn"><span class="spec-ico">&#127916;</span>FREECAM</button>
+          <span id="spec-hud-hint">WASD move ï¿½ SHIFT down ï¿½ SPACE up ï¿½ drag to rotate</span>
+        </div>
+      </div>
+
+      <!-- Gladiator result overlay -->
+
+      <div id="glad-result" class="hidden">
+
+        <div class="glad-result-box">
+
+          <div id="glad-result-text">MATCH OVER</div>
+
+          <div class="glad-result-btns">
+
+            <button id="glad-play-btn">Play again</button>
+
+            <button id="glad-watch-btn">Keep watching</button>
+
+            <button id="glad-exit-btn">Exit to menu</button>
+
+          </div>
+
+        </div>
+
+      </div>
+
+      <!-- In-game portrait warning -->
+
+      <div id="portrait-warning" class="hidden">
+
+        <div class="portrait-warning-box">
+
+          <span class="portrait-icon">&#x1F4F1;</span>
+
+          <span>Please rotate your device to landscape</span>
+
+        </div>
+
+      </div>
+
+      <!-- SPECTATOR BAR (WoT-style bottom tank switch, shown after you die) -->
+
+      <div id="spectate-bar" class="hidden">
+
+        <div class="spectate-top">
+
+          <span class="spectate-label">SPECTATING</span>
+
+          <div class="spectate-nav">
+
+            <button id="spec-prev" class="spec-nav-btn" title="Previous tank">&lt;</button>
+
+            <button id="spec-next" class="spec-nav-btn" title="Next tank">&gt;</button>
+
+          </div>
+
+        </div>
+
+        <div id="spectate-chips" class="spectate-chips"></div>
+
+        <div class="spectate-exit">
+
+          <button id="spec-exit" class="spec-exit-btn">EXIT TO MENU</button>
+
+        </div>
+
+      </div>
+
+    </div>
+
+
+
+    <!-- RESULTS SCREEN - shown when a battle ends.
+
+         A direct child of #ui-layer, NOT of #hud. That is deliberate and it is
+         the whole reason this element is here rather than beside the other
+         battle overlays.
+
+         #hud is display:none whenever a match is not running, and leaveToMenu()
+         hides it. The results screen opens exactly when the match is decided,
+         which in several modes is the same tick the HUD starts coming down - so
+         nested inside #hud it inherits display:none, measures 0x0, and the
+         turntable's renderer is built against a 0x0 drawing buffer and draws
+         nothing. The symptom is a results screen with all the right text on it
+         and an invisible tank, which is exactly the kind of half-working thing
+         that is hard to diagnose later.
+
+         Being a sibling of #hud means it has its own box for the whole of the
+         result screen's life, whether or not the HUD is still up. -->
+
+    <div id="results-overlay" class="hidden"></div>
+
+
+
+    <!-- FULLSCREEN MAP -->
+
+    <div id="bigmap" class="hidden">
+
+      <div id="bigmap-close" title="Close">&#x2715;</div>
+
+      <canvas id="bigmap-canvas"></canvas>
+
+    </div>
+
+
+
+    <!-- PREVIEW TANK -->
+
+    <div class="menu hidden" id="menu-preview">
+
+      <div class="menu-card" style="width:520px;text-align:center">
+
+        <h2 id="preview-name">Cool Buddy</h2>
+
+        <div id="preview-canvas-host" style="width:100%;height:320px;margin:10px 0;background:#1c1c1c;border-radius:10px;overflow:hidden;position:relative">
+
+          <div id="preview-loading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px">Loading preview...</div>
+
+        </div>
+
+        <div id="preview-stats" style="font-size:13px;color:var(--muted);text-align:center;line-height:1.6"></div>
+
+        <div class="btn btn-back" id="btn-preview-back"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+
+      </div>
+
+    </div>
+
+
+
+    <!-- CODES MENU -->
+
+    <div class="menu hidden" id="menu-codes">
+
+      <div class="menu-card">
+
+        <h2>Redeem Code</h2>
+
+        <label>Enter your code below</label>
+
+        <input type="text" id="codes-input" placeholder="Paste code here..." maxlength="64">
+
+        <div class="btn btn-primary" id="btn-redeem-code">Redeem</div>
+
+        <div class="btn" id="btn-revert-map" style="margin-top:8px">Revert Map (restore original)</div>
+
+        <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+
+      </div>
+
+    </div>
+
+
+
+    <!-- MISSIONS -->
+
+    <div class="menu hidden" id="menu-missions">
+
+      <div class="menu-card">
+
+        <p style="color:rgba(255,255,255,0.3);text-align:center;padding:40px;">Loading missions...</p>
+
+      </div>
+
+    </div>
+
+
+
+    <!-- TANK MENU -->
+
+    <div class="menu hidden" id="menu-tank"></div>
+
+
+
+    <!-- CLANS MAIN MENU -->
+
+    <div class="menu hidden" id="menu-clans">
+
+      <div class="menu-card clan-menu-card">
+
+        <h2 class="clan-title">CLANS</h2>
+
+        <div class="hint clan-hint" id="clan-current-hint" style="display:none"></div>
+
+        <div class="clan-menu-buttons">
+
+          <div class="btn btn-primary clan-3d-btn clan-ico" id="btn-create-clan-menu"><span class="clan-ico-ani">&#x1F6E1;</span> Create Clan</div>
+
+          <div class="btn clan-3d-btn clan-ico" id="btn-search-clans-menu"><span class="clan-ico-ani">&#x1F6E1;</span> Search Clans</div>
+
+        </div>
+
+        <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+
+      </div>
+
+    </div>
+
+
+
+    <!-- CREATE CLAN MENU -->
+
+    <div class="menu hidden" id="menu-create-clan">
+
+      <div class="menu-card clan-menu-card">
+
+        <h2 class="clan-title">CREATE CLAN</h2>
+
+        <label>Clan Name (minimum 3 letters)</label>
+
+        <input type="text" id="clan-name-input" placeholder="Enter clan name..." maxlength="20">
+
+        <label>Visibility</label>
+
+        <div class="seg clan-visibility-seg">
+
+          <div class="seg-opt active" data-vis="public">Public</div>
+
+          <div class="seg-opt" data-vis="hidden">Hidden</div>
+
+        </div>
+
+        <div class="hint clan-hint">?? Attention! If you choose hidden, a code will be copied to your clipboard. You can also get it writing /code in codes menu.</div>
+
+        <div class="btn btn-primary clan-3d-btn clan-ico" id="btn-create-clan-submit"><span class="clan-ico-ani">&#x1F6E1;</span> CREATE CLAN</div>
+
+        <div class="btn btn-back" data-back="menu-clans"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+
+      </div>
+
+    </div>
+
+
+
+    <!-- SEARCH CLANS MENU -->
+
+    <div class="menu hidden" id="menu-search-clans">
+
+      <div class="menu-card clan-menu-card wide">
+
+        <h2 class="clan-title">SEARCH CLANS</h2>
+
+        <div class="clan-search-section">
+
+          <div class="clan-search-row">
+
+            <div class="clan-search-col">
+
+              <label>Search Public Clans</label>
+
+              <input type="text" id="public-clan-search" placeholder="Search by name...">
+
+            </div>
+
+            <div class="clan-search-col">
+
+              <label>Join Hidden Clan</label>
+
+              <input type="text" id="hidden-clan-code" placeholder="Enter clan code...">
+
+            </div>
+
+          </div>
+
+          <div class="btn btn-primary clan-3d-btn clan-ico" id="btn-search-public-clans"><span class="clan-ico-ani">&#x1F6E1;</span> Search</div>
+
+          <div class="btn clan-3d-btn clan-ico" id="btn-join-hidden-clan"><span class="clan-ico-ani">&#x1F6E1;</span> Join Hidden Clan</div>
+
+        </div>
+
+        <div class="clan-list-container">
+
+          <h3 class="clan-list-title">Public Clans</h3>
+
+          <div id="public-clan-list" class="clan-list"><div class="muted">Search for public clans...</div></div>
+
+        </div>
+
+        <div class="btn btn-back" data-back="menu-clans"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+
+      </div>
+
+    </div>
+
+
+
+    <!-- CLAN UI (NEW LAYOUT WITH MEMBER LIST AND CHAT) -->
+
+    <div class="menu hidden" id="menu-clan-ui">
+
+      <div id="clan-sync-tip" class="hidden">
+        <span class="clan-sync-tip-icon">&#x1F504;</span>
+        <span>Messages from other players can take up to 2 minutes to arrive.</span>
+      </div>
+
+      <div class="clan-ui-container">
+
+        <!-- Back arrow (top-left): go search other clans, does NOT leave the clan -->
+        <div class="btn btn-back clan-ui-back-arrow" data-back="menu-clans" id="btn-clan-ui-back" title="Search for other clans (you stay in this clan)"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""></div>
+
+        <!-- Custom canvas layout (Clan Editor design) rendered with live data -->
+
+        <div id="clan-canvas-wrap" class="hidden">
+
+          <canvas id="clan-ui-canvas"></canvas>
+
+          <textarea id="clan-canvas-input" maxlength="200" autocomplete="off" spellcheck="false" rows="1"></textarea>
+
+          <div id="clan-canvas-ph" class="hidden"><span id="clan-canvas-ph-text"></span><span class="clan-ph-dot"></span><span class="clan-ph-dot"></span><span class="clan-ph-dot"></span></div>
+
+        </div>
+
+        <!-- Background Image -->
+        <div class="clan-ui-html clan-ui-background"></div>
+
+        <!-- Clan Header -->
+        <div class="clan-ui-html clan-ui-header-new">
+
+          <h2 class="clan-title" id="clan-ui-name">CLAN NAME</h2>
+
+          <div class="clan-ui-rank-badge" id="clan-ui-rank">OWNER</div>
+
+        </div>
+
+        <!-- Separator -->
+        <div class="clan-ui-html clan-ui-separator">-----------------------------</div>
+
+        <!-- Member List -->
+        <div class="clan-ui-html clan-member-list-container">
+
+          <div class="clan-member-list-header">Members</div>
+
+          <div id="clan-members-list" class="clan-members-list-new"></div>
+
+        </div>
+
+        <!-- Chat Section -->
+        <div class="clan-ui-html clan-chat-container">
+
+          <div class="clan-chat-header">Clan Chat</div>
+
+          <div id="clan-chat-messages" class="clan-chat-messages"></div>
+
+          <div class="clan-chat-input-container">
+
+            <input type="text" id="clan-chat-input" class="clan-chat-input" placeholder="Type a message..." maxlength="200">
+
+            <div class="btn clan-3d-btn clan-chat-send-btn" id="btn-send-chat">Send</div>
+
+          </div>
+
+        </div>
+
+        <!-- Actions -->
+        <div class="clan-ui-actions-new">
+
+          <div class="btn clan-3d-btn" id="btn-copy-clan-code">Copy Join Code</div>
+
+          <div class="btn clan-3d-btn btn-danger" id="btn-leave-clan" title="Leave Clan"><img src="assets/icons/logout.png" alt="" class="logout-ico"></div>
+
+        </div>
+
+        <div class="btn btn-back" data-back="menu-clans"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+
+      </div>
+
+    </div>
+
+
+
+    <!-- ESC MENU -->
+
+    <div id="esc-menu" class="menu hidden" style="z-index:100">
+
+      <div class="menu-card">
+
+        <h2>Exit to main menu?</h2>
+
+        <div class="hint" style="text-align:center;margin-bottom:8px">Are you sure you want to exit?</div>
+
+        <div class="btn btn-primary" id="esc-yes">Yes</div>
+
+        <div class="btn" id="esc-no">No</div>
+
+      </div>
+
+    </div>
+
+
+
+
+
+    <!-- MENU EDITOR OVERLAY -->
+
+    <div id="me-overlay" class="hidden">
+
+      <div id="me-canvas-host"></div>
+
+      <div class="me-toolbar">
+
+        <div class="me-btn" id="me-upload-png">Upload PNG</div>
+
+        <div class="me-btn" id="me-add-btn">Add Button</div>
+
+        <div class="me-btn" id="me-add-chat-input">Add Chat Input</div>
+
+        <div class="me-btn" id="me-add-chat-send">Add Send Button</div>
+
+        <div class="me-btn" id="me-delete-selected">Delete</div>
+
+        <div class="me-btn" id="me-save">Save</div>
+
+        <div class="me-btn me-btn-primary" id="me-apply">Set as Main Menu</div>
+
+        <div class="me-btn" id="me-back"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+
+      </div>
+
+      <div class="me-sidebar" id="me-inspector">
+
+        <div class="me-title">Inspector</div>
+
+        <div class="me-muted">Click an element to select it</div>
+
+      </div>
+
+      <input type="file" id="me-file-input" accept="image/png" style="display:none">
+
+    </div>
+
+
+
+    <!-- TOAST -->
+
+    <div id="toast" class="hidden"></div>
+
+
+
+    <!-- Connecting overlay -->
+
+    <div id="connecting" class="menu hidden">
+
+      <div class="menu-card"><h2>Connectingï¿½</h2><div class="spinner"></div></div>
+
+    </div>
+
+
+
+    <!-- RENDERING TIPS -->
+
+    <div id="rendering-tips" class="menu hidden" style="z-index:999">
+
+      <div class="menu-card" style="width:380px;text-align:center">
+
+        <div class="rt-device-wrap">
+
+          <div class="rt-device">
+
+            <div class="rt-notch"></div>
+
+            <div class="rt-screen-area"></div>
+
+          </div>
+
+          <div class="rt-arrow rt-arrow-a">&#x2190;</div>
+
+          <div class="rt-arrow rt-arrow-b">&#x2192;</div>
+
+        </div>
+
+        <h2 style="margin-top:20px">Rendering Tips</h2>
+
+        <div class="muted" style="padding:0 0 14px;line-height:1.5">
+
+          If you see visual glitches, rotate to<br>
+
+          <strong>portrait</strong> then back to <strong>landscape</strong> to fix.
+
+        </div>
+
+        <div class="rt-check-row" id="rt-check-row">
+
+          <div class="rt-checkbox" id="rt-checkbox"></div>
+
+          <span class="rt-check-label">Don't show this to me again</span>
+
+        </div>
+
+        <div class="btn btn-primary" id="rt-understood">Understood</div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+
+
+  <!-- Libs: three.js r185 (ESM) -->
+
+  <script>
+    // Runs during parsing, before DOMContentLoaded: lets the bootstrap below
+    // tell whether the real event was missed by scripts loaded afterwards.
+    window.__dclFired = false;
+    document.addEventListener('DOMContentLoaded', function () { window.__dclFired = true; });
+  </script>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/three.module.js",
+        "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.webgpu.js",
+        "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.tsl.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/"
+      }
+    }
+  </script>
+
+  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js?v=1784317672"></script>
+
+  <script src="https://unpkg.com/@heroiclabs/nakama-js@2.5.0/dist/nakama-js.umd.js?v=1784317672"></script>
+
+  <!-- three.js bootstrap: expose THREE (with the addon classes the game
+       expects on it) and then load the game scripts in their original order.
+       They stay classic scripts, so every existing global (THREE, Tank, Menu,
+       SHADERS, ...) keeps working exactly as before. -->
+  <script type="module">
+    import * as THREE_ESM from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    // DRACOLoader: needed for any GLB exported with Draco compression. Without
+    // it GLTFLoader THROWS "No DRACOLoader instance provided" instead of falling
+    // back, so a compressed model fails silently where an uncompressed one works.
+    // The decoder files it points at live in assets/draco/ (three.js's own,
+    // copied out of node_modules, which is not deployed).
+    import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+    import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+    import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js';
+    import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { TransformControls } from 'three/addons/controls/TransformControls.js';
+    import { DecalGeometry } from 'three/addons/geometries/DecalGeometry.js';
+
+    // three r152 switched colour management on by default, which re-interprets
+    // every hex colour and would change the whole look. Off = r128's colours.
+    THREE_ESM.ColorManagement.enabled = false;
+
+    // three r155 threw away the old "legacy" lighting and now only ships
+    // physically-correct lighting, which makes ambient, hemisphere and
+    // directional lights render exactly PI times dimmer than they did in
+    // r128. Measured both versions side by side: the factor is 3.1416.
+    // Put that brightness back on just those three light types - through a
+    // getter/setter rather than in the game code, so every value the game
+    // assigns later is still understood as the number it always was.
+    // Point and spot lights keep their modern falloff: the battle and the
+    // menu use none of them, and the garage has a single accent lamp.
+    const PI = Math.PI;
+    // The WebGPU build runs three's node lighting, which hands the scene about
+    // 1.7x LESS light than the GLSL path this game was tuned on (measured on the
+    // same frame with the same camera through both renderers: ground 175 vs 104
+    // with tone mapping off). Compensating here keeps the picture identical on
+    // both backends instead of quietly shipping a darker game.
+    const WEBGPU_LIGHT_TRIM = 1.68;
+    ['AmbientLight', 'HemisphereLight', 'DirectionalLight'].forEach(function (name) {
+      const proto = THREE_ESM[name].prototype;
+      Object.defineProperty(proto, 'intensity', {
+        configurable: true,
+        enumerable: true,
+        get: function () { return this.__i * PI * (window.__isWebGPU ? WEBGPU_LIGHT_TRIM : 1); },
+        set: function (value) { this.__i = value; }
+      });
+      proto.__piIntensity = true;
+    });
+
+    // copy()/clone() would read the already-scaled number back and multiply
+    // it a second time, so restore the value the game originally set.
+    const _lightCopy = THREE_ESM.Light.prototype.copy;
+    THREE_ESM.Light.prototype.copy = function (source, recursive) {
+      _lightCopy.call(this, source, recursive);
+      if (this.__piIntensity) {
+        this.__i = Object.prototype.hasOwnProperty.call(source, '__i') ? source.__i : source.intensity;
+      }
+      return this;
+    };
+
+    // A module namespace object is frozen, so expose a plain object instead.
+    // Identical for every core class, plus the addons under the names the game
+    // already uses (THREE.GLTFLoader, THREE.OrbitControls, ...).
+    const THREE = Object.assign({}, THREE_ESM, {
+      GLTFLoader: GLTFLoader,
+      DRACOLoader: DRACOLoader,
+      OBJLoader: OBJLoader,
+      ColladaLoader: ColladaLoader,
+      FBXLoader: FBXLoader,
+      OrbitControls: OrbitControls,
+      TransformControls: TransformControls,
+      DecalGeometry: DecalGeometry
+    });
+    window.THREE = THREE;
+    window.GLTFLoader = GLTFLoader;
+    window.DRACOLoader = DRACOLoader;
+    window.OBJLoader = OBJLoader;
+    window.ColladaLoader = ColladaLoader;
+    window.FBXLoader = FBXLoader;
+    window.OrbitControls = OrbitControls;
+    window.TransformControls = TransformControls;
+    window.DecalGeometry = DecalGeometry;
+
+    // The game injects small chroma-key / luminance tests into MeshBasicMaterial
+    // by string-replacing three's final output line:
+    //     gl_FragColor = vec4( outgoingLight, diffuseColor.a );
+    // In r128 that line was written straight into the built-in shader, so the
+    // replace worked. In r185 it lives inside a chunk and three hands the shader
+    // to onBeforeCompile BEFORE #include resolution, so the string is not there
+    // yet, .replace() finds nothing, and the patch silently does nothing - which
+    // is why every keyed video turned into an opaque white rectangle.
+    // Insert the test immediately before that chunk instead: outgoingLight and
+    // diffuseColor are already in scope there, and nothing after it touches
+    // outgoingLight. Falls back to the old literal so this still works on r128.
+    window.glslInject = function (src, code) {
+      const CHUNK = '#include <opaque_fragment>';
+      const LITERAL = 'gl_FragColor = vec4( outgoingLight, diffuseColor.a );';
+      if (src.indexOf(CHUNK) !== -1) return src.replace(CHUNK, code + '\n\t\t' + CHUNK);
+      if (src.indexOf(LITERAL) !== -1) return src.replace(LITERAL, code + '\n' + LITERAL);
+      return src;
+    };
+
+    // ---- Stage 2 of the upgrade: TSL / WebGPU ----
+    // The WebGPU build is 2.2 MB and nothing in the game can execute TSL until
+    // the renderer itself is swapped over (WebGLRenderer only understands GLSL
+    // ShaderMaterial). Importing it eagerly would therefore burn loading-screen
+    // time for zero benefit, so it is pulled in on first use instead. Both
+    // builds re-export the same ./three.core.js, so ColorManagement.enabled and
+    // the pi light compensation above already apply to it too.
+    window.loadTSL = function () {
+      if (!window.__tslPromise) {
+        window.__tslPromise = Promise.all([
+          import('three/webgpu'),
+          import('three/tsl')
+        ]).then(function (mods) {
+          window.WebGPU = mods[0];
+          window.TSL = mods[1];
+          return { WebGPU: mods[0], TSL: mods[1] };
+        });
+      }
+      return window.__tslPromise;
+    };
+
+    // three r160+ turned TransformControls into a Controls object instead of an
+    // Object3D, so `scene.add(gizmo)` silently did nothing. Route it through
+    // getHelper() so all three editor gizmos keep behaving the way they did.
+    const _obj3dAdd = THREE_ESM.Object3D.prototype.add;
+    THREE_ESM.Object3D.prototype.add = function () {
+      const list = Array.prototype.map.call(arguments, (o) => {
+        if (o && typeof o.getHelper === 'function' && !o.isObject3D) {
+          if (!o.__gizmoHelper) o.__gizmoHelper = o.getHelper();
+          return o.__gizmoHelper;
+        }
+        return o;
+      });
+      return _obj3dAdd.apply(this, list);
+    };
+
+    // Game scripts, in exactly the order this page used to list them.
+    const GAME_SCRIPTS = [
+      'js/toon.js?v=20260929b',
+      'js/xray.js?v=20261008p',
+      'js/config.js?v=20261011d',
+      'js/vfx.js?v=1787330007',
+      'js/fireball.js?v=20260929m',
+      'js/mortar-blast.js?v=20261006a',
+      'js/muzzle-pop.js?v=20260930h',
+      'js/shaders.js?v=1787330007',
+      'js/video-vfx.js?v=20260926b',
+      'js/decal.js?v=20260927e',
+      
+      'js/obj_data.js?v=1787330007',
+      'js/models.js?v=20261010a',
+      'js/water-shader.js?v=20260929a',
+      'js/water-tsl.js?v=20260926a',
+      'js/world.js?v=20261011c',
+      /* BEFORE tank.js: Tank._drawHp calls HPBarStyles.draw for the nameplate,
+         and falls back to a plain solid bar if the module is not there yet. The
+         style preview page loads this same file to render the five options. */
+      'js/hpbar-styles.js?v=20261006a',
+      'js/tank.js?v=20261018c',
+      'js/tank-sprays.js?v=20261012b',
+      /* Styles (cosmetics): tank.js calls TankStyles.apply once the model is
+         on, so the module has to exist by the tank build — place it with the
+         other cosmetic modules, before the menus that show it. */
+      'js/tank-styles.js?v=20261011a',
+      'js/projectile.js?v=20261018c',
+      'js/bullet-trail.js?v=20260929a',
+      'js/input.js?v=1787330007',
+      'js/bot-nav.js?v=20261008a',
+      'js/bot.js?v=20261008b',
+      /* net.js BEFORE matchmaking.js. matchmaking.js binds itself to Net's
+         callbacks, and it used to be listed first, so at load time Net did not
+         exist and the binding silently never happened. matchmaking.js also
+         wires lazily on first use, so this ordering is belt and braces rather
+         than the only thing holding it up. */
+      'js/session-guard.js?v=20261003b',
+    'js/roster-factory.js?v=20261003a',
+    'js/net.js?v=20261006a',
+      'js/net-cursors.js?v=20261003a',
+      'js/matchmaking.js?v=20261004a',
+      'js/nakama-net.js?v=1787330007',
+      'js/audio.js?v=20261010c',
+      'js/shopdata.js?v=20260929a',
+      'js/clan-default-layout.js?v=1787330007',
+      'js/menu.js?v=20261011f',
+      'js/garage.js?v=20261003a',
+      'js/missions.js?v=20261010b',
+      /* PROGRESSION 2.0 — per-tank XP/levels/tree/currencies. Must precede
+         tank-menu.js because the reworked tank window reads window.Progression
+         at render time. */
+      'js/upgrade-tree.js?v=20261018c',
+      'js/tank-menu.js?v=20261018d',
+      'js/menu-editor.js?v=1787330007',
+      'js/editor123.js?v=20260926a',
+      'js/tank-editor.js?v=20261010y',
+      'js/map-importer.js?v=20260908a',
+      'js/graphics-settings.js?v=20260915a',
+      'js/capture-circle.js?v=20260929a',
+      /* Base Defend. Must load BEFORE game.js: the mode starter calls
+         BaseDefend.init(), and every file here is a plain script tag with no
+         module resolution, so load order is the only dependency ordering there
+         is. Placed next to capture-circle.js because it is that mode's sibling
+         and is disposed in the same place. */
+      'js/base-defend.js?v=20261007a',
+      'js/map-voting.js?v=20261011b',
+      'js/default-map.js?v=1787330007',
+      'js/gladiator-map.js?v=1787330007',
+      'js/boot-watchdog.js?v=20261008a',
+      'js/game.js?v=20261018c',
+      'js/results.js?v=20261018c',
+      'js/auth.js?v=1787330007',
+      /* Real-money store. After auth.js because the return trip calls into Auth,
+         and before menu.js because the store render asks it for the table. */
+      'js/payments.js?v=20261012a',
+      'js/platoon.js?v=1787330007',
+      'js/sandbox-room.js?v=20261007a',
+      /* The Tab+P command panel. Loaded LAST on purpose: it registers a capture
+         keydown listener and calls into Game (for the skip, the perf overlay and
+         the scoreboard), so it needs Game to already exist. Nothing depends on
+         it, so a failure here costs the panel and nothing else. */
+      'js/dev-commands.js?v=20261011c'
+    ];
+
+    const loadScript = (src) => new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error('Failed to load ' + src));
+      document.body.appendChild(s);
+    });
+
+    /* ------------------------------------------------------------------
+       PARALLEL SCRIPT LOADING.
+
+       These were awaited one at a time, so forty-two scripts were fetched
+       strictly in sequence. Each one paid a full round trip before the next
+       request was even sent, and over a tunnel that latency is paid42 times
+       in a row. Nothing requires the order: every file is a classic script
+       that only defines things, and the ones that run code at load time are
+       the libs at the top of the list, which is still respected because they
+       are smaller and land first in practice.
+
+       All requests now go out together and we wait for the slowest, so the
+       total is one round trip's latency instead of42. The list order is kept
+       as the insertion order, which preserves execution order for scripts
+       that do depend on each other. */
+    await Promise.all(GAME_SCRIPTS.map(loadScript));
+
+    /* ------------------------------------------------------------------
+       js/glb_data.js IS NO LONGER LOADED AT ALL.
+
+       It held exactly ONE embedded model, "tankdisplay" -- a single tank used
+       as scenery beside the sandbox dummy target -- as 10.3 MB of base64. That
+       is 80% of everything this page downloads, and it blocked the first
+       frame: over the public tunnel it measured 9.8 seconds on its own.
+
+       It existed only so the game would work when opened straight off disk as
+       a file:// URL, where a fetch cannot read a sibling folder. Served over
+       HTTP that is unnecessary, because Models._tryLoad() falls back to a
+       normal .glb request, and the real file exists:
+       mini_tank_legends_models/tankdisplay.glb, 107 KB.
+
+       So the embedded copy was 100x larger than the thing it stood in for.
+       The file is still on disk for anyone who does open index.html directly
+       from disk; it is simply never requested over the network. */
+
+    // Only replay DOMContentLoaded if it genuinely fired before any of the
+    // game scripts existed (defensive: browsers keep it pending until deferred
+    // modules such as this one finish, so in practice this never triggers).
+    if (window.__dclFired) {
+      document.dispatchEvent(new Event('DOMContentLoaded', { bubbles: true }));
+    }
+  </script>
+
+
+  <!-- Account login overlay -->
+  <div class="auth-overlay hidden" id="auth-overlay">
+    <div class="auth-bg" aria-hidden="true">
+      <div class="auth-blob auth-blob-1"></div>
+      <div class="auth-blob auth-blob-2"></div>
+      <div class="auth-blob auth-blob-3"></div>
+    </div>
+    <div class="auth-card">
+      <div class="auth-logo">
+        <div class="auth-logo-tank" aria-hidden="true"></div>
+        <div class="auth-title">TANK LEGENDS</div>
+        <div class="auth-sub">One account &#x2022; every device</div>
+      </div>
+      <div class="auth-tabs">
+        <div class="auth-tab active" data-authtab="login" id="auth-tab-login">Log In</div>
+        <div class="auth-tab" data-authtab="register" id="auth-tab-register">Register</div>
+      </div>
+
+      <div class="auth-panel active" id="auth-panel-login">
+        <div class="auth-field">
+          <input id="auth-login-login" type="text" placeholder="Username or email" autocomplete="username">
+        </div>
+        <div class="auth-field">
+          <input id="auth-login-pass" type="password" placeholder="Password" autocomplete="current-password">
+        </div>
+        <div class="auth-error hidden" id="auth-error-login"></div>
+        <button class="auth-btn" id="auth-login-btn">Log In</button>
+        <div class="auth-or"><span>or</span></div>
+        <button class="auth-google" id="auth-google-login">
+          <span class="auth-google-g">G</span><span>Continue with Google</span><span class="auth-google-soon">soon</span>
+        </button>
+        <div class="auth-foot">Your progress (coins, tanks, clans) syncs to your account</div>
+      </div>
+
+      <div class="auth-panel" id="auth-panel-register">
+        <div class="auth-field">
+          <input id="auth-reg-username" type="text" placeholder="Username (3-20 chars)" autocomplete="username">
+        </div>
+        <div class="auth-field">
+          <input id="auth-reg-email" type="email" placeholder="Email" autocomplete="email">
+        </div>
+        <div class="auth-field">
+          <input id="auth-reg-pass" type="password" placeholder="Password (min 6 chars)" autocomplete="new-password">
+        </div>
+        <div class="auth-field">
+          <input id="auth-reg-pass2" type="password" placeholder="Repeat password" autocomplete="new-password">
+        </div>
+        <div class="auth-error hidden" id="auth-error-register"></div>
+        <button class="auth-btn" id="auth-reg-btn">Create Account</button>
+        <div class="auth-or"><span>or</span></div>
+        <button class="auth-google" id="auth-google-register">
+          <span class="auth-google-g">G</span><span>Continue with Google</span><span class="auth-google-soon">soon</span>
+        </button>
+        <div class="auth-foot">No email verification &#x2022; just play</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MAP VOTING OVERLAY -->
+  <div id="map-vote-overlay" class="mv-overlay hidden">
+    <div class="mv-wipe"></div>
+    <div class="mv-backdrop"></div>
+    <div class="mv-container">
+      <div class="mv-header">
+        <div class="mv-title">VOTE FOR MAP</div>
+        <div class="mv-timer" id="mv-timer">10</div>
+      </div>
+      <div class="mv-cards" id="mv-cards"></div>
+      <div class="mv-footer">
+        <div class="mv-votes-label" id="mv-votes-label">Your vote counts!</div>
+      </div>
+    </div>
+  </div>
+
+
+<!-- Hidden dev console (buffy) -->
+  <div id="dev-console" style="display:none; position:fixed; bottom:0; left:0; right:0; background:#111; color:#0f0; font:12px monospace; padding:8px; z-index:999999; border-top:2px solid #0f0;">
+    <div style="display:flex; gap:4px; align-items:center; margin-bottom:4px;">
+      <button id="dev-console-toggle" style="background:#222; color:#0f0; border:1px solid #0f0; padding:2px 8px; cursor:pointer;">Show console</button>
+      <button id="dev-console-clear" style="background:#222; color:#0f0; border:1px solid #0f0; padding:2px 8px; cursor:pointer;">Clear</button>
+      <span style="color:#0f0; font-size:11px;">hidden dev console — type JS to eval</span>
+    </div>
+    <div id="dev-console-log" style="display:none; height:120px; overflow:auto; background:#000; padding:4px; border:1px solid #0f0; margin-bottom:4px;"></div>
+    <div id="dev-console-debug" style="display:none;"></div>
+    <input id="dev-console-input" type="text" disabled placeholder="eval..." style="width:100%; background:#000; color:#0f0; border:1px solid #0f0; padding:4px; font:12px monospace; display:none;">
+  </div>
+</body>
+
+</html>
+
+
+
+
+
