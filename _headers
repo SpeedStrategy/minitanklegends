@@ -1,10 +1,32 @@
 # Cloudflare Pages headers
+#
+# THE ROOT PATH IS THE ONE THAT MATTERS MOST
+# ------------------------------------------
+# Almost nobody loads /index.html. They load "/", and a Pages project serves
+# index.html for that WITHOUT rewriting the URL — so a rule written against
+# /index.html does not match "/", and the browser cached the entry document.
+#
+# That is not cosmetic. index.html carries every ?v= cache-buster for
+# js/auth.js and js/login-gate.js, so a cached index.html pins an OLD ?v=, which
+# loads an OLD auth.js, and the page runs code that no longer matches the file on
+# disk. That is exactly how "the Log In button in the main menu does nothing"
+# survived a deploy that provably contained the fix.
+#
+# Both paths are listed below so it cannot happen again.
+
 # Always serve fresh HTML so updates are instant
 /index.html
   Cache-Control: no-cache
   X-Content-Type-Options: nosniff
+/
+  Cache-Control: no-cache
+  X-Content-Type-Options: nosniff
 
 # JS/CSS - revalidate on every request (fast with Cloudflare ETags)
+#
+# These also carry a ?v= stamp, and the two mechanisms deliberately overlap: ?v=
+# defeats a cache that ignores revalidation, and no-cache defeats a ?v= that
+# was forgotten. Each one alone has been the cause of a stale page here.
 /js/*
   Cache-Control: no-cache
 /css/*

@@ -7,10 +7,13 @@ const NakamaNet = {
   client: null,
   session: null,
   socket: null,
-  currentMatch: null,
-  isHost: false,
-  matchId: null,
-  roomCode: null,
+  _socketConnected: false,
+  /* Match messages travel by OPCODE. nakama-js dropped the "send any object"
+      shape years ago: sendMatchState() is (matchId, opCode, Uint8Array). Every
+      kind of message we send gets a number, and the receiving side decodes the
+      bytes back to the same object it always was. The numbers are ours to
+      choose — anything but 0 (reserved by the server for internal use). */
+  OP: { join: 1, input: 2, state: 3, spawn: 4, new_host: 5 },
 
   onPlayerJoin: null,
   onPlayerLeave: null,
@@ -21,10 +24,25 @@ const NakamaNet = {
   worldMatchId: 'fr-' + CONFIG.NAKAMA.SERVER_KEY, // persistent world match name
 
   /* ---------- Init ---------- */
+  /* True when the SDK is actually on the page.
+
+     The bundle is loaded from a CDN and that URL currently returns 404, so
+     `nakamajs` genuinely does not exist at runtime. Calling `new` on an
+     undefined global throws a ReferenceError naming a variable the player has
+     never heard of, which is a terrible thing to show somebody who clicked a
+     button. game.js checks before it gets here; this is the backstop for a
+     caller that forgets. */
+  available(){
+    return typeof nakamajs !== 'undefined';
+  },
   init(){
+    if(!this.available()) return false;
     const cfg = CONFIG.NAKAMA;
-    this.client = new nakamajs.Client(cfg.SERVER_KEY, cfg.HOST, cfg.PORT);
-    this.client.useSsl = cfg.USE_SSL;
+    /* useSSL goes in the CONSTRUCTOR now, not as a follow-on property: the
+       Client builds its baseURL from useSSL when it is constructed, so a later
+       assignment would leave it talking plain http to an SSL endpoint. */
+    this.client = new nakamajs.Client(cfg.SERVER_KEY, cfg.HOST, cfg.PORT, cfg.USE_SSL);
+    return true;
   },
 
   /* ---------- Auth ---------- */
@@ -53,19 +71,25 @@ const NakamaNet = {
   /* ---------- Socket ---------- */
   async connectSocket(){
     if(!this.session) throw new Error('Not authenticated');
-    this.socket = this.client.createSocket();
+    const cfg = CONFIG.NAKAMA;
+    this.socket = this.client.createSocket(cfg.USE_SSL, false);
+    /* nakama-js no longer exposes an isConnected flag, so keep our own;
+       ondisconnect is the one official signal of a broken socket. */
+    this.socket.ondisconnect = () => { this._socketConnected = false; };
     await this.socket.connect(this.session);
+    this._socketConnected = true;
   },
 
   disconnectSocket(){
     if(this.socket){
       try{ this.socket.disconnect(); }catch(e){}
       this.socket = null;
+      this._socketConnected = false;
     }
   },
 
   /* ---------- Multiplayer (client-relayed) ---------- */
-  get isConnected(){ return this.socket && this.socket.isConnected; },
+  get isConnected(){ return !!this.socket && this._socketConnected; },
 
   async createMatch(name){
     if(!this.socket) await this.connectSocket();
@@ -124,35 +148,61 @@ const NakamaNet = {
 
   _wireMatch(){
     if(!this.currentMatch) return;
+    /* Match data arrives as { opCode, data: Uint8Array, ... }. The op code
+       names the kind of message and the bytes are the old payload back again. */
     this.currentMatch.onmatchdata = (result) => {
-      const data = result.data;
-      if(!data) return;
-      if(data.t === 'join' && this.onPlayerJoin){
-        this.onPlayerJoin({ peerId: result.user.presence.user_id, name: data.name, tank: data.tank, color: data.color });
+      if(result instanceof Array || !('op_code' in result)) return;
+      const payload = this._decodeMatchData(result);
+      if(!payload) return;
+      const sender = result.user_id || (result.presence && (result.presence.user_id || result.presence.userId)) || null;
+      if(payload.t === 'join' && this.onPlayerJoin){
+        this.onPlayerJoin({ peerId: sender, name: payload.name, tank: payload.tank, color: payload.color });
       }
-      if(data.t === 'input' && this.onInput){
-        this.onInput(result.user.presence.user_id, data.input);
+      if(payload.t === 'input' && this.onInput){
+        this.onInput(sender, payload.input);
       }
-      if(data.t === 'state' && this.onState){
-        this.onState(data.s);
+      if(payload.t === 'state' && this.onState){
+        this.onState(payload.s);
       }
-      if(data.t === 'spawn' && this.onWelcome){
-        this.onWelcome(data);
+      if(payload.t === 'spawn' && this.onWelcome){
+        this.onWelcome(payload);
       }
-      if(data.t === 'new_host' && this.onHostChange){
-        this.onHostChange(data.hostId);
+      if(payload.t === 'new_host' && this.onHostChange){
+        this.onHostChange(payload.hostId);
       }
     };
     this.currentMatch.onmatchpresence = (result) => {
       (result.leaves || []).forEach(p => {
-        if(this.onPlayerLeave) this.onPlayerLeave(p.user_id);
+        if(this.onPlayerLeave) this.onPlayerLeave(p.user_id || p.userId);
       });
     };
   },
 
+  /* Bytes in -> the object that went out. TextEncoder/TextDecoder are provided
+     by every browser that has WebRTC, so no polyfill is needed here. */
+  _encodeMatchData(payload){
+    try { return new TextEncoder().encode(JSON.stringify(payload)); }
+    catch(e){ return null; }
+  },
+  _decodeMatchData(result){
+    try {
+      const bytes = result.data instanceof Uint8Array ? result.data : null;
+      if(bytes && bytes.length) return JSON.parse(new TextDecoder().decode(bytes));
+    } catch(e){}
+    return null;
+  },
+
   sendMatchData(data){
-    if(!this.currentMatch || !this.socket) return;
-    try{ this.socket.sendMatchData(this.currentMatch.id, data); }catch(e){}
+    if(!this.currentMatch || !this.socket || !this.isConnected) return;
+    /* opCode selects the message kind; the payload is the bytes carrying it.
+       (nakama-js 2.x: sendMatchState(matchId, opCode, Uint8Array) — the old
+       two-argument sendMatchData() call never existed on this version and was
+       failing groundlessly.) */
+    try{
+      const code = (typeof data.t === 'string' && this.OP[data.t]) || 219;
+      const bytes = this._encodeMatchData(data);
+      if(bytes) this.socket.sendMatchState(this.currentMatch.id, code, bytes);
+    }catch(e){}
   },
 
   /* ---------- Cloud storage ---------- */
