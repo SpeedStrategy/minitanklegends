@@ -4349,7 +4349,14 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     } else if(this._physBody && this._visualY == null){
       try { this._visualY = this._physBody.translation().y; } catch(e){}
     }
-    this.root.position.set(this.x, this._allowFall ? (this._visualY || 0) : 0, this.z);
+    /* ALTITUDE SOURCES: a simulated tank's height is read out of its body above.
+       A net-driven ghost owns the interpolated snapshot height, and an
+       input-driven kinematic tank on the HOST owns the height its owner's client
+       reported with the forwarded input. Without the extra case a remote player's
+       tank root was pinned to y=0 and looked buried inside any hill it drove up
+       (the "I'm on the hill / he's inside the hill" report). */
+    const rootY = (this._allowFall || this._peerReportY != null) ? (this._visualY || 0) : 0;
+    this.root.position.set(this.x, rootY, this.z);
     const myaw = this._modelYaw || 0;
     const mo = this._modelOff || (this._modelOff = new THREE.Vector3());
     var tiltX = 0, tiltZ = 0;
@@ -5079,7 +5086,14 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
          Only placed when the map has falling/gravity at all; on flat maps the
          client renders y=0 regardless. null, not 0, so the client can tell
          "no altitude sent" from "altitude 0". */
-      y: this._allowFall ? (this.y || 0) : null,
+      /* For tanks the HOST drives kinematically from forwarded input (roster /
+         party remote humans: no physics body, allowFall false) the altitude
+         arrives with the input itself — the owner's own physics run is the only
+         authority for it. Without this fallback the snapshot ships y=null and
+         every observer draws that tank at y=0, i.e. buried inside the hill it
+         is standing on. */
+      y: this._allowFall ? (this.y || 0)
+         : (typeof this._peerReportY === 'number' && isFinite(this._peerReportY)) ? this._peerReportY : null,
       sp:this.speed, hp:this.hp, alive:this.alive, dying:this.dying,
       dd:this.damageDealt, k:this.kills, as:this.assists||0, tank:this.def.id, name:this.name, col:this.color,
       cam:this.camoFactor, ally:this.allyId, pw:this.power, pl:this.placement||0, gt:this._gladHoldTime||0,
@@ -5113,10 +5127,12 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     if(s.gt != null) this._gladHoldTime = s.gt;
     this.root.visible=this.alive; this._syncTransform(); this._drawHp();
   }
-  /* Network-driven tanks: movement follows interpolated host snapshots */
+  /* Network-driven tanks: movement follows interpolated host snapshots, drawn
+     from a SAMPLE BUFFER at a fixed render delay (see applyNetSnapshot). */
   beginNetDriven(){
     this.netDriven = true;
-    this._netSmooth = null;
+    this._netBuf = null;
+    this._netIntMs = 100;
   }
   applyNetSnapshot(s){
     const wasAlive = this.alive;
@@ -5143,95 +5159,99 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     this.root.visible = this.alive;
     this._drawHp();
 
-    const now = performance.now();
-    const sm = this._netSmooth;
-    /* The snapshot the tank was LAST SENT — not the position it is being
-       RENDERED at. These differ once we start extrapolating between arrivals:
-       the rendered x/z can be a little ahead of the newest target, and
-       measuring the jump from there makes our own extrapolation look like a
-       teleport and triggers a needless snap every time a snapshot is late. */
-    const refX = sm ? sm.p1x : this.x;
-    const refZ = sm ? sm.p1z : this.z;
-    const bigJump = Math.hypot(s.x - refX, s.z - refZ) > 4.5;
-    const stateFlip = wasAlive !== this.alive || !this.alive;
-    /* Altitude from the snapshot; null when the host is running code that does
-       not send it (then the client keeps whatever height it last had). */
+    /* SNAPSHOT BUFFER INTERPOLATION.
+
+       Every arriving sample is stored with its arrival time and (once its
+       successor lands) the velocity of the interval it opens. The tank is
+       DRAWN at `now - renderDelay` — a fixed step behind the newest sample —
+       so between two stored samples the position is always a straight
+       wall-clock lerp and nothing re-anchors.
+
+       The old scheme re-lerped from the rendered spot toward the newest sample
+       over a fixed 150 ms window on every arrival (~83 ms apart), so each
+       window was cut short at a third of its span: the tank settled into a
+       steady ~150 ms straggling distance, froze whenever a snapshot was late,
+       then extrapolated and snapped. The render delay consumes the jitter
+       instead: one late packet is invisible, a gap is a short coast on the
+       measured velocity, and only a genuine teleport snaps. */
     const sy = (typeof s.y === 'number' && isFinite(s.y)) ? s.y : null;
-    if(!sm || bigJump || stateFlip){
-      // First snapshot / teleport / respawn: snap directly.
-      this._netSmooth = {
-        p0x:s.x, p0z:s.z, p0h:s.h, p0t:s.t, p0y:sy,
-        p1x:s.x, p1z:s.z, p1h:s.h, p1t:s.t, p1y:sy,
-        p1sp:(typeof s.sp === 'number') ? s.sp : null,
-        t0:now, t1:now + 150
-      };
-      this.snapToPosition(s.x, s.z, s.h);
+    const now = performance.now();
+    const buf = this._netBuf;
+    const last = (buf && buf.length) ? buf[buf.length - 1] : null;
+    /* Teleport check against the last STORED sample, not the rendered spot, so
+       our own coasting can never look like a teleport. */
+    const bigJump = last ? Math.hypot(s.x - last.x, s.z - last.z) > 4.5 : false;
+    const stateFlip = wasAlive !== this.alive || !this.alive;
+    if(!last || bigJump || stateFlip){
+      /* First snapshot / teleport / respawn: seed the buffer and draw there. */
+      this._netBuf = [{ at:now, x:s.x, z:s.z, h:s.h, t:s.t, y:sy, sp:null, vx:0, vz:0 }];
+      this._netIntMs = 100;
       this.turretAngle = s.t;
+      if(sy != null){ this._visualY = sy; if(this._allowFall) this.y = sy; }
+      this.snapToPosition(s.x, s.z, s.h);
       return;
     }
-    // Buffer previous rendered state -> new target; lerp over the snapshot window.
-    sm.p0x = this.x; sm.p0z = this.z;
-    sm.p0h = this.heading; sm.p0t = this.turretAngle;
-    /* Height continuity: lerp from where the tank is VISUALLY now. this.x is
-       the same thing for x/z only because _netSmoothTick writes x/z; for y the
-       visual truth is _visualY. */
-    sm.p0y = (this._visualY != null && typeof this._visualY === 'number') ? this._visualY : sy;
-    sm.p1x = s.x; sm.p1z = s.z;
-    sm.p1h = s.h; sm.p1t = s.t; sm.p1y = sy;
-    sm.p1sp = (typeof s.sp === 'number') ? s.sp : sm.p1sp;
-    sm.t0 = now; sm.t1 = now + 150;
+
+    /* Velocity of the interval that STARTED at `last`, from the displacement
+       between the last two samples, clamped against the reported speed so one
+       late packet cannot double it. */
+    const gapMs = Math.min(400, Math.max(20, now - last.at));
+    this._netIntMs = this._netIntMs * 0.7 + gapMs * 0.3;
+    const dt = gapMs / 1000;
+    let vx = (s.x - last.x) / dt;
+    let vz = (s.z - last.z) / dt;
+    const sp = (typeof s.sp === 'number' && isFinite(s.sp)) ? s.sp : null;
+    const vmax = sp != null ? sp * 1.75 + 10 : 70;
+    const vmag = Math.hypot(vx, vz);
+    if(vmag > vmax){ const f = vmax / vmag; vx *= f; vz *= f; }
+    last.vx = vx; last.vz = vz; last.sp = sp;
+
+    this._netBuf.push({ at:now, x:s.x, z:s.z, h:s.h, t:s.t, y:sy, sp, vx:0, vz:0 });
+    if(this._netBuf.length > 24) this._netBuf.splice(0, this._netBuf.length - 24);
   }
   _netSmoothTick(){
-    const sm = this._netSmooth;
-    if(!sm) return;
-    const span = sm.t1 - sm.t0;
-    let k = span > 0 ? (performance.now() - sm.t0) / span : 1;
-    if(k > 1) k = 1;
-    let tx = sm.p0x + (sm.p1x - sm.p0x) * k;
-    let tz = sm.p0z + (sm.p1z - sm.p0z) * k;
-    const th = sm.p0h + _angDiff(sm.p1h, sm.p0h) * k;
-    this.turretAngle = sm.p0t + _angDiff(sm.p1t, sm.p0t) * k;
-
-    /* Altitude follows the snapshot too, interpolated the same way. A host that
-       predates y-in-snapshot sends undefined: keep the height we already have
-       rather than writing NaN into the transform. */
-    if(sm.p1y != null && isFinite(sm.p1y)){
-      const fy = (sm.p0y != null && isFinite(sm.p0y)) ? sm.p0y : sm.p1y;
-      const ty = fy + (sm.p1y - fy) * k;
+    const buf = this._netBuf;
+    if(!buf || !buf.length) return;
+    /* The render delay: a bit over two snapshot intervals keeps the render
+       clock inside the two samples that bracket it even with arrival jitter.
+       At 12 Hz that is ~220 ms; a 20 Hz direct link gets ~140 ms; the floor
+       stops a direct link from drawing into the unsent future. */
+    const delay = Math.max(90, Math.min(320, this._netIntMs * 2.2 + 40));
+    const rt = performance.now() - delay;
+    const last = buf[buf.length - 1];
+    let tx, tz, th, tt, ty;
+    if(rt >= last.at){
+      /* PAST THE LAST SAMPLE — coast on its measured velocity for at most
+         0.25 s, then hold. One dropped packet rides through invisibly. */
+      const over = Math.min((rt - last.at) / 1000, 0.25);
+      tx = last.x + last.vx * over;
+      tz = last.z + last.vz * over;
+      th = last.h; tt = last.t; ty = last.y;
+    } else {
+      /* The sample pair bracketing the render time. Buffers are short, so one
+         backward scan beats an index. */
+      let a = buf[0], b = buf[1] || buf[0];
+      for(let i = buf.length - 2; i >= 0; i--){
+        if(buf[i].at <= rt){ a = buf[i]; b = buf[i + 1]; break; }
+      }
+      const span = (b.at - a.at) || 1;
+      const k = Math.min(1, Math.max(0, (rt - a.at) / span));
+      tx = a.x + (b.x - a.x) * k;
+      tz = a.z + (b.z - a.z) * k;
+      th = a.h + _angDiff(b.h, a.h) * k;
+      tt = a.t + _angDiff(b.t, a.t) * k;
+      ty = (a.y != null && b.y != null) ? (a.y + (b.y - a.y) * k)
+         : (b.y != null ? b.y : a.y);
+    }
+    if(ty != null && isFinite(ty)){
       this._visualY = ty;
       if(this._allowFall) this.y = ty;
     }
-
-    /* SHORT VELOCITY EXTRAPOLATION when a snapshot is late.
-
-       Over an internet path snapshots arrive with jitter, so there are moments
-       where the newest one has not landed before the interpolation window runs
-       out. A tank that freezes for a blink and then jumps — the "remote players
-       stutter" report — is exactly that. Coast the snapshot's own forward speed
-       for at most 0.12 s past the window end, which carries the tank through the
-       gap instead of stopping it. When the next snapshot lands it is compared
-       against the LAST TARGET (not the extrapolated render spot), so a normal
-       accommodate-into-lerp is never mistaken for a teleport. */
-    let over = (performance.now() - sm.t1) / 1000;
-    if(k >= 1 && over > 0){
-      over = Math.min(over, 0.12);
-      const f = (typeof sm.p1sp === 'number' && isFinite(sm.p1sp)) ? sm.p1sp : 0;
-      if(f > 0.05){
-        tx += Math.sin(sm.p1h) * f * over;
-        tz += Math.cos(sm.p1h) * f * over;
-      }
-    }
-
-    /* WRITE THROUGH THE PHYSICS BODY, NOT AROUND IT.
-
-       This assigned this.x / this.z and then called _syncTransform(), which
-       reads x and z back OUT of the rigid body -- so the body overwrote the
-       interpolated value on the very next line and every remote tank sat at its
-       spawn point. The interpolation ran, computed a perfectly good position,
-       and threw it away. It looked like the tanks simply did not sync.
-
-       snapToPosition() moves the body, so the interpolated value survives the
-       sync and the tank actually goes where the host says. */
+    this.turretAngle = tt;
+    /* WRITE THROUGH snapToPosition, not this.x: _syncTransform() reads x/z back
+       out of the rigid body (for a simulated tank), so the interpolated value
+       would be overwritten on the next line. For net-driven tanks it skips the
+       physics world entirely and writes straight into the transform. */
     this.snapToPosition(tx, tz, th);
   }
 }

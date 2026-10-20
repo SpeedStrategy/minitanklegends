@@ -160,7 +160,7 @@ function skipMapOutline(o){
    Both are in world units, so they behave the same on a small arena and on the
    1700-unit Kaukaz III. */
 const CORRECT_DEADZONE = 2.0;
-const CORRECT_RATE = 26;
+const CORRECT_RATE = 45;
 
 /* -- THE CLOSING SHOT -------------------------------------------------------
    The cinematic that plays between the last kill and the results screen. See
@@ -6070,17 +6070,34 @@ Net.sendJoinInfo(
            half of the judder. The host stays authoritative for everything that
            actually matters — hp, kills, alive — and those are applied
            immediately below. */
-        const dx = mySnap.x - this.localTank.x;
-        const dz = mySnap.z - this.localTank.z;
+        /* PROJECT THE HOST'S REPORT FORWARD before comparing.
+
+           The snapshot describes where the tank was when the host SENT it — up
+           to one send interval plus one network hop ago. Coasting that report
+           along its own reported heading and speed absorbs the systematic part
+           of the disagreement: on a straight drive the projected report is
+           where the tank already is, so only a REAL divergence (a bump that
+           resolved differently, a rubber-band, a teleport) crosses the
+           deadzone, and ordinary driving never feels a correction at all.
+
+           The age is a fixed ~100 ms (half a send interval + half a round
+           trip): long enough to cancel the systematic lag, short enough that a
+           turn can't run the projection away from the true corner. */
+        const snapSp = (typeof mySnap.sp === 'number' && isFinite(mySnap.sp)) ? Math.max(0, mySnap.sp) : 0;
+        const projX = mySnap.x + Math.sin(mySnap.h) * snapSp * 0.10;
+        const projZ = mySnap.z + Math.cos(mySnap.h) * snapSp * 0.10;
+        const dx = projX - this.localTank.x;
+        const dz = projZ - this.localTank.z;
         const drift = Math.hypot(dx, dz);
+        /* The deadzone scales with speed: every unit/s of travel buys 0.25
+           world units of tolerance, the same way latency grows with speed. */
+        const dead = Math.max(CORRECT_DEADZONE, snapSp * 0.25);
         if(drift > 25){
           /* Respawn or map change: the host is somewhere else entirely. */
           this.localTank.snapToPosition(mySnap.x, mySnap.z, mySnap.h);
-        } else if(drift > CORRECT_DEADZONE){
-          /* Walk the error off at a steady speed. 26 units/second closes a
-             4-unit error in about a sixth of a second — fast enough to feel
-             authoritative, slow enough not to snap. */
-          const step = Math.min(drift - CORRECT_DEADZONE, CORRECT_RATE * CORRECT_DT);
+        } else if(drift > dead){
+          /* Walk the error off at a steady speed. */
+          const step = Math.min(drift - dead, CORRECT_RATE * CORRECT_DT);
           const k = step / (drift || 1);
           this.localTank.snapToPosition(
             this.localTank.x + dx * k,
@@ -8805,6 +8822,16 @@ Net.sendJoinInfo(
       }
 
       const input = {throttle, turn, turretWorldAngle:turretAngle, fire, handbrake};
+      /* OWN ALTITUDE RIDES THE INPUT MESSAGE. The host carries remote players as
+         input-driven kinematic tanks with no physics body, so nothing on the
+         host else knows the height the owner's own body is riding — this is the
+         only channel. The telemetry becomes the remote tank's rendered and
+         snapshot altitude on the host (ownerPeer branch +Tank.snapshot()). */
+      if(this.localTank && this.localTank._allowFall){
+        input.y = (typeof this.localTank._visualY === 'number' && isFinite(this.localTank._visualY))
+          ? this.localTank._visualY
+          : (this.localTank.y || 0);
+      }
       this.localTank.setInput(input);
       // Forward input to host (P2P or Free Roam)
       if(this.mode==='client'){
@@ -8913,7 +8940,17 @@ Net.sendJoinInfo(
           }
         }
       } else if(t.ownerPeer && this.clientTankInputs[t.ownerPeer]){
-        t.setInput(this.clientTankInputs[t.ownerPeer]);
+        const inp = this.clientTankInputs[t.ownerPeer];
+        /* ALTITUDE TELEMETRY: the owner's own physics run reported the height
+           this kinematic replica is standing at. Store it — `_visualY` makes
+           the ROOT render at it on this machine and `Tank.snapshot()` ships it
+           to every client, so a remote tank sits ON the hill everywhere instead
+           of being buried at y=0. */
+        if(typeof inp.y === 'number' && isFinite(inp.y)){
+          t._peerReportY = inp.y;
+          t._visualY = inp.y;
+        }
+        t.setInput(inp);
       } else if(t === this.localTank){
         // Already set above
       } else {
