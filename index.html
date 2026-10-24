@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 
 <html lang="en">
 
@@ -12,21 +12,118 @@
 
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
-<link rel="icon" type="image/png" href="assets/icons/favicon.png">
+<link rel="icon" type="image/webp" href="assets/icons/favicon.webp">
 
-<link rel="apple-touch-icon" href="assets/icons/favicon.png">
+<link rel="apple-touch-icon" href="assets/icons/favicon.webp">
 
 <title>Mini Tank Legends Cline</title>
 
-<link rel="stylesheet" href="css/style.css?v=1786912772">
+<link rel="stylesheet" href="css/style.css?v=20261018d">
+<link rel="stylesheet" href="css/results.css?v=20261011d">
+
+<!--
+  BOOT ORDER. This runs before the stylesheet, so the very first paint is the
+  loading screen and never the menu.
+
+  The problem it fixes: the menu markup ships in index.html and is visible by
+  default, while the loading screen had display:none until game.js's bootstrap
+  ran. Between those two moments the browser painted a half-built menu — icons
+  at their natural size, layout unwired — and it stayed visible over the real
+  loading screen, which made the loading screen look like decoration.
+
+  So: mark the document as booting, hide every screen-level layer in CSS while
+  it is set, and let BootLoading (or the menu, once it is genuinely ready)
+  remove it. If scripting is off or the bootstrap dies before it can, the
+  noscript block below removes the flag so the game is still reachable.
+-->
+<script>
+  document.documentElement.className += ' booting';
+  /* Critical styles, inline so they apply on the very first paint without
+     waiting for the stylesheet. The full rule lives in style.css too; this is
+     the copy that cannot be beaten by a slow stylesheet request. */
+  (function(){
+    var s = document.createElement('style');
+    s.textContent =
+      /* Every full-screen layer the game owns. The menus are class="menu" with
+         per-screen ids (menu-main, menu-play-select, ...) rather than one
+         wrapper, so the class is what has to be targeted. */
+      '.booting .menu,.booting #game-root,.booting #menu-transition-overlay,' +
+      '.booting #menu-fullscreen-prompt,.booting #box-overlay,' +
+      '.booting #tank-switch-panel,.booting #bigmap-overlay,' +
+      '.booting #map-vote-overlay,.booting #preview-loading,' +
+      '.booting #loading-overlay{display:none !important}' +
+      '.booting #loading-screen{display:flex !important;opacity:1 !important}';
+    document.head.appendChild(s);
+  })();
+</script>
+<noscript><script>document.documentElement.className = document.documentElement.className.replace(/\bbooting\b/,'');</script></noscript>
+
+<!--
+  OPENED STRAIGHT FROM DISK (file://) -- EXPLAIN INSTEAD OF HANGING.
+
+  Opening index.html by double-clicking it cannot work, and it fails in a way
+  that looks like a broken game rather than a wrong URL:
+
+    * location.origin is the literal string "null", so MATCHMAKING_URL becomes
+      "null/api/match/join" and every queue request is an invalid URL
+    * the browser blocks ES module imports and most fetch() calls for local
+      files under file://, so the Rapier physics engine, the models and the maps
+      simply never arrive
+    * the physics engine comes from a CDN module, which file:// refuses to load
+
+  Net effect: the loading bar fills, then nothing happens, forever. Saying so
+  plainly costs one script tag and saves a lot of confusion.
+-->
+<script>
+  if (location.protocol === 'file:') {
+    document.addEventListener('DOMContentLoaded', function () {
+      document.documentElement.className = document.documentElement.className.replace(/\bbooting\b/, '');
+      var ls = document.getElementById('loading-screen');
+      if (ls) ls.style.display = 'none';
+      var box = document.createElement('div');
+      box.style.cssText = 'position:fixed;inset:0;z-index:200000;display:flex;flex-direction:column;' +
+        'align-items:center;justify-content:center;gap:14px;text-align:center;padding:32px;' +
+        'background:#12161f;color:#e8eef7;font-family:Arial,Helvetica,sans-serif';
+      box.innerHTML =
+        '<div style="font-size:26px;font-weight:700;letter-spacing:1px">This game needs to be served, not opened</div>' +
+        '<div style="font-size:15px;line-height:1.6;max-width:560px;color:#a9b6c8">' +
+        'You opened index.html directly from disk. Browsers block the physics engine, ' +
+        'the models and the maps when a page is loaded this way, so the game cannot start.' +
+        '</div>' +
+        '<div style="font-size:14px;color:#8fa0b5;background:#1b2130;border:1px solid #2a3346;' +
+        'border-radius:8px;padding:12px 16px;line-height:1.7">' +
+        'Start the server, then use the address it prints:<br>' +
+        '<b style="color:#7fd1a0">http://localhost:18123</b>' +
+        '</div>';
+      document.body.appendChild(box);
+    });
+  }
+</script>
 
 </head>
 
 <body>
+  <div id="menu-transition-overlay"></div>
+
+  <!-- Loading Screen (hidden until fullscreen prompt is dismissed) -->
+  <div id="loading-screen" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:100000;display:none;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:28vh;opacity:0;transition:opacity 0.5s ease;">
+    <div id="loading-bg" style="position:absolute;top:0;left:0;width:100%;height:100%;background:#1c2230 url('assets/TL_loadingscreen.webp') center center / cover no-repeat;"></div>
+    <div id="loading-vignette" style="position:absolute;top:0;left:0;width:100%;height:100%;background:radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.55) 100%);"></div>
+    <div style="position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;gap:10px;width:50vw;max-width:400px;">
+      <div id="loading-status" style="font-size:14px;color:rgba(255,255,255,0.85);letter-spacing:2px;text-shadow:0 0 8px rgba(0,0,0,0.7);font-family:Arial,sans-serif;">Initializing...</div>
+      <div style="width:100%;height:2px;background:rgba(255,255,255,0.15);border-radius:1px;overflow:hidden;">
+        <div id="loading-bar" style="height:100%;width:0%;background:rgba(255,255,255,0.85);border-radius:1px;transition:width 0.3s ease;"></div>
+      </div>
+    </div>
+  </div>
 
   <!-- 3D canvas mount -->
 
   <div id="game-root"></div>
+
+  <div id="crosshair" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:5;">
+    <div style="width:8px;height:8px;background:#f84;border-radius:50%;box-shadow:0 0 6px #f84, 0 0 12px rgba(255,136,68,0.6), 0 0 20px rgba(255,136,68,0.3);"></div>
+  </div>
 
 
 
@@ -38,7 +135,7 @@
 
     <!-- FULLSCREEN / ORIENTATION PROMPT (platform-specific content) -->
 
-    <div class="fullscreen-overlay" id="menu-fullscreen-prompt">
+    <div class="fullscreen-overlay hidden" id="menu-fullscreen-prompt">
 
       <div class="fs-close" id="btn-fs-close">&times;</div>
 
@@ -48,7 +145,7 @@
 
         <!-- Section: Desktop fullscreen prompt -->
 
-        <div class="fs-section" id="fs-desktop">
+        <div class="fs-section hidden" id="fs-desktop">
 
           <div class="fullscreen-icon">&#x26F6;</div>
 
@@ -61,6 +158,27 @@
           <div class="btn btn-primary" id="btn-enter-fullscreen">Enter Fullscreen</div>
 
           <div class="btn btn-subtle" id="btn-dismiss-fullscreen">Play anyway (not recommended)</div>
+
+          <!-- WHY THIS LINE EXISTS
+
+               Every control on this card used to carry an inline onclick that
+               hid the overlay the instant it ran, and called requestFullscreen
+               with its rejection swallowed. So the card closed whether or not
+               fullscreen actually worked.
+
+               There were also two copies of every handler: one inline here and
+               one in menu.js, and menu.js overwrote these at init, leaving the
+               inline versions live only in the window before Menu booted, where
+               they could hide the card without recording that it had been
+               dismissed, so it came straight back on the next resize.
+
+               They are all gone. menu.js owns every button on this card now,
+               wires them BEFORE it runs any detection (so a thrown heuristic
+               cannot leave a modal whose buttons are all dead), and keeps the
+               card up until a fullscreen request actually succeeds.
+
+               This is where a refusal gets explained rather than swallowed. -->
+          <div class="fullscreen-hint hidden" id="fs-status" style="margin-top:14px;color:#ffb12b;line-height:1.5"></div>
 
         </div>
 
@@ -150,13 +268,27 @@
 
         <div class="profile" id="profile">
 
-          <div class="profile-top">
+<div class="profile-top">
 
-            <span class="profile-trophy">&#x1F3C6;</span>
+            <!-- THE MAIN-MENU PLAYER BADGE: avatar, name, clan - in that order.
 
-            <span class="profile-clan" id="profile-clan"></span>
+                 This row used to read a hard-coded trophy emoji, then the clan
+                 tag, then the player's name - which platoon.js still documents
+                 as `%trophy% %clan% %nickname%`. Two things were wrong with it:
+                 the trophy looked identical whether you owned one or twenty, and
+                 putting the clan BEFORE the name made the player's own name the
+                 last thing in their own badge.
+
+                 It is the real avatar now - the first owned trophy - and it opens
+                 the profile screen, where the full trophy list lives. It needs
+                 `pointer-events` of its own because `.profile` sets
+                 pointer-events:none for the whole badge, so the strip does not
+                 swallow clicks meant for the menu behind it. -->
+            <button class="profile-strip-avatar" id="profile-strip-avatar" type="button" title="Profile" aria-label="Profile"></button>
 
             <span class="profile-name" id="profile-name">Player</span>
+
+            <span class="profile-clan" id="profile-clan"></span>
 
           </div>
 
@@ -164,11 +296,11 @@
 
           <div class="profile-bottom">
 
-            <span class="profile-coin"><img class="cur-img" src="assets/currency/cash.png" alt="cash"><span id="profile-cash-num">0</span></span>
+            <span class="profile-coin"><img class="cur-img" src="assets/currency/cash.webp" alt="cash"><span id="profile-cash-num">0</span></span>
 
-            <span class="profile-crystal"><img class="cur-img" src="assets/currency/gold.png" alt="gold"><span id="profile-gold-num">0</span></span>
+            <span class="profile-crystal"><img class="cur-img" src="assets/currency/gold.webp" alt="gold"><span id="profile-gold-num">0</span></span>
 
-            <span class="profile-coin profile-coins-extra"><img class="cur-img" src="assets/currency/coin.png" alt="coins"><span id="profile-coins-num">0</span></span>
+            <span class="profile-coin profile-coins-extra"><img class="cur-img" src="assets/currency/coin.webp" alt="coins"><span id="profile-coins-num">0</span></span>
 
           </div>
 
@@ -178,7 +310,7 @@
 
         <div id="btn-settings-gear" data-open="settings" title="Settings">
 
-          <img src="gear.png" alt="Settings">
+          <img src="gear.webp" alt="Settings">
 
         </div>
 
@@ -203,24 +335,24 @@
       </div>
 
       <div class="main-menu-play-row">
-        <div class="btn-gamemode" id="btn-gamemode"><img id="gamemode-icon" src="assets/icons/gamemode-gladiator.png" alt=""><span id="gamemode-emoji" style="display:none">&#x1F3AE;</span></div>
+        <div class="btn-gamemode" id="btn-gamemode"><svg id="gamemode-icon" xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M16 8h.01"/><path d="M8 8h.01"/><path d="M8 16h.01"/><path d="M16 16h.01"/><path d="M12 12h.01"/></svg><span id="gamemode-emoji" style="display:none">&#x1F3AE;</span></div>
         <div class="btn-play-wrap" id="btn-play-wrap">
-          <div class="btn-play" id="btn-play">PLAY</div>
+          <div class="btn-play" id="btn-play"><span class="btn-play-cap">SEARCHING</span><span class="btn-play-num">PLAY</span></div>
         </div>
         <div class="platoon-btn" id="btn-platoon" title="Platoon">
-          <img src="assets/icons/platoon.png" alt="Platoon">
+          <img src="assets/icons/platoon.webp" alt="Platoon">
         </div>
       </div>
 
       <div class="main-menu-crates" id="main-menu-crates">
 
-        <div class="crate-slot" data-slot="0"><img src="mystery_mtl.png" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
+        <div class="crate-slot" data-slot="0"><img src="mystery_mtl.webp" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
 
-        <div class="crate-slot" data-slot="1"><img src="mystery_mtl.png" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
+        <div class="crate-slot" data-slot="1"><img src="mystery_mtl.webp" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
 
-        <div class="crate-slot" data-slot="2"><img src="mystery_mtl.png" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
+        <div class="crate-slot" data-slot="2"><img src="mystery_mtl.webp" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
 
-        <div class="crate-slot" data-slot="3"><img src="mystery_mtl.png" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
+        <div class="crate-slot" data-slot="3"><img src="mystery_mtl.webp" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
 
       </div>
 
@@ -244,7 +376,7 @@
 
         <div class="btn" id="btn-play-battle">Battle Mode &#x25B6;</div>
 
-        <div class="btn btn-back" id="btn-play-back"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" id="btn-play-back"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -264,7 +396,7 @@
 
         <div class="btn" id="btn-battle-mp">Private Room (P2P)</div>
 
-        <div class="btn btn-back" data-back="menu-play-select"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" data-back="menu-play-select"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -276,46 +408,75 @@
 
     <div class="menu hidden" id="menu-gamemode-select">
 
-      <div class="gamemode-container">
+      <div class="gm-fullscreen">
 
-        <div class="gamemode-grid">
+        <div class="gm-header">
+          <div class="gm-back" id="gm-back" data-back="menu-main">&#x2190; BACK</div>
+          <h2 class="gm-title">SELECT <span class="gm-title-accent">GAMEMODE</span></h2>
+        </div>
 
-          <!-- Gladiator - 30% -->
-          <div class="gamemode-square gladiator-square" data-gamemode="gladiator">
+        <div class="gm-cards">
 
-            <div class="gamemode-icon">&#x2694;&#xFE0F;</div>
-
-            <div class="gamemode-name">Gladiator</div>
-
-            <div class="gamemode-percent">30%</div>
-
+          <!-- LOCKED-MODE-START (restore by deleting these two markers)
+          <div class="gm-card" data-gamemode="random-battle">
+            <div class="gm-card-bg" style="background-image:url('assets/gamemodes/random-battle.webp')"></div>
+            <div class="gm-card-overlay"></div>
+            <div class="gm-card-content">
+              <div class="gm-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M16 8h.01"/><path d="M8 8h.01"/><path d="M8 16h.01"/><path d="M16 16h.01"/><path d="M12 12h.01"/></svg></div>
+              <div class="gm-card-name">RANDOM BATTLE</div>
+              <div class="gm-card-desc">Fight in rotating game modes. Each battle is a surprise!</div>
+            </div>
           </div>
 
-          <!-- Sandbox - 20% -->
-          <div class="gamemode-square sandbox-square" data-gamemode="sandbox">
-
-            <div class="gamemode-icon"><img src="assets/icons/gamemode-sandbox.png" alt="" style="width:48px;height:48px;object-fit:contain;vertical-align:middle"></div>
-
-            <div class="gamemode-name">Sandbox</div>
-
-            <div class="gamemode-percent">20%</div>
-
+          <div class="gm-card" data-gamemode="team-deathmatch">
+            <div class="gm-card-bg" style="background-image:url('assets/gamemodes/team-deathmatch.jpg')"></div>
+            <div class="gm-card-overlay"></div>
+            <div class="gm-card-content">
+              <div class="gm-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.5 17-.5-1-.5 1h1z"/><path d="M15 22a1 1 0 0 0 1-1v-1a2 2 0 0 0 1.56-3.25 8 8 0 1 0-11.12 0A2 2 0 0 0 8 20v1a1 1 0 0 0 1 1z"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="12" r="1"/></svg></div>
+              <div class="gm-card-name">TEAM DEATHMATCH</div>
+              <div class="gm-card-desc">Blue vs Red. Eliminate the enemy team to win.</div>
+            </div>
           </div>
 
-          <!-- Platform King - 25% -->
-          <div class="gamemode-square platform-king-square" data-gamemode="platform-king">
+          <div class="gm-card" data-gamemode="sandbox">
+            <div class="gm-card-overlay"></div>
+            <div class="gm-card-content">
+              <div class="gm-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg></div>
+              <div class="gm-card-name">SANDBOX</div>
+              <div class="gm-card-desc">Free roam with custom GLB maps and trimesh physics.</div>
+            </div>
+          LOCKED-MODE-END -->
 
-            <div class="gamemode-icon">&#x1F451;</div>
 
-            <div class="gamemode-name">Platform King</div>
+                    <div class="gm-card" data-gamemode="captureTheCircle">
+            <div class="gm-card-overlay"></div>
+            <div class="gm-card-sheen"></div>
+            <div class="gm-card-content">
+              <div class="gm-card-kicker">ZONE CONTROL</div>
+              <div class="gm-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg></div>
+              <div class="gm-card-name">CAPTURE THE CIRCLE</div>
+              <div class="gm-card-desc">Stand in the circle to capture. Teams compete to claim the zone.</div>
+            </div>
+            <div class="gm-card-cta">ENTER ▸</div>
+          </div>
 
-            <div class="gamemode-percent">25%</div>
-
+          <!-- Base Defend. Its card must exist and must NOT be inside the
+               LOCKED-MODE markers: _selectGamemode refuses any mode with no
+               card, and PLAY validates against the cards too, so a mode
+               without one silently falls back to the Circle. -->
+                    <div class="gm-card" data-gamemode="baseDefend">
+            <div class="gm-card-overlay"></div>
+            <div class="gm-card-sheen"></div>
+            <div class="gm-card-content">
+              <div class="gm-card-kicker">ENDLESS SIEGE</div>
+              <div class="gm-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V10l7-5 7 5v11"/><path d="M9 21v-6h6v6"/><path d="M12 5V2"/><path d="M12 2.8c1.6.5 3 .4 4.4-.4-.2 1.6.2 3 1.6 4.2-1.6.2-2.8 1-3.6 2.4-.8-1.4-2-2.2-3.6-2.4 1.4-1.2 1.8-2.6 1.6-4.2 1.4.8 2.8.9 4.4.4"/></svg></div>
+              <div class="gm-card-name">BASE DEFEND</div>
+              <div class="gm-card-desc">Unlimited respawns. Destroy the enemy team's base before they destroy yours.</div>
+            </div>
+            <div class="gm-card-cta">ENTER ▸</div>
           </div>
 
         </div>
-
-        <div class="btn btn-back gamemode-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
 
       </div>
 
@@ -337,7 +498,7 @@
 
         <div class="btn btn-subtle" id="btn-join-hidden">Join Hidden Room</div>
 
-        <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -389,7 +550,7 @@
 
         </div>
 
-        <div class="hint" id="host-gamemode-hint">Gladiator: battle royale � shrinking zone, power drops, airdrops. 10 spawn points recommended.</div>
+        <div class="hint" id="host-gamemode-hint">Gladiator: battle royale ï¿½ shrinking zone, power drops, airdrops. 10 spawn points recommended.</div>
 
 
 
@@ -419,7 +580,7 @@
 
         <div class="btn btn-primary" id="btn-start-host">Start Hosting</div>
 
-        <div class="btn btn-back" data-back="menu-multiplayer"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" data-back="menu-multiplayer"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -435,9 +596,9 @@
 
         <h2>Public Rooms</h2>
 
-        <div id="room-list" class="room-list"><div class="muted">Searching for public rooms�</div></div>
+        <div id="room-list" class="room-list"><div class="muted">Searching for public roomsï¿½</div></div>
 
-        <div class="btn btn-back" data-back="menu-multiplayer"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" data-back="menu-multiplayer"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -459,7 +620,7 @@
 
         <div class="btn btn-primary" id="btn-connect-hidden">Connect</div>
 
-        <div class="btn btn-back" data-back="menu-multiplayer"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" data-back="menu-multiplayer"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -473,93 +634,15 @@
 
       <div class="collections-fullscreen">
 
-        <div class="collections-image-wrap" id="collections-image-wrap">
+        <div class="collections-scroll" id="collections-scroll">
 
-          <div style="position:relative">
-
-            <img src="collections.png?v=7" alt="Collections" id="collections-img">
-
-            <canvas id="collections-overlay"></canvas>
-
-          </div>
+          <div class="collections-track" id="collections-track"></div>
 
         </div>
 
         <div id="collections-bottom-bar">
 
-          <div class="btn btn-sm btn-ghost" id="ce-toggle">Edit Layout</div>
-
-          <div class="btn btn-back" id="collections-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
-
-          <div id="ce-controls" class="hidden">
-
-            <div class="ce-row ce-frame-props hidden" id="ce-frame-props">
-
-              <span class="ce-lbl">Display:</span>
-
-              <select id="ce-display-type">
-
-                <option value="nothing">Nothing</option>
-
-                <option value="tank">Tank</option>
-
-                <option value="coming-soon">Coming Soon</option>
-
-              </select>
-
-              <select id="ce-tank-id" class="hidden"></select>
-
-              <span class="ce-lbl muted" id="ce-sel-count"></span>
-
-            </div>
-
-            <div class="ce-row ce-pivot-props hidden" id="ce-pivot-props">
-
-              <span class="ce-lbl">Pivot:</span>
-
-              <select id="ce-pivot-action">
-
-                <option value="select-tank">Select Tank</option>
-
-                <option value="coming-soon">Coming Soon</option>
-
-                <option value="info">Info</option>
-
-                <option value="nothing">Nothing</option>
-
-              </select>
-
-              <div class="btn btn-sm btn-ghost" id="ce-pivot-del" style="color:#f66">&#x2715;</div>
-
-            </div>
-
-            <div class="ce-row hidden" id="ce-layout-export">
-
-              <textarea id="ce-layout-json" rows="4" style="width:100%;font-size:10px;background:#111;color:#0f0;border:1px solid #333;border-radius:6px;padding:4px;font-family:monospace" readonly></textarea>
-
-              <div class="btn btn-sm btn-primary" id="ce-deploy-layout" style="margin-top:4px">Deploy Layout for Everyone &#x2192;</div>
-
-            </div>
-
-            <div class="ce-row ce-actions">
-
-              <div class="btn btn-sm btn-ghost" id="ce-dup">Duplicate</div>
-
-              <div class="btn btn-sm btn-ghost" id="ce-up">&#x25B2;</div>
-
-              <div class="btn btn-sm btn-ghost" id="ce-down">&#x25BC;</div>
-
-              <div class="btn btn-sm btn-ghost" id="ce-del" style="color:#f66">Delete</div>
-
-              <div class="btn btn-sm btn-ghost" id="ce-pivot">Pivot</div>
-
-              <div class="btn btn-sm btn-ghost" id="ce-snap">Snap</div>
-
-              <div class="btn btn-sm btn-primary" id="ce-save">Save Layout</div>
-
-            </div>
-
-          </div>
+          <div class="btn btn-back" id="collections-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
         </div>
 
@@ -579,11 +662,11 @@
 
           <div class="shop-currencies">
 
-            <span class="shop-coin-disp"><img class="cur-img cur-lg" src="assets/currency/cash.png" alt="cash"> <span id="shop-cash">0</span></span>
+            <span class="shop-coin-disp"><img class="cur-img cur-lg" src="assets/currency/cash.webp" alt="cash"> <span id="shop-cash">0</span></span>
 
-            <span class="shop-coin-disp"><img class="cur-img cur-lg" src="assets/currency/coin.png" alt="coins"> <span id="shop-coins">0</span></span>
+            <span class="shop-coin-disp"><img class="cur-img cur-lg" src="assets/currency/coin.webp" alt="coins"> <span id="shop-coins">0</span></span>
 
-            <span class="shop-gem-disp"><img class="cur-img cur-lg" src="assets/currency/gold.png" alt="gold"> <span id="shop-gems">0</span></span>
+            <span class="shop-gold-disp"><img class="cur-img cur-lg" src="assets/currency/gold.webp" alt="gold"> <span id="shop-gold">0</span></span>
 
           </div>
 
@@ -607,7 +690,7 @@
 
             <div class="shop-sidebar-section" data-section="tlplus" style="--btn-bg:#d97706">TL+</div>
 
-            <div class="shop-sidebar-back" id="shop-back-main"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> BACK</div>
+            <div class="shop-sidebar-back" id="shop-back-main"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> BACK</div>
 
           </div>
 
@@ -639,7 +722,11 @@
 
             <div class="shop-page hidden" id="shop-page-bundles">
 
-              <div class="shop-coming-soon">Coming Soon</div>
+              <h2 class="shop-section-title">BUNDLES</h2>
+
+              <div class="shop-deals" id="shop-bundles"></div>
+
+              <div class="shop-real-note" id="shop-real-note">Real-money purchases. You need to be logged in — a bundle is delivered to your account, not to this browser.</div>
 
             </div>
 
@@ -665,25 +752,59 @@
 
 
 
-    <!-- SHOP BUY PAGE -->
+    <!-- SHOP BUY PAGE
+
+         A flatbed railcar. The thing you are buying sits on the deck in the
+         middle, the Buy button sits above Back at the bottom, and Back is the
+         only way out before you pay.
+
+         The Buy button is a HOLD, not a click: press and keep it down for three
+         seconds. That is what stops a double-click on an offer card from
+         spending money, and it is the same beat the crate opening already uses
+         for "this is the moment you commit".
+
+         `.stage` is the buy phase and `.done` is the bought phase; menu.js adds
+         `.done` once the purchase has actually been made. -->
 
     <div class="menu hidden" id="menu-shop-buy">
 
-      <div class="shop-buy-wrapper" id="shop-buy-wrapper">
+      <div class="shop-buy-wrapper stage" id="shop-buy-wrapper">
 
-        <div class="shop-buy-header">
+        <!-- The flatbed. `cover` so the deck fills the screen on any aspect,
+             and it scrolls a hair so the light sweep reads as a real surface. -->
+        <div class="shop-buy-bg"></div>
 
-          <div class="shop-back-btn" id="shop-back-buy"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="shop-buy-stage">
 
-        </div>
+          <!-- WHAT YOU ARE BUYING. Icon on the left, the count beside it, so a
+               750-cash offer reads as "cash icon, x750" at a glance instead of
+               asking the player to match a number to a picture. -->
+          <div class="shop-buy-item">
+            <div class="shop-buy-shadow"></div>
+            <img class="shop-buy-image" id="shop-buy-image" src="" alt="">
+            <div class="shop-buy-count" id="shop-buy-count">x1</div>
+          </div>
+          <div class="shop-buy-name" id="shop-buy-name"></div>
 
-        <div class="shop-buy-body">
+          <!-- Buy phase only. -->
+          <div class="shop-buy-controls" id="shop-buy-controls">
+            <div class="shop-buy-btn" id="shop-buy-btn">
+              <div class="shop-buy-fill" id="shop-buy-fill"></div>
+              <div class="shop-buy-btn-label">
+                <span class="shop-buy-btn-text" id="shop-buy-btn-text">Hold to buy</span>
+                <span class="shop-buy-btn-cost" id="shop-buy-cost"></span>
+              </div>
+            </div>
+          </div>
 
-          <div class="shop-buy-image" id="shop-buy-image"></div>
+          <!-- Bought phase only. Everything else on screen is taken away. -->
+          <div class="shop-buy-done" id="shop-buy-done">
+            <div class="shop-buy-congrats">CONGRADITIONS</div>
+          </div>
 
-          <div class="shop-buy-all btn-disabled" id="shop-buy-all">Buy All</div>
-
-          <div class="button" id="shop-buy-btn"><p>Buy: <span id="shop-buy-cost"></span></p></div>
+          <div class="shop-buy-back" id="shop-back-buy">
+            <img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back
+          </div>
 
         </div>
 
@@ -693,25 +814,43 @@
 
 
 
-    <!-- SHOP RECEIVE SCREEN -->
+    <!-- SHOP RECEIVE SCREEN
+
+         The reveal. The flatbed dims, the item comes up to 1.3x with light rays
+         spinning out of it, and when that finishes everything but the Back
+         button and CONGRADITIONS is taken away. -->
 
     <div class="menu hidden" id="menu-shop-receive">
 
       <div class="shop-receive-wrapper" id="shop-receive-wrapper">
 
-        <video class="shop-receive-video" id="shop-receive-video" muted playsinline></video>
+        <div class="shop-receive-bg"></div>
 
-        <div class="shop-receive-reward hidden" id="shop-receive-reward">
+        <div class="shop-receive-dim" id="shop-receive-dim"></div>
 
-          <div class="shop-receive-image" id="shop-receive-image"></div>
-
-          <div class="shop-receive-amount" id="shop-receive-amount"></div>
-
+        <!-- The rays. A conic gradient spinning behind the icon, revealed as the
+             item scales up. Two of them at different speeds so the light does
+             not read as one flat rotating shape. -->
+        <div class="shop-receive-rays" id="shop-receive-rays">
+          <div class="shop-receive-rays-inner"></div>
+          <div class="shop-receive-rays-inner shop-receive-rays-inner-2"></div>
         </div>
 
-        <div class="shop-receive-claim hidden" id="shop-receive-claim">click to claim</div>
+        <div class="shop-receive-flash" id="shop-receive-flash"></div>
 
-        <video class="shop-receive-bg-video" id="shop-receive-bg-video" muted loop playsinline></video>
+        <div class="shop-receive-reward" id="shop-receive-reward">
+          <img class="shop-receive-image" id="shop-receive-image" src="" alt="">
+        </div>
+
+        <div class="shop-receive-amount" id="shop-receive-amount"></div>
+
+        <!-- Only shown once the reveal is done. -->
+        <div class="shop-receive-done" id="shop-receive-done">
+          <div class="shop-receive-congrats">CONGRADITIONS</div>
+          <div class="shop-receive-back" id="shop-receive-back">
+            <img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back
+          </div>
+        </div>
 
       </div>
 
@@ -729,7 +868,7 @@
 
         <div class="storage-grid" id="storage-grid"></div>
 
-        <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -763,6 +902,8 @@
 
             <div class="settings-tab" data-tab="view">-- View Range --</div>
 
+            <div class="settings-tab" data-tab="xray">-- X-Ray --</div>
+
             <div class="settings-tab" data-tab="camera">-- Camera --</div>
 
             <div class="settings-tab" data-tab="graphics">-- Graphics --</div>
@@ -790,6 +931,12 @@
             <div id="tab-view" class="tab-content">
 
               <div id="view-settings"></div>
+
+            </div>
+
+            <div id="tab-xray" class="tab-content">
+
+              <div id="xray-settings"></div>
 
             </div>
 
@@ -829,21 +976,37 @@
 
         <div class="profile-card">
 
-          <div class="profile-card-head">
+<div class="profile-card-head">
 
-            <div class="profile-trophy-slot" id="pcard-trophy-slot" title="Trophies">
+            <!-- ONE CONTROL, NOT TWO.
 
-              <span class="trophy-slot-plus">+</span>
+                 This used to be two 64px boxes side by side: a gold avatar
+                 showing the trophy, and a dashed "add" slot. Two controls for
+                 one job, where the second one could not actually add anything —
+                 trophies are earned in a match, not attached by hand — and where
+                 the pair left the player's own name pushed a full box to the
+                 right for no reason.
 
-              <div class="trophy-pop hidden" id="pcard-trophy-pop"></div>
+                 It is now the single button: the avatar ON the slot, the slot
+                 gone. Clicking it opens the trophy menu, which is the only
+                 thing the second box ever did. The icon is written by
+                 Menu._renderProfileCard from the owned set rather than being a
+                 hard-coded emoji in the markup, so it always shows the truth. -->
+            <button class="profile-card-avatar" id="pcard-avatar" type="button" title="Trophies" aria-label="Trophies"></button>
 
-            </div>
+            <div class="profile-id">
 
-            <div>
+              <div class="profile-card-nick" id="pcard-name-text">Player</div>
 
-              <div class="profile-card-name" id="pcard-name"><span class="profile-trophy">&#x1F3C6;</span> <span class="profile-card-clan" id="pcard-clan"></span> <span class="profile-card-nick" id="pcard-name-text">Player</span></div>
-
-              <div class="profile-card-account" id="pcard-account"></div>
+              <!-- Name on top, clan and account beneath it. The old markup ran
+                   clan and nickname together on ONE line with the trophy emoji in
+                   front of them, which put a decoration between the player and
+                   their own name and left the clan reading like a prefix rather
+                   than what it is. -->
+              <div class="profile-card-sub">
+                <span class="profile-card-clan" id="pcard-clan"></span>
+                <span class="profile-card-account" id="pcard-account"></span>
+              </div>
 
             </div>
 
@@ -856,6 +1019,19 @@
         </div>
 
       </div>
+
+      <!-- THE TROPHY MENU IS A CHILD OF THE OVERLAY, NOT OF THE CARD.
+
+           It used to sit inside the avatar slot and position itself with
+           left/top percentages against that box, which pins it to one anchor
+           forever: it could only open beside one fixed element, and near the
+           right-hand edge of a window it ran off the screen.
+
+           Here it is positioned:fixed and placed from the CLICK coordinates, so
+           it can sit next to the cursor wherever that is, and it flips to the
+           other side of the cursor when there is not enough room. -->
+
+      <div class="trophy-pop hidden" id="pcard-trophy-pop"></div>
 
     </div>
 
@@ -915,7 +1091,7 @@
             .pl-switch-wrap .pl-slot-name { font-size: 8px; }
             .pl-switch-wrap .pl-slot.pl-spec { border-color: rgba(154,160,171,.55); background: rgba(154,160,171,.07); }
             .pl-switch-wrap .pl-vico, .pl-switch-wrap .pl-tk { display: none !important; }
-            /* drag grips � grab the menu by its edges to move it */
+            /* drag grips ï¿½ grab the menu by its edges to move it */
             .pl-grip { position: absolute; z-index: 61; touch-action: none; cursor: move; }
             .pl-grip-t, .pl-grip-b { left: 14px; right: 14px; height: 9px; }
             .pl-grip-t { top: 0; } .pl-grip-b { bottom: 0; }
@@ -1095,6 +1271,7 @@
             <div class="pl-room-box">
               <span class="pl-room-label">GAME CODE</span>
               <span class="pl-room-code" id="pl-room-code">----</span>
+              <span class="pl-room-label" id="pl-seat-count" style="margin-left:6px">0/3</span>
               <button class="pl-btn pl-btn-sm pl-btn-gray" id="pl-copy">COPY</button>
               <input class="pl-join-input" id="pl-join-code" maxlength="4" placeholder="XXXX" spellcheck="false">
               <button class="pl-btn pl-btn-sm pl-btn-orange" id="pl-join">JOIN</button>
@@ -1113,7 +1290,7 @@
               <div class="pl-chat">
                 <div class="pl-chat-list" id="pl-chat-list"></div>
                 <div class="pl-chat-in">
-                  <input class="pl-chat-input" id="pl-chat-input" maxlength="140" placeholder="Type a message�" spellcheck="false">
+                  <input class="pl-chat-input" id="pl-chat-input" maxlength="140" placeholder="Type a messageï¿½" spellcheck="false">
                   <button class="pl-btn pl-btn-sm pl-btn-orange" id="pl-chat-send">SEND</button>
                 </div>
               </div>
@@ -1128,7 +1305,7 @@
             </div>
 
             <div class="pl-team pl-team-2 pl-ghost" id="pl-team-2">
-              <div class="pl-team-head"><b>TEAM 2</b><span class="pl-ghost-hint">LOCKED � CLICK TO ENABLE CUSTOM</span><span class="pl-team-count" id="pl-c2">0/12</span></div>
+              <div class="pl-team-head"><b>TEAM 2</b><span class="pl-ghost-hint">LOCKED ï¿½ CLICK TO ENABLE CUSTOM</span><span class="pl-team-count" id="pl-c2">0/12</span></div>
               <div class="pl-slots" id="pl-slots-2"></div>
             </div>
           </div>
@@ -1197,21 +1374,203 @@
 
         </div>
       </div>
+    </div>
+
+    <!-- ==================== SANDBOX ROOM ====================
+         Your own server. You open it, you hand out the code, you pick the map
+         and you start it. Nothing is queued and nobody is matched in: a room
+         with a door you opened.
+
+         Deliberately text-and-presence only. The Platoon's voice is a WebRTC
+         mesh where every member holds a direct connection to every other, and
+         that is fine at three and unusable at fourteen. Talking in a Sandbox is
+         done out of band until an SFU (a server that mixes the audio) exists. -->
+    <div class="menu hidden" id="menu-sandbox">
+      <div class="sb-room">
+
+        <style>
+        .sb-room{
+          --sb-bg:#1d2430; --sb-panel:#27313f; --sb-line:#3a4759;
+          --sb-orange:#ff9a3c; --sb-gold:#ffd24a; --sb-text:#eef3fa; --sb-dim:#93a3b8;
+          position:absolute; inset:50% auto auto 50%; transform:translate(-50%,-50%);
+          width:min(1020px, 94vw); max-height:min(92vh, 860px);
+          display:flex; flex-direction:column; gap:14px;
+          padding:18px; box-sizing:border-box; border-radius:18px;
+          background:linear-gradient(180deg,#242d3a 0%, var(--sb-bg) 100%);
+          border:2px solid var(--sb-line);
+          box-shadow:0 24px 70px rgba(0,0,0,.65), inset 0 1px 0 rgba(255,255,255,.06);
+          font-family:'Lilita One', system-ui, sans-serif; color:var(--sb-text);
+          overflow:hidden;
+        }
+        .sb-room *{ box-sizing:border-box; margin:0; font-family:inherit; }
+        .sb-room button{ cursor:pointer; border:none; color:var(--sb-text); font-family:inherit; }
+        .sb-room input{ font-family:inherit; }
+
+        .sb-head{ display:flex; align-items:center; gap:12px; flex:0 0 auto; }
+        .sb-title{ font-size:clamp(20px,3.2vw,30px); letter-spacing:1.5px; color:var(--sb-gold);
+                   text-shadow:0 3px 0 rgba(0,0,0,.45); }
+        .sb-sub{ font-size:12px; color:var(--sb-dim); letter-spacing:.6px; }
+        .sb-badge{ margin-left:auto; font-size:11px; letter-spacing:1.2px; padding:5px 12px;
+                   border-radius:999px; background:var(--sb-panel); border:1px solid var(--sb-line);
+                   color:var(--sb-dim); }
+        .sb-badge.is-host{ background:rgba(255,210,74,.16); border-color:var(--sb-gold); color:var(--sb-gold); }
+
+        .sb-btn{ padding:9px 16px; border-radius:10px; font-size:13px; letter-spacing:1px;
+                 background:var(--sb-panel); border:1px solid var(--sb-line); transition:.12s; }
+        .sb-btn:hover:not(:disabled){ background:#33415380; transform:translateY(-1px); }
+        .sb-btn:disabled{ opacity:.34; cursor:not-allowed; }
+        .sb-btn-orange{ background:linear-gradient(180deg,#ffa94f,#f2820f); color:#2a1600; border-color:#c96a08; font-weight:700; }
+        .sb-btn-gold  { background:linear-gradient(180deg,#ffdd6b,#f0b81e); color:#2e2200; border-color:#c99a0c; font-weight:700; }
+        .sb-btn-red   { background:linear-gradient(180deg,#e2604f,#b8352a); color:#fff; border-color:#8e241b; }
+        .sb-btn-sm{ padding:6px 12px; font-size:11.5px; }
+
+        /* Door: open a room, or walk into one that already exists. */
+        .sb-door{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; flex:0 0 auto;
+                  padding:12px; border-radius:14px; background:rgba(0,0,0,.22); border:1px solid var(--sb-line); }
+        .sb-code-in{ width:132px; padding:9px 12px; font-size:15px; letter-spacing:4px; text-align:center;
+                     text-transform:uppercase; border-radius:10px; border:1px solid var(--sb-line);
+                     background:#11161f; color:var(--sb-gold); }
+        .sb-code-in:focus{ outline:none; border-color:var(--sb-orange); }
+        .sb-door-hint{ font-size:11px; color:var(--sb-dim); margin-left:auto; text-align:right; line-height:1.5; }
+
+        .sb-grid{ display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px;
+                  flex:1 1 auto; min-height:0; }
+        @media (max-width:720px){ .sb-grid{ grid-template-columns:1fr; } }
+
+        .sb-panel{ display:flex; flex-direction:column; min-height:0; gap:10px;
+                   padding:13px; border-radius:14px; background:var(--sb-panel); border:1px solid var(--sb-line); }
+        .sb-panel-head{ display:flex; align-items:baseline; gap:8px; flex:0 0 auto; }
+        .sb-panel-head b{ font-size:13px; letter-spacing:1.4px; color:var(--sb-orange); }
+        .sb-panel-head span{ font-size:11px; color:var(--sb-dim); margin-left:auto; }
+
+        .sb-roster{ flex:1 1 auto; overflow-y:auto; display:flex; flex-direction:column; gap:6px; min-height:90px; padding-right:3px; }
+        .sb-member{ display:flex; align-items:center; gap:8px; padding:8px 11px; border-radius:9px;
+                    background:rgba(0,0,0,.2); border:1px solid transparent; font-size:13px; }
+        .sb-member-host{ border-color:rgba(255,210,74,.5); background:rgba(255,210,74,.09); }
+        .sb-member-name{ flex:1 1 auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .sb-member-tag{ font-size:10px; letter-spacing:1px; color:var(--sb-gold); }
+        .sb-kick{ width:22px; height:22px; border-radius:6px; background:rgba(232,85,64,.2); color:#ff9c8c; font-size:14px; line-height:1; }
+        .sb-kick:hover{ background:var(--sb-btn-red); color:#fff; }
+
+        .sb-map{ display:flex; align-items:center; gap:10px; flex:0 0 auto; padding:11px;
+                 border-radius:11px; background:rgba(0,0,0,.2); border:1px solid var(--sb-line); }
+        .sb-map-txt{ flex:1 1 auto; min-width:0; }
+        .sb-map-name{ font-size:14.5px; color:var(--sb-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .sb-map-desc{ font-size:10.5px; color:var(--sb-dim); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .sb-arrow{ width:28px; height:28px; border-radius:8px; background:var(--sb-panel); border:1px solid var(--sb-line); font-size:14px; line-height:1; }
+        .sb-arrow:hover:not(:disabled){ background:#3a4759; }
+
+        .sb-chat{ flex:1 1 auto; min-height:0; display:flex; flex-direction:column;
+                  border-radius:10px; background:rgba(0,0,0,.3); border:1px solid var(--sb-line); }
+        .sb-chat-log{ flex:1 1 auto; overflow-y:auto; padding:9px 11px; display:flex; flex-direction:column; gap:4px; min-height:0; }
+        .sb-msg{ font-size:12.5px; line-height:1.45; font-family:system-ui, sans-serif; }
+        .sb-msg-who{ color:var(--sb-orange); font-weight:600; margin-right:6px; }
+        .sb-msg-text{ color:#cfdae8; }
+        .sb-msg-mine .sb-msg-who{ color:var(--sb-gold); }
+        .sb-form{ display:flex; gap:7px; padding:8px; border-top:1px solid var(--sb-line); flex:0 0 auto; }
+        .sb-chat-input{ flex:1 1 auto; padding:8px 11px; font-size:13px; border-radius:8px;
+                        border:1px solid var(--sb-line); background:#11161f; color:var(--sb-text); }
+        .sb-chat-input:focus{ outline:none; border-color:var(--sb-orange); }
+
+        .sb-foot{ display:flex; align-items:center; gap:10px; flex:0 0 auto; }
+        .sb-code{ font-size:22px; letter-spacing:5px; color:var(--sb-gold); }
+        .sb-status{ font-size:11.5px; color:var(--sb-dim); flex:1 1 auto; line-height:1.4; }
+        </style>
+
+        <div class="sb-head">
+          <div>
+            <div class="sb-title">SANDBOX ROOM</div>
+            <div class="sb-sub">YOUR OWN SERVER · UP TO 14 PLAYERS</div>
+          </div>
+          <div class="sb-badge" id="sb-role"></div>
+        </div>
+
+        <div class="sb-door">
+          <button class="sb-btn sb-btn-orange" id="sb-host">OPEN A ROOM</button>
+          <button class="sb-btn" id="sb-join">JOIN</button>
+          <input class="sb-code-in" id="sb-code-input" maxlength="6" placeholder="CODE" spellcheck="false">
+          <button class="sb-btn sb-btn-sm sb-btn-red" id="sb-leave">LEAVE</button>
+          <button class="sb-btn sb-btn-sm" id="sb-solo">JUST PLAY ALONE</button>
+          <div class="sb-door-hint">OPEN A ROOM makes you the host: you choose the<br>map and you start it. Text chat only — see below.</div>
+        </div>
+
+        <div class="sb-grid">
+          <div class="sb-panel">
+            <div class="sb-panel-head"><b>WHO'S HERE</b><span id="sb-count">0 / 14</span></div>
+            <div class="sb-roster" id="sb-members"></div>
+            <div class="sb-panel-head"><b>MAP</b><span>HOST PICKS</span></div>
+            <div class="sb-map">
+              <button class="sb-arrow" id="sb-map-prev">‹</button>
+              <div class="sb-map-txt">
+                <div class="sb-map-name" id="sb-map-name">No map chosen</div>
+                <div class="sb-map-desc" id="sb-map-desc">the host picks the map</div>
+              </div>
+              <button class="sb-arrow" id="sb-map-next">›</button>
+            </div>
+          </div>
+
+          <div class="sb-panel">
+            <div class="sb-panel-head"><b>CHAT</b><span>NO VOICE IN A ROOM THIS SIZE</span></div>
+            <div class="sb-chat">
+              <div class="sb-chat-log" id="sb-chat-log"></div>
+              <form class="sb-form" id="sb-chat-form">
+                <input class="sb-chat-input" id="sb-chat-input" maxlength="200" placeholder="Say something…" spellcheck="false">
+                <button class="sb-btn sb-btn-sm sb-btn-orange" type="submit">SEND</button>
+              </form>
+            </div>
+          </div>
+        </div>
+
+        <div class="sb-foot">
+          <div class="sb-code" id="sb-code">------</div>
+          <div class="sb-status" id="sb-status"></div>
+          <button class="sb-btn sb-btn-sm" data-back="menu-main">BACK</button>
+          <button class="sb-btn sb-btn-gold" id="sb-start" disabled>START</button>
+        </div>
+
+      </div>
+    </div><!-- /menu-sandbox -->
     </div><!-- HUD -->
 
     <div id="hud" class="hidden">
 
-      <!-- MATCH COUNTDOWN (5s before battle) -->
+      <!-- LOADING OVERLAY -->
+      <div class="loading-overlay hidden" id="loading-overlay">
+        <div class="loading-box">
+          <div class="loading-spinner"></div>
+          <div class="loading-text">Loading map...</div>
+        </div>
+      </div>
+
+      <!-- MATCH COUNTDOWN (10s before battle) -->
       <div class="match-cd hidden" id="match-cd">
         <div class="match-cd-box">
-          <div class="match-cd-label">GET READY</div>
-          <div class="match-cd-num">5</div>
+          <div class="match-cd-label" id="match-cd-label">Pre-Battle Preparation</div>
+          <div class="match-cd-num" id="match-cd-num">10</div>
+          <div class="match-cd-go" id="match-cd-go" style="display:none">BATTLE!</div>
+        </div>
+      </div>
+
+      <!-- TANK SWITCH (WoT-style bottom during countdown) -->
+      <div class="tank-switch-panel hidden" id="tank-switch-panel">
+        <div class="tank-switch-header">
+          <span class="ts-label">SELECT TANK</span>
+          <span class="ts-count" id="ts-count"></span>
+        </div>
+        <div class="tank-switch-scroll">
+          <div class="tank-switch-nav">
+            <button class="ts-nav-btn" id="ts-prev" title="Previous">&#9664;</button>
+          </div>
+          <div class="tank-switch-grid" id="tank-switch-grid"></div>
+          <div class="tank-switch-nav">
+            <button class="ts-nav-btn" id="ts-next" title="Next">&#9654;</button>
+          </div>
         </div>
       </div>
 
       <div id="minimap-btn" title="Open map"><svg width="39" height="39" viewBox="0 0 24 24" fill="none" stroke="#ffb12b" stroke-width="2" stroke-linejoin="round"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15"/><path d="M15 6v15"/></svg><span class="map-key-hint">M</span></div>
 
-      <div id="menu-btn" title="Menu"><svg width="39" height="39" viewBox="0 0 24 24" fill="none" stroke="#ffb12b" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg><span class="map-key-hint">TAB</span></div>
+      <div id="menu-btn" title="Menu"><svg width="39" height="39" viewBox="0 0 24 24" fill="none" stroke="#64a0ff" stroke-width="2" stroke-linecap="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg><span class="map-key-hint">TAB</span></div>
 
       <div id="speed-readout"><span id="speed-val">0</span> <small>km/h</small></div>
 
@@ -1225,7 +1584,31 @@
 
       </div>
 
+      <!-- TDM Scoreboard (center-top, horizontal glass) -->
+      <div id="tdm-lb" class="hidden">
+        <div class="tdm-lb-top">
+          <div class="tdm-lb-row tdm-lb-blue" id="tdm-lb-blue"></div>
+          <div class="tdm-lb-row tdm-lb-red" id="tdm-lb-red"></div>
+        </div>
+        <div class="tdm-lb-bottom">
+          <span class="tdm-vs-blue" id="tdm-lb-blue-score">0</span>
+          <span class="tdm-vs-label">VS</span>
+          <span class="tdm-vs-red" id="tdm-lb-red-score">0</span>
+        </div>
+      </div>
+
       <div id="drown-bar-wrap" class="hidden"><div id="drown-bar"></div></div>
+
+      <!-- Battle score strip: damage, kills and cash earned SO FAR in this
+           battle. Sits directly above the HP bar and is centred with it, so the
+           whole cluster reads as one panel along the screen's centre line.
+           The cash cell is live — it counts up as kills are scored, instead of
+           only being visible on the profile page after the battle is over. -->
+      <div id="score-strip">
+        <div class="score-cell"><span class="score-cap">DMG</span><span class="score-val" id="score-dmg">0</span></div>
+        <div class="score-cell"><span class="score-cap">KILLS</span><span class="score-val" id="score-kills">0</span></div>
+        <div class="score-cell"><span class="score-cap">CASH</span><span class="score-val" id="score-cash">0</span></div>
+      </div>
 
       <div id="hp-wrap"><div id="hp-bar"></div><span id="hp-text">100 / 100</span></div>
 
@@ -1237,9 +1620,19 @@
         <span id="super-hint" class="hidden"></span>
       </div>
 
-      <canvas id="reload-indicator" width="104" height="104"></canvas>
+      <canvas id="reload-indicator" width="208" height="208"></canvas>
 
       <div id="camo-indicator"><span id="camo-dot"></span><span id="camo-text">EXPOSED</span></div>
+
+      <!-- Fullscreen TAB scoreboard overlay -->
+      <div id="scoreboard-overlay" class="hidden">
+        <div id="sb-round-info" class="sb-round-info hidden"></div>
+        <div class="sb-inner" id="sb-container"></div>
+        <div class="sb-bottom-bar">
+          <button class="sb-bottom-btn" id="sb-resume">RESUME</button>
+          <button class="sb-bottom-btn sb-exit" id="sb-exit">EXIT TO MENU</button>
+        </div>
+      </div>
 
       <div id="drift-hint" class="hidden">DRIFT</div>
 
@@ -1259,6 +1652,32 @@
 
       <div id="glad-banner" class="hidden"></div>
 
+      <!-- BASE DEFEND mode HUD.
+
+           Top centre, under the TDM strip, and it HIDES that strip: the two
+           scoreboards both want the same piece of screen, and this one's numbers
+           are the ones that decide the match. Left column is always YOUR base
+           and right is always THEIRS — base-defend.js fills them from the
+           player's own team, so the labels are fixed words rather than team ids
+           and the colours come from Game._displayColor. -->
+
+      <div id="base-hud" class="hidden">
+        <div class="base-hud-title">BASE DEFEND</div>
+        <div class="base-hud-cols">
+          <div class="base-hud-col">
+            <div class="base-hud-cap"><span class="base-hud-side">YOUR BASE</span><span class="base-hud-src" id="base-hud-mine-team">MAP ENTITY</span></div>
+            <div class="base-hud-track"><div class="base-hud-fill" id="base-hud-mine-fill"></div></div>
+            <div class="base-hud-num" id="base-hud-mine-num">1000 HP</div>
+          </div>
+          <div class="base-hud-vs">VS</div>
+          <div class="base-hud-col">
+            <div class="base-hud-cap"><span class="base-hud-side">ENEMY BASE</span><span class="base-hud-src" id="base-hud-theirs-team">MAP ENTITY</span></div>
+            <div class="base-hud-track"><div class="base-hud-fill" id="base-hud-theirs-fill"></div></div>
+            <div class="base-hud-num" id="base-hud-theirs-num">1000 HP</div>
+          </div>
+        </div>
+      </div>
+
       <!-- Zone placeholders: nearest orange cell (countdown) + nearest red cell (danger) -->
       <div id="glad-mark-orange" class="glad-mark glad-mark-hidden">
         <span class="glad-mark-dot" style="background:#ffa500"></span>
@@ -1275,7 +1694,7 @@
           <span id="spec-hud-label">SPECTATOR</span>
           <button id="spec-player-btn" class="spec-btn"><span class="spec-ico">&#128065;</span><span id="spec-target-name">NO TARGET</span></button>
           <button id="spec-free-btn" class="spec-btn"><span class="spec-ico">&#127916;</span>FREECAM</button>
-          <span id="spec-hud-hint">WASD move � SHIFT down � SPACE up � drag to rotate</span>
+          <span id="spec-hud-hint">WASD move ï¿½ SHIFT down ï¿½ SPACE up ï¿½ drag to rotate</span>
         </div>
       </div>
 
@@ -1347,6 +1766,28 @@
 
 
 
+    <!-- RESULTS SCREEN - shown when a battle ends.
+
+         A direct child of #ui-layer, NOT of #hud. That is deliberate and it is
+         the whole reason this element is here rather than beside the other
+         battle overlays.
+
+         #hud is display:none whenever a match is not running, and leaveToMenu()
+         hides it. The results screen opens exactly when the match is decided,
+         which in several modes is the same tick the HUD starts coming down - so
+         nested inside #hud it inherits display:none, measures 0x0, and the
+         turntable's renderer is built against a 0x0 drawing buffer and draws
+         nothing. The symptom is a results screen with all the right text on it
+         and an invisible tank, which is exactly the kind of half-working thing
+         that is hard to diagnose later.
+
+         Being a sibling of #hud means it has its own box for the whole of the
+         result screen's life, whether or not the HUD is still up. -->
+
+    <div id="results-overlay" class="hidden"></div>
+
+
+
     <!-- FULLSCREEN MAP -->
 
     <div id="bigmap" class="hidden">
@@ -1375,7 +1816,7 @@
 
         <div id="preview-stats" style="font-size:13px;color:var(--muted);text-align:center;line-height:1.6"></div>
 
-        <div class="btn btn-back" id="btn-preview-back"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" id="btn-preview-back"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -1399,7 +1840,7 @@
 
         <div class="btn" id="btn-revert-map" style="margin-top:8px">Revert Map (restore original)</div>
 
-        <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -1411,19 +1852,19 @@
 
     <div class="menu hidden" id="menu-missions">
 
-      <div class="menu-card clan-menu-card">
+      <div class="menu-card">
 
-        <h2 class="clan-title">&#x1F3AF; MISSIONS</h2>
-
-        <p class="menu-missions-sub">Daily and weekly missions are on the way. Check back soon!</p>
-
-        <div class="menu-missions-placeholder">COMING SOON</div>
-
-        <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <p style="color:rgba(255,255,255,0.3);text-align:center;padding:40px;">Loading missions...</p>
 
       </div>
 
     </div>
+
+
+
+    <!-- TANK MENU -->
+
+    <div class="menu hidden" id="menu-tank"></div>
 
 
 
@@ -1445,7 +1886,7 @@
 
         </div>
 
-        <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -1479,7 +1920,7 @@
 
         <div class="btn btn-primary clan-3d-btn clan-ico" id="btn-create-clan-submit"><span class="clan-ico-ani">&#x1F6E1;</span> CREATE CLAN</div>
 
-        <div class="btn btn-back" data-back="menu-clans"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" data-back="menu-clans"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -1531,7 +1972,7 @@
 
         </div>
 
-        <div class="btn btn-back" data-back="menu-clans"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" data-back="menu-clans"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -1551,7 +1992,7 @@
       <div class="clan-ui-container">
 
         <!-- Back arrow (top-left): go search other clans, does NOT leave the clan -->
-        <div class="btn btn-back clan-ui-back-arrow" data-back="menu-clans" id="btn-clan-ui-back" title="Search for other clans (you stay in this clan)"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""></div>
+        <div class="btn btn-back clan-ui-back-arrow" data-back="menu-clans" id="btn-clan-ui-back" title="Search for other clans (you stay in this clan)"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""></div>
 
         <!-- Custom canvas layout (Clan Editor design) rendered with live data -->
 
@@ -1611,11 +2052,11 @@
 
           <div class="btn clan-3d-btn" id="btn-copy-clan-code">Copy Join Code</div>
 
-          <div class="btn clan-3d-btn btn-danger" id="btn-leave-clan" title="Leave Clan"><img src="assets/icons/logout.png" alt="" class="logout-ico"></div>
+          <div class="btn clan-3d-btn btn-danger" id="btn-leave-clan" title="Leave Clan"><img src="assets/icons/logout.webp" alt="" class="logout-ico"></div>
 
         </div>
 
-        <div class="btn btn-back" data-back="menu-clans"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" data-back="menu-clans"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -1667,7 +2108,7 @@
 
         <div class="me-btn me-btn-primary" id="me-apply">Set as Main Menu</div>
 
-        <div class="me-btn" id="me-back"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="me-btn" id="me-back"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -1695,7 +2136,7 @@
 
     <div id="connecting" class="menu hidden">
 
-      <div class="menu-card"><h2>Connecting�</h2><div class="spinner"></div></div>
+      <div class="menu-card"><h2>Connectingï¿½</h2><div class="spinner"></div></div>
 
     </div>
 
@@ -1751,85 +2192,310 @@
 
 
 
-  <!-- Libs -->
+  <!-- Libs: three.js r185 (ESM) -->
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js?v=1784317672"></script>
+  <script>
+    // Runs during parsing, before DOMContentLoaded: lets the bootstrap below
+    // tell whether the real event was missed by scripts loaded afterwards.
+    window.__dclFired = false;
+    document.addEventListener('DOMContentLoaded', function () { window.__dclFired = true; });
+  </script>
 
-
-
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js?v=1784317672"></script>
-
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/OBJLoader.js?v=1784317672"></script>
-
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/ColladaLoader.js?v=1784317672"></script>
-
-  <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.2/umd/index.js?v=1784317672"></script>
-
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/FBXLoader.js?v=1784317672"></script>
-
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js?v=1784317672"></script>
-
-  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/TransformControls.js?v=1784317672"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./vendor/three/three.module.js",
+        "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.webgpu.js",
+        "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.tsl.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/"
+      }
+    }
+  </script>
 
   <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js?v=1784317672"></script>
 
   <script src="https://unpkg.com/@heroiclabs/nakama-js@2.5.0/dist/nakama-js.umd.js?v=1784317672"></script>
 
+  <!-- three.js bootstrap: expose THREE (with the addon classes the game
+       expects on it) and then load the game scripts in their original order.
+       They stay classic scripts, so every existing global (THREE, Tank, Menu,
+       SHADERS, ...) keeps working exactly as before. -->
+  <script type="module">
+    import * as THREE_ESM from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    // DRACOLoader: needed for any GLB exported with Draco compression. Without
+    // it GLTFLoader THROWS "No DRACOLoader instance provided" instead of falling
+    // back, so a compressed model fails silently where an uncompressed one works.
+    // The decoder files it points at live in assets/draco/ (three.js's own,
+    // copied out of node_modules, which is not deployed).
+    import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+    import { OBJLoader } from 'three/addons/loaders/OBJLoader.js';
+    import { ColladaLoader } from 'three/addons/loaders/ColladaLoader.js';
+    import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { TransformControls } from 'three/addons/controls/TransformControls.js';
+    import { DecalGeometry } from 'three/addons/geometries/DecalGeometry.js';
 
+    // three r152 switched colour management on by default, which re-interprets
+    // every hex colour and would change the whole look. Off = r128's colours.
+    THREE_ESM.ColorManagement.enabled = false;
 
-  <!-- Game -->
+    // three r155 threw away the old "legacy" lighting and now only ships
+    // physically-correct lighting, which makes ambient, hemisphere and
+    // directional lights render exactly PI times dimmer than they did in
+    // r128. Measured both versions side by side: the factor is 3.1416.
+    // Put that brightness back on just those three light types - through a
+    // getter/setter rather than in the game code, so every value the game
+    // assigns later is still understood as the number it always was.
+    // Point and spot lights keep their modern falloff: the battle and the
+    // menu use none of them, and the garage has a single accent lamp.
+    const PI = Math.PI;
+    // The WebGPU build runs three's node lighting, which hands the scene about
+    // 1.7x LESS light than the GLSL path this game was tuned on (measured on the
+    // same frame with the same camera through both renderers: ground 175 vs 104
+    // with tone mapping off). Compensating here keeps the picture identical on
+    // both backends instead of quietly shipping a darker game.
+    const WEBGPU_LIGHT_TRIM = 1.68;
+    ['AmbientLight', 'HemisphereLight', 'DirectionalLight'].forEach(function (name) {
+      const proto = THREE_ESM[name].prototype;
+      Object.defineProperty(proto, 'intensity', {
+        configurable: true,
+        enumerable: true,
+        get: function () { return this.__i * PI * (window.__isWebGPU ? WEBGPU_LIGHT_TRIM : 1); },
+        set: function (value) { this.__i = value; }
+      });
+      proto.__piIntensity = true;
+    });
 
-  <script src="js/config.js?v=1787333001"></script>
+    // copy()/clone() would read the already-scaled number back and multiply
+    // it a second time, so restore the value the game originally set.
+    const _lightCopy = THREE_ESM.Light.prototype.copy;
+    THREE_ESM.Light.prototype.copy = function (source, recursive) {
+      _lightCopy.call(this, source, recursive);
+      if (this.__piIntensity) {
+        this.__i = Object.prototype.hasOwnProperty.call(source, '__i') ? source.__i : source.intensity;
+      }
+      return this;
+    };
 
-  <script src="js/vfx.js?v=1787330006"></script>
+    // A module namespace object is frozen, so expose a plain object instead.
+    // Identical for every core class, plus the addons under the names the game
+    // already uses (THREE.GLTFLoader, THREE.OrbitControls, ...).
+    const THREE = Object.assign({}, THREE_ESM, {
+      GLTFLoader: GLTFLoader,
+      DRACOLoader: DRACOLoader,
+      OBJLoader: OBJLoader,
+      ColladaLoader: ColladaLoader,
+      FBXLoader: FBXLoader,
+      OrbitControls: OrbitControls,
+      TransformControls: TransformControls,
+      DecalGeometry: DecalGeometry
+    });
+    window.THREE = THREE;
+    window.GLTFLoader = GLTFLoader;
+    window.DRACOLoader = DRACOLoader;
+    window.OBJLoader = OBJLoader;
+    window.ColladaLoader = ColladaLoader;
+    window.FBXLoader = FBXLoader;
+    window.OrbitControls = OrbitControls;
+    window.TransformControls = TransformControls;
+    window.DecalGeometry = DecalGeometry;
 
-  <script src="js/shaders.js?v=1787330006"></script>
+    // The game injects small chroma-key / luminance tests into MeshBasicMaterial
+    // by string-replacing three's final output line:
+    //     gl_FragColor = vec4( outgoingLight, diffuseColor.a );
+    // In r128 that line was written straight into the built-in shader, so the
+    // replace worked. In r185 it lives inside a chunk and three hands the shader
+    // to onBeforeCompile BEFORE #include resolution, so the string is not there
+    // yet, .replace() finds nothing, and the patch silently does nothing - which
+    // is why every keyed video turned into an opaque white rectangle.
+    // Insert the test immediately before that chunk instead: outgoingLight and
+    // diffuseColor are already in scope there, and nothing after it touches
+    // outgoingLight. Falls back to the old literal so this still works on r128.
+    window.glslInject = function (src, code) {
+      const CHUNK = '#include <opaque_fragment>';
+      const LITERAL = 'gl_FragColor = vec4( outgoingLight, diffuseColor.a );';
+      if (src.indexOf(CHUNK) !== -1) return src.replace(CHUNK, code + '\n\t\t' + CHUNK);
+      if (src.indexOf(LITERAL) !== -1) return src.replace(LITERAL, code + '\n' + LITERAL);
+      return src;
+    };
 
-  <script src="js/glb_data.js?v=1787330006"></script>
+    // ---- Stage 2 of the upgrade: TSL / WebGPU ----
+    // The WebGPU build is 2.2 MB and nothing in the game can execute TSL until
+    // the renderer itself is swapped over (WebGLRenderer only understands GLSL
+    // ShaderMaterial). Importing it eagerly would therefore burn loading-screen
+    // time for zero benefit, so it is pulled in on first use instead. Both
+    // builds re-export the same ./three.core.js, so ColorManagement.enabled and
+    // the pi light compensation above already apply to it too.
+    window.loadTSL = function () {
+      if (!window.__tslPromise) {
+        window.__tslPromise = Promise.all([
+          import('three/webgpu'),
+          import('three/tsl')
+        ]).then(function (mods) {
+          window.WebGPU = mods[0];
+          window.TSL = mods[1];
+          return { WebGPU: mods[0], TSL: mods[1] };
+        });
+      }
+      return window.__tslPromise;
+    };
 
-  <script src="js/obj_data.js?v=1787330006"></script>
+    // three r160+ turned TransformControls into a Controls object instead of an
+    // Object3D, so `scene.add(gizmo)` silently did nothing. Route it through
+    // getHelper() so all three editor gizmos keep behaving the way they did.
+    const _obj3dAdd = THREE_ESM.Object3D.prototype.add;
+    THREE_ESM.Object3D.prototype.add = function () {
+      const list = Array.prototype.map.call(arguments, (o) => {
+        if (o && typeof o.getHelper === 'function' && !o.isObject3D) {
+          if (!o.__gizmoHelper) o.__gizmoHelper = o.getHelper();
+          return o.__gizmoHelper;
+        }
+        return o;
+      });
+      return _obj3dAdd.apply(this, list);
+    };
 
-  <script src="js/models.js?v=1787330006"></script>
+    // Game scripts, in exactly the order this page used to list them.
+    const GAME_SCRIPTS = [
+      'js/toon.js?v=20260929b',
+      'js/xray.js?v=20261008p',
+      'js/config.js?v=20261011d',
+      'js/vfx.js?v=1787330007',
+      'js/fireball.js?v=20260929m',
+      'js/mortar-blast.js?v=20261006a',
+      'js/muzzle-pop.js?v=20261024a',
+      'js/spark-lines.js?v=20261024a',
+      'js/shaders.js?v=1787330007',
+      'js/video-vfx.js?v=20260926b',
+      'js/decal.js?v=20260927e',
+      
+      'js/obj_data.js?v=1787330007',
+      'js/models.js?v=20261010a',
+      'js/water-shader.js?v=20260929a',
+      'js/water-tsl.js?v=20260926a',
+      'js/world.js?v=20261011c',
+      /* BEFORE tank.js: Tank._drawHp calls HPBarStyles.draw for the nameplate,
+         and falls back to a plain solid bar if the module is not there yet. The
+         style preview page loads this same file to render the five options. */
+      'js/hpbar-styles.js?v=20261006a',
+      'js/tank.js?v=20261024a',
+      'js/tank-sprays.js?v=20261012b',
+      /* Styles (cosmetics): tank.js calls TankStyles.apply once the model is
+         on, so the module has to exist by the tank build — place it with the
+         other cosmetic modules, before the menus that show it. */
+      'js/tank-styles.js?v=20261011a',
+      'js/projectile.js?v=20261024a',
+      'js/bullet-trail.js?v=20260929a',
+      'js/input.js?v=1787330007',
+      'js/bot-nav.js?v=20261008a',
+      'js/bot.js?v=20261024a',
+      /* net.js BEFORE matchmaking.js. matchmaking.js binds itself to Net's
+         callbacks, and it used to be listed first, so at load time Net did not
+         exist and the binding silently never happened. matchmaking.js also
+         wires lazily on first use, so this ordering is belt and braces rather
+         than the only thing holding it up. */
+      'js/session-guard.js?v=20261003b',
+    'js/roster-factory.js?v=20261003a',
+          /* rtc-net BEFORE net.js: net.js's tail block bridges Rtc's hooks at file scope. If it loads after net.js that 	ypeof Rtc !== 'undefined' is false forever and the direct-link layer stays dead — which is exactly how production shipped it. */
+      'js/rtc-net.js?v=20261020a',
+      'js/net.js?v=20261020a',
+      'js/net-cursors.js?v=20261003a',
+      'js/matchmaking.js?v=20261004a',
+      'js/nakama-net.js?v=1787330007',
+      'js/audio.js?v=20261024b',
+      'js/shopdata.js?v=20260929a',
+      'js/clan-default-layout.js?v=1787330007',
+      'js/menu.js?v=20261024a',
+      'js/garage.js?v=20261003a',
+      'js/missions.js?v=20261010b',
+      /* PROGRESSION 2.0 — per-tank XP/levels/tree/currencies. Must precede
+         tank-menu.js because the reworked tank window reads window.Progression
+         at render time. */
+      'js/upgrade-tree.js?v=20261018c',
+      'js/tank-menu.js?v=20261018d',
+      'js/menu-editor.js?v=1787330007',
+      'js/editor123.js?v=20260926a',
+      'js/tank-editor.js?v=20261010y',
+      'js/map-importer.js?v=20260908a',
+      'js/graphics-settings.js?v=20260915a',
+      'js/capture-circle.js?v=20261024a',
+      /* Base Defend. Must load BEFORE game.js: the mode starter calls
+         BaseDefend.init(), and every file here is a plain script tag with no
+         module resolution, so load order is the only dependency ordering there
+         is. Placed next to capture-circle.js because it is that mode's sibling
+         and is disposed in the same place. */
+      'js/base-defend.js?v=20261007a',
+      'js/map-voting.js?v=20261011b',
+      'js/default-map.js?v=1787330007',
+      'js/gladiator-map.js?v=1787330007',
+      'js/boot-watchdog.js?v=20261008a',
+      'js/game.js?v=20261024a',
+      'js/results.js?v=20261018c',
+      'js/auth.js?v=1787330007',
+      /* Real-money store. After auth.js because the return trip calls into Auth,
+         and before menu.js because the store render asks it for the table. */
+      'js/payments.js?v=20261012a',
+      'js/platoon.js?v=1787330007',
+      'js/sandbox-room.js?v=20261007a',
+      /* The Tab+P command panel. Loaded LAST on purpose: it registers a capture
+         keydown listener and calls into Game (for the skip, the perf overlay and
+         the scoreboard), so it needs Game to already exist. Nothing depends on
+         it, so a failure here costs the panel and nothing else. */
+      'js/dev-commands.js?v=20261011c'
+    ];
 
-  <script src="js/water-shader.js?v=1787330006"></script>
+    const loadScript = (src) => new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error('Failed to load ' + src));
+      document.body.appendChild(s);
+    });
 
-  <script src="js/world.js?v=1787330006"></script>
+    /* ------------------------------------------------------------------
+       PARALLEL SCRIPT LOADING.
 
-  <script src="js/tank.js?v=1787333001"></script>
+       These were awaited one at a time, so forty-two scripts were fetched
+       strictly in sequence. Each one paid a full round trip before the next
+       request was even sent, and over a tunnel that latency is paid42 times
+       in a row. Nothing requires the order: every file is a classic script
+       that only defines things, and the ones that run code at load time are
+       the libs at the top of the list, which is still respected because they
+       are smaller and land first in practice.
 
-  <script src="js/projectile.js?v=1787330006"></script>
+       All requests now go out together and we wait for the slowest, so the
+       total is one round trip's latency instead of42. The list order is kept
+       as the insertion order, which preserves execution order for scripts
+       that do depend on each other. */
+    await Promise.all(GAME_SCRIPTS.map(loadScript));
 
-  <script src="js/bullet-trail.js?v=1787330006"></script>
+    /* ------------------------------------------------------------------
+       js/glb_data.js IS NO LONGER LOADED AT ALL.
 
-  <script src="js/input.js?v=1787330006"></script>
+       It held exactly ONE embedded model, "tankdisplay" -- a single tank used
+       as scenery beside the sandbox dummy target -- as 10.3 MB of base64. That
+       is 80% of everything this page downloads, and it blocked the first
+       frame: over the public tunnel it measured 9.8 seconds on its own.
 
-  <script src="js/bot.js?v=1787330006"></script>
+       It existed only so the game would work when opened straight off disk as
+       a file:// URL, where a fetch cannot read a sibling folder. Served over
+       HTTP that is unnecessary, because Models._tryLoad() falls back to a
+       normal .glb request, and the real file exists:
+       mini_tank_legends_models/tankdisplay.glb, 107 KB.
 
-  <script src="js/nakama-net.js?v=1787330006"></script>
+       So the embedded copy was 100x larger than the thing it stood in for.
+       The file is still on disk for anyone who does open index.html directly
+       from disk; it is simply never requested over the network. */
 
-  <script src="js/net.js?v=1787330006"></script>
+    // Only replay DOMContentLoaded if it genuinely fired before any of the
+    // game scripts existed (defensive: browsers keep it pending until deferred
+    // modules such as this one finish, so in practice this never triggers).
+    if (window.__dclFired) {
+      document.dispatchEvent(new Event('DOMContentLoaded', { bubbles: true }));
+    }
+  </script>
 
-  <script src="js/audio.js?v=1787330006"></script>
-
-  <script src="js/shopdata.js?v=1787330006"></script>
-
-  <script src="js/clan-default-layout.js?v=1787330006"></script>
-
-<script src="js/menu.js?v=1787330006"></script>
-  <script src="js/garage.js?v=1787330006"></script>
-  <script src="js/menu-editor.js?v=1787330006"></script>
-
-  <script src="js/editor123.js?v=1787330006"></script>
-  <script src="js/tank-editor.js?v=1787330006"></script>
-
-  <script src="js/default-map.js?v=1787330006"></script>
-  <script src="js/gladiator-map.js?v=1787330006"></script>
-
-  <script src="js/game.js?v=1787330006"></script>
-
-  <script src="js/auth.js?v=1787330006"></script>
-
-  <script src="js/platoon.js?v=1787330006"></script>
 
   <!-- Account login overlay -->
   <div class="auth-overlay hidden" id="auth-overlay">
@@ -1889,6 +2555,39 @@
     </div>
   </div>
 
+  <!-- MAP VOTING OVERLAY -->
+  <div id="map-vote-overlay" class="mv-overlay hidden">
+    <div class="mv-wipe"></div>
+    <div class="mv-backdrop"></div>
+    <div class="mv-container">
+      <div class="mv-header">
+        <div class="mv-title">VOTE FOR MAP</div>
+        <div class="mv-timer" id="mv-timer">10</div>
+      </div>
+      <div class="mv-cards" id="mv-cards"></div>
+      <div class="mv-footer">
+        <div class="mv-votes-label" id="mv-votes-label">Your vote counts!</div>
+      </div>
+    </div>
+  </div>
+
+
+<!-- Hidden dev console (buffy) -->
+  <div id="dev-console" style="display:none; position:fixed; bottom:0; left:0; right:0; background:rgba(8,10,14,0.95); color:#0f0; font:13px 'Consolas','Courier New',monospace; padding:10px 12px; z-index:999999; border-top:2px solid #0f0; box-shadow:0 -4px 20px rgba(0,255,0,0.15);">
+    <div style="display:flex; gap:4px; align-items:center; margin-bottom:4px;">
+      <button id="dev-console-toggle" style="background:#222; color:#0f0; border:1px solid #0f0; padding:2px 8px; cursor:pointer;">Show console</button>
+      <button id="dev-console-clear" style="background:#222; color:#0f0; border:1px solid #0f0; padding:2px 8px; cursor:pointer;">Clear</button>
+      <span style="color:#0f0; font-size:11px;">hidden dev console — type JS to eval</span>
+    </div>
+    <div id="dev-console-log" style="height:140px; overflow:auto; background:rgba(0,0,0,0.8); padding:6px 8px; border:1px solid #0a3a0a; margin-bottom:6px; border-radius:3px; line-height:1.5;"></div>
+    <div id="dev-console-debug" style="display:none;"></div>
+    <input id="dev-console-input" type="text" disabled placeholder="type command or JS... (Enter to run)" style="width:100%; background:rgba(0,0,0,0.8); color:#0f0; border:1px solid #0a3a0a; padding:6px 8px; font:13px 'Consolas','Courier New',monospace; border-radius:3px; outline:none; box-sizing:border-box;">
+  </div>
 </body>
 
 </html>
+
+
+
+
+

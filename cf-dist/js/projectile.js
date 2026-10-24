@@ -2116,14 +2116,14 @@ class FlameCone {
    shards, fluffy smoke clouds, embers and dust — so no single round "yellow
    ball" dominates. `style` picks a preset (boom/barrel/wall/small/box/drop). */
 const EXPLOSION_STYLES = {
-  boom:   { life:0.6,  flash:2.4, ring:true,  fire:0.5, embers:3, smoke:0.7, dust:0 },
-  barrel: { life:0.65, flash:2.6, ring:true,  fire:0.8, embers:5, smoke:0.85,dust:0 },
-  wall:   { life:0.45, flash:1.2, ring:false, fire:0,   embers:0, smoke:0,   dust:6 },
-  small:  { life:0.4,  flash:1.0, ring:false, fire:0,   embers:0, smoke:0,   dust:4 },
-  box:    { life:0.5,  flash:1.6, ring:true,  fire:0,   embers:1, smoke:0.35,dust:0 },
-  drop:   { life:0.5,  flash:1.8, ring:true,  fire:0,   embers:2, smoke:0.6, dust:0 },
-  burn:   { life:0.35, flash:0.8, ring:false, fire:0,   embers:3, smoke:0,   dust:2 },
-  lrg:    { life:0.9,  flash:2.8, ring:true,  fire:1.1, embers:5, smoke:1.0, dust:0, smokeCol:1.4 },
+  boom:   { life:0.70,  flash:2.4, ring:true,  fire:0.5, embers:3, smoke:0.8, dust:0 },
+  barrel: { life:0.75,  flash:2.6, ring:true,  fire:0.8, embers:5, smoke:0.9, dust:0 },
+  wall:   { life:0.45,  flash:1.2, ring:false, fire:0,   embers:0, smoke:0,   dust:6 },
+  small:  { life:0.4,   flash:1.0, ring:false, fire:0,   embers:0, smoke:0,   dust:4 },
+  box:    { life:0.55,  flash:1.6, ring:true,  fire:0,   embers:1, smoke:0.5, dust:0 },
+  drop:   { life:0.55,  flash:1.8, ring:true,  fire:0,   embers:2, smoke:0.7, dust:0 },
+  burn:   { life:0.35,  flash:0.8, ring:false, fire:0,   embers:3, smoke:0,   dust:2 },
+  lrg:    { life:1.0,   flash:2.8, ring:true,  fire:1.1, embers:5, smoke:1.1, dust:0, smokeCol:1.4 },
 };
 class Explosion {
   constructor(x,y,z,color,count,style){
@@ -2154,6 +2154,19 @@ class Explosion {
       flash.scale.set(fs, fs, 1);
       flash.userData = {type:'flash', base:fs};
       this.group.add(flash); this.parts.push(flash);
+    }
+
+    // 0b) White-hot collapsing core - the centre of the blast burns white and
+    // SHRINKS while the fire lobes spread around it. A fast-collapsing bright
+    // centre is the single biggest "this is a real blast" cue: the eye reads
+    // expansion + contraction happening at once, the way real fireball
+    // footage does, instead of one balloon inflating.
+    if(st.fire > 0){
+      const core = new THREE.Sprite(new THREE.SpriteMaterial({map:VFX.getTex('starsoft'), color:white, transparent:true, opacity:1, blending:THREE.AdditiveBlending, depthWrite:false}));
+      core.position.y = 0.25;
+      core.scale.set(1.7*K, 1.7*K, 1);
+      core.userData = {type:'core', base:1.7*K};
+      this.group.add(core); this.parts.push(core);
     }
 
     // 1) Expanding shockwave ring hugs the ground
@@ -2318,8 +2331,24 @@ class Explosion {
       const u = p.userData;
       switch(u.type){
         case 'flash':
-          p.scale.setScalar(u.base * (lifeK*0.5 + 0.5));
-          p.material.opacity = lifeK;
+          /* BANG, THEN GONE. The old flash slid from big to small over the
+             whole blast, which read as a fading sticker. A flash is quick:
+             it arrives at full size almost immediately, pops one bright
+             overshoot, then dies hard inside the first third. What is left
+             afterwards is fire and smoke - with nothing glowing on top of
+             them, the layers finally sort out visually. */
+          const gk = Math.min(1, k / 0.34);
+          const pop = 1 + 0.12 * Math.sin(Math.min(1, k / 0.12) * Math.PI);
+          p.scale.setScalar(u.base * (0.42 + 0.58 * gk) * pop);
+          p.material.opacity = Math.max(0, 1 - gk) * 0.95;
+          break;
+        case 'core':
+          /* COLLAPSING CENTRE. Born large and bright, shrinks fast - gone
+             inside 30% of the blast. Cheap (one sprite), but it is what
+             turns "puff" into "blast". */
+          const ck = Math.min(1, k / 0.30);
+          p.scale.setScalar(u.base * (1 - ck * 0.60));
+          p.material.opacity = Math.max(0, 1 - ck) * 0.95;
           break;
         case 'ring':
           p.scale.setScalar(0.8 + k*k*7.5);
@@ -2382,14 +2411,37 @@ class Explosion {
           p.position.addScaledVector(u.v, dt);
           u.v.y -= u.g*dt;
           p.rotation.z += u.spin*dt;
+          /* CHUNKY METAL, NOT DUST. The shards used to fall through the
+             world forever, which read as confetti. They are debris: they hit
+             the ground, BOUNCE losing most of the fall but not all, then
+             settle dead. One bounce is enough for the eye; after that they
+             just stop. Works in world height because the group already sits
+             at the blast point, so group Y + local Y is true ground height
+             on flat maps and every shipped map is flat under fights. */
+          const shWorldY = this.group.position.y + p.position.y;
+          if(shWorldY < 0.14 && u.v.y < 0){
+            if(u._bounced){
+              u.v.y = 0; u.v.x *= 0.5; u.v.z *= 0.5; u.spin *= 0.5;
+            } else {
+              u.v.y = -u.v.y * 0.42;
+              u.v.x *= 0.68; u.v.z *= 0.68; u.spin *= 0.6;
+              u._bounced = true;
+            }
+            p.position.y = 0.14 - this.group.position.y;
+          }
           p.scale.setScalar(u.base*(1+k*0.8));
           p.material.opacity = Math.max(0, 0.9*lifeK);
           break;
         case 'smoke':
           p.position.addScaledVector(u.v, dt);
           u.v.y += 0.5*dt;
-          p.scale.setScalar(u.base*(1+k*1.6));
-          p.material.opacity = Math.max(0, 0.55*lifeK);
+          /* THICKER, LONGER-HANGING SMOKE. The old smoke shrank its opacity
+             linearly from frame one, so the puffs were already ghosts while
+             the fire was still dying - the blast looked like it never had
+             any smoke at all. Now they hold and swell for the first quarter
+             (the fire needs something to burn INTO), then fade steadily. */
+          p.scale.setScalar(u.base*(1+k*2.2));
+          p.material.opacity = Math.max(0, 0.55 * (1 - Math.max(0, k - 0.22) / 0.78));
           break;
         case 'dust':
           p.position.addScaledVector(u.v, dt);

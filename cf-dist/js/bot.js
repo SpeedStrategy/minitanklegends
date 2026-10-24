@@ -7,6 +7,46 @@
            FLANKING → FOLLOWING → WANDERING → SCOUTING → DODGING
    ============================================================ */
 
+/* ============================================================
+   PLAYSTYLES — how each TANK MODEL fights, not just how smart.
+
+   The IQ levels (below, per brain) say HOW WELL a bot plays;
+   this table says WHAT the play is. Everybody with the same IQ
+   otherwise danced to the same beat: a mortar holding at brawler
+   distance, a slow demolisher "flanking" a whole map away. Each
+   profile is a handful of multipliers the existing behaviour code
+   reads, so a tank's role lives in one place and a def that later
+   changes its shell range re-tunes itself:
+
+     closeIn       stand-off range as a FRACTION of the gun's range.
+                   Artillery keeps 1.6x (fights from the far edge);
+                   brawlers .4 (walk up and land shells).
+     retreatHpMul  scales the IQ's retreat eagerness. Demolisher is
+                   a brick; mortar is paper with the longest barrel.
+     peekMul       stretches (sniper lingers on its peek) or shrinks
+                   (flanker jabs and goes) the peek timeout.
+     flankBias     coordinated pushes: how OFTEN this tank is willing
+                   to set them up (cooldown = base / bias).
+     coverSeek     hides in cover when idle, like def.seeksCover.
+   ============================================================ */
+const BOT_PLAYSTYLES = {
+  coolbuddy:   { role:'flanker',   closeIn:0.55, retreatHpMul:0.75, peekMul:0.75, flankBias:1.7, coverSeek:false },
+  sturmratte:  { role:'flanker',   closeIn:0.50, retreatHpMul:0.70, peekMul:0.70, flankBias:1.8, coverSeek:false },
+  helix:       { role:'rusher',    closeIn:0.40, retreatHpMul:0.80, peekMul:0.80, flankBias:1.3, coverSeek:false },
+  striker:     { role:'sniper',    closeIn:1.25, retreatHpMul:1.25, peekMul:1.40, flankBias:0.6, coverSeek:true },
+  ghost:       { role:'ambusher',  closeIn:0.80, retreatHpMul:1.10, peekMul:1.20, flankBias:1.2, coverSeek:true },
+  predator:    { role:'ambusher',  closeIn:0.75, retreatHpMul:1.00, peekMul:1.20, flankBias:1.1, coverSeek:true },
+  grom:        { role:'brawler',   closeIn:0.45, retreatHpMul:0.75, peekMul:0.90, flankBias:1.0, coverSeek:false },
+  demolisher:  { role:'brawler',   closeIn:0.40, retreatHpMul:0.65, peekMul:0.85, flankBias:0.8, coverSeek:false },
+  double:      { role:'mid',       closeIn:0.80, retreatHpMul:1.00, peekMul:1.00, flankBias:1.2, coverSeek:false },
+  burst:       { role:'skirmisher',closeIn:0.85, retreatHpMul:1.05, peekMul:1.00, flankBias:1.1, coverSeek:false },
+  mortar:      { role:'artillery', closeIn:1.60, retreatHpMul:1.40, peekMul:1.60, flankBias:0.4, coverSeek:true },
+  tankdisplay: { role:'mid',       closeIn:1.00, retreatHpMul:1.00, peekMul:1.00, flankBias:1.0, coverSeek:false },
+};
+/* A tank that is not in the table (an editor import, a future model) still
+   plays sanely: close to just inside the gun's range, ordinary profile. */
+const BOT_DEFAULT_STYLE = { role:'mid', closeIn:0.90, retreatHpMul:1.00, peekMul:1.00, flankBias:1.0, coverSeek:false };
+
 class BotBrain {
   constructor(tank, opts){
     this.tank = tank;
@@ -74,6 +114,15 @@ class BotBrain {
     this._stuckCheckPos = {x: tank.x, z: tank.z};
     this._separationRadius = 5;
     this._botId = Math.random().toString(36).slice(2, 8);
+
+    /* WHAT IT DRIVES, not just how well. The table above turns every shipped
+       tank into its own kind of opponent instead of a generic one. The
+       retreat threshold is scaled right here so brawlers are measurably
+       braver and artillery measurably more careful, on top of IQ; the flank
+       gap is the coordinated-push cooldown derived from flankBias. */
+    this.style = BOT_PLAYSTYLES[(tank.def && tank.def.id) || ''] || BOT_DEFAULT_STYLE;
+    this._retreatThreshold = Math.max(0.6, this._retreatThreshold * this.style.retreatHpMul);
+    this._flankGap = (6 + Math.random() * 4) / Math.max(0.3, this.style.flankBias);
   }
 
   decide(game){
@@ -282,7 +331,9 @@ const canSeeTarget = target ? !!pick.canSee : false;
             this.state = 'COORDPUSH';
             this.pushTimer = 0;
             this._coordinatedPushTarget = {x: target.x, z: target.z};
-            this._flankCooldown = 6 + Math.random()*4;
+            /* The cooldown comes from the playstyle: flankers set up pushes
+               every few seconds, a mortar basically never volunteers. */
+            this._flankCooldown = this._flankGap;
           }
         }
       }
@@ -534,7 +585,9 @@ const canSeeTarget = target ? !!pick.canSee : false;
       }
     }
 
-    const peekTimeout = this.iq === 'high' ? 1.0 : this.iq === 'medium' ? 1.5 : 2.0;
+    /* Style stretches or shrinks the peek: a sniper lingers on its peek to
+       land the max-range shot, a flanker jabs and is already driving. */
+    const peekTimeout = (this.iq === 'high' ? 1.0 : this.iq === 'medium' ? 1.5 : 2.0) * (this.style ? this.style.peekMul : 1);
     if(this.peekTimer > peekTimeout){
       this.state = 'RETREATING';
       this.retreatTimer = 0;
@@ -705,6 +758,44 @@ const canSeeTarget = target ? !!pick.canSee : false;
       }
       if(!followTarget){
         followTarget = {x: (me.x + target.x)/2, z: (me.z + target.z)/2};
+      }
+    }
+
+    /* STYLE: keep the stand-off this gun is built for.
+
+       An artillery bot that closes to brawling range has thrown away its
+       only advantage, and a sniper that lets a flanker walk to point-blank
+       has lost the fight that mattered. So while the hull is healthy a bot
+       backs away from anything that gets inside its stand-off range
+       (shellRange * closeIn), firing on the move. The stand-off is only the
+       default of its role: brawlers and rushers have closeIn far below the
+       distance anyone ever closes to, so for them this block never fires
+       and they press in over open ground exactly as before. A hull that is
+       already breaking up must run for cover instead - that is RETREATING's
+       job, and it has its own trigger. */
+    const st = this.style;
+    if(st && !isTDM && (me.hp / me.maxHp) > Math.min(0.45, this._retreatThreshold * 0.35)){
+      const standOff = me.def.shellRange * st.closeIn;
+      if(dist < standOff){
+        const away = Math.atan2(me.x - target.x, me.z - target.z);
+        this._driveTo(me, out, me.x + Math.sin(away) * (standOff - dist + 8), me.z + Math.cos(away) * (standOff - dist + 8), game, 2.0);
+        out.throttle = st.role === 'artillery' ? 0.8 : 0.5;
+        out.turretAngle = Math.atan2(target.x-me.x, target.z-me.z);
+        this._wallAvoid(me, out, game);
+        /* Fight backwards: a stand-off bot at its proper range is STILL a
+           threat, and the shot it lands while backing off is the whole
+           point of keeping the range in the first place. */
+        if(canSee && me.reloadLeft <= 0 && dist < me.def.shellRange){
+          const aimDiff = Math.abs(this._angleDiff(out.turretAngle, me.turretAngle));
+          if(aimDiff < 0.15){
+            const lead = this._calcLead(me, target, dist);
+            out.turretAngle = Math.atan2(target.x+lead.x-me.x, target.z+lead.z-me.z);
+            if(Math.abs(this._angleDiff(out.turretAngle, me.turretAngle)) < 0.12){
+              out.fire = true;
+            }
+          }
+        }
+        return;
       }
     }
 
@@ -1007,10 +1098,13 @@ const canSeeTarget = target ? !!pick.canSee : false;
     return best ? {x:best.x, z:best.z} : null;
   }
 
-  /* Only Ark. A per-tank opt-in rather than a hardcoded id list, so a tank that
-     is given the trait later does not need this file edited as well. */
+  /* Who goes to cover when idle. The def opt-in first (striker), then the
+     playstyle table: snipers/ambushers/artillery all want to be hard to see,
+     brawlers do not - they want to be IN your face. */
   _wantsCover(tank){
-    return !!(tank && tank.def && tank.def.seeksCover);
+    if(tank && tank.def && tank.def.seeksCover) return true;
+    const st = this.style;
+    return !!(st && st.coverSeek);
   }
 
   /* Already under enough foliage to be hidden? Used to leave TAKINGCOVER once

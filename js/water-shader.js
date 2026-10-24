@@ -102,6 +102,16 @@ class WaterShader {
   }
 
   static createMaterial(radius){
+    // The WebGPU renderer cannot run GLSL at all, so when the game is running
+    // on WebGPU the lake is built from its TSL twin (js/water-tsl.js) — the
+    // same shader written in three's node language. `.uniforms` is attached so
+    // the world keeps driving uTime / uTankPosition through the same two lines
+    // it always has.
+    if (window.__isWebGPU && typeof WaterTSL !== 'undefined' && WaterTSL.ready()){
+      const b = WaterTSL.build();
+      b.material.uniforms = b.uniforms;
+      return b.material;
+    }
     return new THREE.ShaderMaterial({
       vertexShader:   WaterShader.vertex(),
       fragmentShader: WaterShader.fragment(),

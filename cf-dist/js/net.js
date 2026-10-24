@@ -269,6 +269,23 @@ const Net = {
       return;
     }
 
+    /* THE P2P-ID EXCHANGE, AND WHY IT MUST SIT HERE.
+
+       It is exactly what rtc-* is: relay traffic the match server forwards
+       verbatim between two peers of one match. It used to have NO receiving
+       case anywhere in this file — the server (matchmaker.js) still relays
+       { t:'p2p-id' } faithfully, but this switch never answered it, so the
+       host never learned a client's address and a client never learned the
+       host's. The fast-path handshake could therefore never complete; with
+       the fast-path setting ON the host's `roles` stayed empty and
+       broadcastP2P sent its snapshots nowhere at all, which froze every
+       client on the whole match. game.js wires Net.onP2PId and owns the
+       role-specific answer; this is where those messages finally arrive. */
+    if (msg.t === 'p2p-id') {
+      if (typeof this.onP2PId === 'function') this.onP2PId(msg);
+      return;
+    }
+
     switch (msg.t) {
       case 'welcome': {
         /* The server tells us our one and only id. */
@@ -309,6 +326,7 @@ const Net = {
              can offer the direct line again. The old peer record is gone with
              the socket, so this builds a new one. */
           if (typeof this._startDirectLink === 'function') this._startDirectLink();
+          if (typeof this._startDirectKeepalive === 'function') this._startDirectKeepalive();
         } else {
           this.resumed = false;
         }
@@ -360,6 +378,7 @@ const Net = {
            open one changes nothing about the match — it just means the socket
            carries it, as it always has. */
         if (typeof this._startDirectLink === 'function') this._startDirectLink();
+        if (typeof this._startDirectKeepalive === 'function') this._startDirectKeepalive();
         break;
       }
 
@@ -510,6 +529,7 @@ const Net = {
            roles pinged before; that is preserved. */
         if (this.role === 'client') this._startPing();
         if (typeof this._startDirectLink === 'function') this._startDirectLink();
+        if (typeof this._startDirectKeepalive === 'function') this._startDirectKeepalive();
         break;
       }
 
@@ -811,6 +831,7 @@ const Net = {
   disconnect() {
     this._wantOpen = false;
     this._stopPing();
+    this._stopDirectKeepalive();
     clearTimeout(this._reconnectTimer);
     /* Every direct link belongs to this socket and this match. Leaving one open
        would keep a channel feeding a match the player has walked out of, and
@@ -944,6 +965,41 @@ Object.assign(Net, {
     this.p2p.enabled = false;
   },
 
+  /* KEEP TRYING THE DIRECT LINK THROUGH THE WHOLE MATCH.
+
+     A WebRTC handshake that fails once — a hiccup in a symmetric NAT, a free
+     TURN relay that was briefly unavailable — used to cost the rest of the
+     match: _giveUp() throws the peer record away and nothing ever dialled
+     again, so every remaining minute ran on the relay at 12 Hz with the
+     server hop added to every input and every snapshot. That this was
+     invisible is exactly the problem: the match kept working, and kept
+     being laggy, for no reason that anyone could see.
+
+     Retrying is cheap — two relay messages plus negligible ICE work per
+     attempt — and if the link cannot be built, nothing changes. When it
+     can, the game quietly stops paying the relay. The check skips a peer
+     that is already open or mid-handshake, so this can never stomp on a
+     channel that is working or forming. */
+  _startDirectKeepalive() {
+    this._stopDirectKeepalive();
+    this._directKeepaliveTimer = setInterval(() => {
+      if (this.role !== 'client' || !this.hostId) return;
+      if (typeof Rtc === 'undefined' || !Rtc.dial) return;
+      if (Rtc.isOpen && Rtc.isOpen(this.hostId)) return;
+      /* A handshake is still in flight (dial() keeps the record live until
+         it works or gives up): let it finish before another offer goes out. */
+      if (Rtc._peers && Rtc._peers[this.hostId]) return;
+      try { Rtc.dial(this.hostId); } catch (e) { /* keep going on the relay */ }
+    }, 20000);
+  },
+
+  _stopDirectKeepalive() {
+    if (this._directKeepaliveTimer) {
+      clearInterval(this._directKeepaliveTimer);
+      this._directKeepaliveTimer = null;
+    }
+  },
+
   /* The host's P2P id, once the match knows it. */
   setP2PHostId(id) {
     this.p2p.hostId = id || null;
@@ -1006,25 +1062,23 @@ Object.assign(Net, {
   /* The host broadcasts a snapshot here. Direct to every live client, relayed to
      the rest (and to nobody when this is not the host). */
   broadcastP2P(snapshot) {
-    if (!this.p2p.enabled || !this.isHostOfMatch()) return;
-    const direct = [];
-    const raw = JSON.stringify({ t: 'state', s: snapshot });
-    const roles = Object.keys(this.p2p.roles);
-    for (const id of roles) {
-      if (id === this.p2p.myId) continue;
-      if (this.sendP2PRaw(id, raw)) {
-        direct.push(id);
-      }
-    }
-    /* Anything that did not get a direct copy still gets the relay copy, so a
-       client that is still handshaking, or that is behind a symmetric NAT, still
-       receives the snapshot on the path that works for it. */
-    const missing = roles.length - (this.p2p.myId ? 1 : 0) - direct.length;
-    if (missing > 0) {
-      const relay = { t: 'state', s: snapshot };
-      if (direct.length) relay.p2p = direct;
-      this._raw(relay);
-    }
+    /* ONE BROADCAST, NOT TWO TRANSPORTS.
+
+       This used to iterate `this.p2p.roles`, a dictionary keyed by uuid ids
+       minted in the separate P2P layer. Nothing ever populated it: the id
+       exchange it depended on had no receiving case in _handle (fixed above),
+       so the loop ran over one entry — the host's own — sent nothing, and
+       then the "did somebody miss out" arithmetic compared against a fantasy
+       roster and concluded every peer was covered. A host with the fast-path
+       setting enabled therefore stopped sending snapshots to EVERYONE, and
+       the match looked completely dead.
+
+       Net.broadcast is the one path that has always been right: it sends
+       direct over any live WebRTC channel first, collects the peers it
+       reached by their SERVER ids, and ships exactly one relay copy whose
+       `rtc` list tells the match server whom to skip. Delegating here keeps
+       the fast path and removes the silent way to stop the game. */
+    this.broadcast(snapshot);
   },
 
   /* ---- receiving ----
@@ -1165,6 +1219,7 @@ Object.assign(Net, {
     this.p2p.direct = {};
     this.p2p._pendingOffers = {};
     this.stopP2PRetries();
+    this._stopDirectKeepalive();
     try { if (typeof Rtc !== 'undefined' && Rtc.closeAll) Rtc.closeAll(); } catch (e) { /* already gone */ }
   },
 });

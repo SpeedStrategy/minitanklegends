@@ -206,7 +206,7 @@
 
       /* THE ICONS ARE SVG SYMBOLS FROM ONE SPRITE, not images.
 
-         They used to be `assets/currency/cash.png`, `coin.png` and `gold.png`,
+         They used to be `assets/currency/cash.webp`, `coin.png` and `gold.png`,
          which put a picture of money next to the damage figure. Beyond being
          simply wrong — it says the damage WAS cash — it was wrong in a way that
          could not be fixed by swapping files, because no other icons existed to
@@ -247,20 +247,20 @@
       const showGup = tpAward.gup > 0;
       const rewardRow =
         '<div class="res-reward">' +
-          '<img class="res-reward-icon" src="assets/currency/cash.png" alt="">' +
+          '<img class="res-reward-icon" src="assets/currency/cash.webp" alt="">' +
           '<span class="res-reward-val">' + fmtNum(cash) + '</span>' +
           '<span class="res-reward-cap">CASH</span>' +
         '</div>' +
         (showUp
           ? '<div class="res-reward">' +
-              '<img class="res-reward-icon" src="assets/rewards/upgradepoints.png" alt="">' +
+              '<img class="res-reward-icon" src="assets/rewards/upgradepoints.webp" alt="">' +
               '<span class="res-reward-val">' + fmtNum(tpAward.up) + '</span>' +
               '<span class="res-reward-cap">UPGRADE PTS</span>' +
             '</div>'
           : '') +
         (showGup
           ? '<div class="res-reward">' +
-              '<img class="res-reward-icon" src="assets/rewards/goldupgradepoints.png" alt="">' +
+              '<img class="res-reward-icon" src="assets/rewards/goldupgradepoints.webp" alt="">' +
               '<span class="res-reward-val">' + fmtNum(tpAward.gup) + '</span>' +
               '<span class="res-reward-cap">GOLDEN PTS</span>' +
             '</div>'

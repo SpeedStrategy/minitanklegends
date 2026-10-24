@@ -27,7 +27,7 @@ window.Garage = (function(){
   function _buildProcedural(){
     const g = new THREE.Group();
     g.userData.procedural = true;
-    const mat = o => new THREE.MeshStandardMaterial(o);
+    const mat = o => Toon.mat(o);
     const box = (w, h, d, m, x, y, z) => {
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
       mesh.position.set(x, y, z);
@@ -135,19 +135,11 @@ window.Garage = (function(){
         _loading = null;
         resolve(_gltfScene);
       }, undefined, () => {
-        // fetch failed (file:// where fetch is blocked, offline, CDN down).
-        // Try the inline copy first (js/garage-inline.js, loaded lazily),
-        // then fall back to the procedural hangar.
+        // GLB fetch failed (file://, offline, CDN down). Fall back to the
+        // procedural hangar so the garage still opens.
         _loading = null;
-        if(window.GARAGE_GLB_DATA_URL){
-          _parseInline().then(resolve);
-        }else{
-          const s = document.createElement('script');
-          s.src = 'js/garage-inline.js';
-          s.onload = () => { _parseInline().then(resolve); };
-          s.onerror = () => { _procedural = _buildProcedural(); resolve(_procedural); };
-          document.head.appendChild(s);
-        }
+        _procedural = _buildProcedural();
+        resolve(_procedural);
       });
     });
     return _loading;
@@ -164,10 +156,51 @@ window.Garage = (function(){
     return (hits.length ? hits[0].point.y : FALLBACK_FLOOR_Y);
   }
 
-  /* Box-model tank, same look as the old menu preview */
-  function _buildTank(def){
+  /* Build tank — try real GLB model first, fall back to box */
+  async function _buildTank(def){
     const tank = new THREE.Group();
-    const bodyMat = new THREE.MeshStandardMaterial({color: def.color, roughness: 0.65, metalness: 0.2});
+    
+    if(def.model && window.Models && window.Models.hasModel(def.model)){
+      try{
+        const grp = await window.Models.load(def.model);
+        if(grp){
+          const scale = (def.modelScale || 1.0) * 2.0;
+          grp.scale.setScalar(scale);
+          
+          if(def.modelYaw != null){
+            grp.rotation.y = def.modelYaw * Math.PI / 180;
+          }
+          if(def.modelFlipY){
+            grp.rotation.y += Math.PI;
+          }
+          
+          const box = new THREE.Box3().setFromObject(grp);
+          const center = box.getCenter(new THREE.Vector3());
+          grp.position.y -= center.y;
+          
+          grp.traverse(child => {
+            if(child.isMesh){
+              child.castShadow = true;
+              child.receiveShadow = true;
+            }
+          });
+          
+          tank.add(grp);
+          return { tank, turretGroup: grp };
+        }
+      }catch(err){
+        console.warn('Failed to load tank model:', def.model, err);
+      }
+    }
+    
+    // Fallback to box tank
+    return _buildBoxTank(def);
+  }
+
+  /* Box-model tank, same look as the old menu preview */
+  function _buildBoxTank(def){
+    const tank = new THREE.Group();
+    const bodyMat = Toon.mat({color: def.color});
     const b = def.body;
     const bodyMesh = new THREE.Mesh(new THREE.BoxGeometry(b.w, b.h, b.l), bodyMat);
     bodyMesh.position.y = b.h / 2;
@@ -175,7 +208,7 @@ window.Garage = (function(){
     tank.add(bodyMesh);
     try{ tank.add(Tank.createOutlineMesh(bodyMesh)); }catch(e){}
 
-    const treadMat = new THREE.MeshStandardMaterial({color: 0x222226, roughness: 1});
+    const treadMat = Toon.mat({color: 0x222226});
     [-1, 1].forEach(s => {
       const t = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, b.l + 0.2), treadMat);
       t.position.set(s * (b.w / 2 + 0.05), 0.25, 0);
@@ -185,14 +218,14 @@ window.Garage = (function(){
 
     const turretGroup = new THREE.Group();
     const tDef = def.turret;
-    const turretMat = new THREE.MeshStandardMaterial({color: def.turretColor, roughness: 0.65, metalness: 0.2});
+    const turretMat = Toon.mat({color: def.turretColor});
     const turretMesh = new THREE.Mesh(new THREE.BoxGeometry(tDef.w, tDef.h, tDef.l), turretMat);
     turretMesh.position.y = tDef.h / 2;
     turretMesh.castShadow = true;
     turretGroup.add(turretMesh);
     try{ turretGroup.add(Tank.createOutlineMesh(turretMesh)); }catch(e){}
 
-    const barrelMat = new THREE.MeshStandardMaterial({color: 0x2a2a2e, roughness: 0.65, metalness: 0.2});
+    const barrelMat = Toon.mat({color: 0x2a2a2e});
     const barrel = new THREE.Mesh(new THREE.CylinderGeometry(def.barrelR, def.barrelR, def.barrelLen, 10), barrelMat);
     barrel.rotation.x = Math.PI / 2;
     barrel.position.set(0, tDef.h * 0.4, tDef.l / 2 + def.barrelLen / 2);
@@ -205,7 +238,7 @@ window.Garage = (function(){
 
   /* ---------- public API ---------- */
 
-  function start(host, selectedTankId){
+  async function start(host, selectedTankId){
     if(!host || !window.THREE) return false;
     const hasTanks = typeof TANKS !== 'undefined' && TANKS !== null;
     const def = (hasTanks && TANKS[selectedTankId]) || (hasTanks && TANKS.coolbuddy);
@@ -265,7 +298,7 @@ window.Garage = (function(){
     });
 
     // Tank (built now; positioned once the floor height is known)
-    const built = _buildTank(def);
+    const built = await _buildTank(def);
     _.tankGroup = built.tank;
     _.turretGroup = built.turretGroup;
     scene.add(built.tank);
@@ -456,7 +489,21 @@ window.Garage = (function(){
     }
     if(_.fcTag && _.fcTag.parentNode) _.fcTag.parentNode.removeChild(_.fcTag);
     if(_.onResize) window.removeEventListener('resize', _.onResize);
-    if(_.renderer){ _.renderer.dispose(); }
+    if(_.renderer){
+      /* Same leak class as the main-menu preview: dispose() does not surrender
+         the WebGL context. Browsers cap live contexts (around 16) and, past the
+         cap, force-lose the OLDEST one -- which is the main game, not the
+         garage. Browsing in and out of the garage preview would therefore end
+         up killing the game's own renderer. */
+      try { _.renderer.dispose(); } catch(e){}
+      try {
+        const gl = _.renderer.getContext && _.renderer.getContext();
+        const ext = gl && gl.getExtension && gl.getExtension('WEBGL_lose_context');
+        if(ext && ext.loseContext) ext.loseContext();
+        else if(_.renderer.forceContextLoss) _.renderer.forceContextLoss();
+      } catch(e){}
+      _.renderer = null;
+    }
     if(_.host){
       _.host.innerHTML = '';
       _.host.style.backgroundImage = '';

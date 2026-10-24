@@ -106,6 +106,154 @@ const Audio = {
   },
 
   /* -----------------------------------------------------------------------
+     RICOCHET — the metal ping when a shell bounces off armor.
+
+     Fully procedural (same reasoning as flame(): a bounce sound that must
+     exist on every deploy cannot depend on an asset that may 404). Three
+     layers, because one layer is a beep:
+
+       * three INHARMONIC sine partials (not 1x/2x/3x — that is a bell, a
+         3x-linked set is a string; metal plates ring at 1 / ~2.7 / ~4.9),
+         each decaying at its own rate — that is what makes it a clang and
+         not a note;
+       * a high-passed NOISE SLAP as the strike transient, so there is an
+         "attack" before the ring;
+       * the pitch is randomised per bounce, so ricochets never sound like a
+         sample stuck on the same note twenty times in a match. */
+  ricochet(vol){
+    if(!this._ctx || this._muted) return;
+    if(this._ctx.state === 'suspended') this._ctx.resume();
+    const ctx = this._ctx;
+    const t = ctx.currentTime + 0.005;
+    const v = this._volume * (vol == null ? 1 : vol);
+    const base = 620 + Math.random() * 480;
+    const partials = [1, 2.71, 4.9];
+    const gains = [1, 0.42, 0.22];
+    const decays = [1, 0.8, 0.6];
+    const dur = 0.20 + Math.random() * 0.16;
+    for(let i = 0; i < partials.length; i++){
+      const o = ctx.createOscillator();
+      o.type = 'sine';
+      o.frequency.value = base * partials[i];
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(Math.max(0.0002, v * gains[i]), t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur * decays[i]);
+      o.connect(g).connect(ctx.destination);
+      o.start(t);
+      o.stop(t + dur + 0.05);
+    }
+    if(!this._bounceNoise){
+      const len = Math.floor(ctx.sampleRate * 0.25);
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for(let i = 0; i < len; i++){
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2);
+      }
+      this._bounceNoise = buf;
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = this._bounceNoise;
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 1900;
+    const g2 = ctx.createGain();
+    g2.gain.setValueAtTime(Math.max(0.0002, v * 0.55), t);
+    g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
+    src.connect(hp).connect(g2).connect(ctx.destination);
+    src.start(t);
+    src.stop(t + 0.08);
+  },
+
+  /* -----------------------------------------------------------------------
+     WALL IMPACT — the dull knock of a shell dying in a wall.
+
+     The armor ping above is a RING; a shot into concrete is a THUD with a
+     short bright tick. Low muffle, fast decay, no repetition: three low
+     partials die before the eye finishes noticing. */
+  wallClang(vol){
+    if(!this._ctx || this._muted) return;
+    if(this._ctx.state === 'suspended') this._ctx.resume();
+    const ctx = this._ctx;
+    const t = ctx.currentTime + 0.005;
+    const v = this._volume * (vol == null ? 1 : vol) * 0.8;
+    const partials = [162 + Math.random() * 60, 407, 753];
+    for(let i = 0; i < partials.length; i++){
+      const o = ctx.createOscillator();
+      o.type = i === 0 ? 'sine' : 'triangle';
+      o.frequency.value = partials[i];
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(Math.max(0.0002, v * [1, 0.5, 0.26][i]), t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + (0.11 + i * 0.03));
+      o.connect(g).connect(ctx.destination);
+      o.start(t);
+      o.stop(t + 0.2);
+    }
+  },
+
+  /* -----------------------------------------------------------------------
+     ARMOR HIT — the sound of a tank TAKING damage (not a bounce: the shell
+     goes in).
+
+     Three layers again, tuned "heavy":
+
+       * a sub THUD (150 -> 52 Hz sweep): chassis displacement, the part you
+         hear in your chest;
+       * a band-passed NOISE CRUNCH around 200-900 Hz: metal crushing, the
+         "chunk" of the shell biting;
+       * a short mid RING (~300 Hz, quiet): the after-cold of a struck plate.
+
+     `heavy` (0..1) is the damage fraction, which pushes the thud louder and
+     the sweep lower - big damage sounds BIGGER than chip damage. */
+  armorHit(vol, heavy){
+    if(!this._ctx || this._muted) return;
+    if(this._ctx.state === 'suspended') this._ctx.resume();
+    const ctx = this._ctx;
+    const t = ctx.currentTime + 0.005;
+    const hv = (heavy == null ? 0.5 : Math.max(0, Math.min(1, heavy)));
+    const v = this._volume * (vol == null ? 1 : vol);
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    const f0 = 150 - hv * 40;
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(Math.max(30, f0 * 0.34), t + 0.17);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(Math.max(0.0002, v * (0.55 + hv * 0.45)), t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.24);
+    o.connect(g).connect(ctx.destination);
+    o.start(t);
+    o.stop(t + 0.3);
+    if(!this._crunchNoise){
+      const len = Math.floor(ctx.sampleRate * 0.4);
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const d = buf.getChannelData(0);
+      for(let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      this._crunchNoise = buf;
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = this._crunchNoise;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.Q.value = 0.6;
+    bp.frequency.setValueAtTime(780 - hv * 260, t);
+    bp.frequency.exponentialRampToValueAtTime(210, t + 0.16);
+    const g2 = ctx.createGain();
+    g2.gain.setValueAtTime(Math.max(0.0002, v * (0.5 + hv * 0.4)), t);
+    g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    src.connect(bp).connect(g2).connect(ctx.destination);
+    src.start(t);
+    src.stop(t + 0.25);
+    const o3 = ctx.createOscillator();
+    o3.type = 'triangle';
+    o3.frequency.value = 300 + Math.random() * 110;
+    const g3 = ctx.createGain();
+    g3.gain.setValueAtTime(Math.max(0.0002, v * 0.22), t);
+    g3.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+    o3.connect(g3).connect(ctx.destination);
+    o3.start(t);
+    o3.stop(t + 0.16);
+  },
+
+  /* -----------------------------------------------------------------------
      END OF BATTLE — the stinger under the closing cinematic.
 
      Fully procedural, on the same reasoning as `flame()` above: an end-of-match

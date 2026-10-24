@@ -13,9 +13,9 @@
    exact pools the roll picks from.
    ============================================================ */
 const BOX_DROP_TABLE = [
-  { name:'Coins', icon:'assets/currency/coin.png', key:'coins', weight:60, amounts:[200,350,500,750,1000] },
-  { name:'Cash',  icon:'assets/currency/cash.png', key:'cash',  weight:30, amounts:[50,100,150,200,300] },
-  { name:'Gold',  icon:'assets/currency/gold.png', key:'gold',  weight:10, amounts:[500,750,1000,1500,2000,3000] },
+  { name:'Coins', icon:'assets/currency/coin.webp', key:'coins', weight:60, amounts:[200,350,500,750,1000] },
+  { name:'Cash',  icon:'assets/currency/cash.webp', key:'cash',  weight:30, amounts:[50,100,150,200,300] },
+  { name:'Gold',  icon:'assets/currency/gold.webp', key:'gold',  weight:10, amounts:[500,750,1000,1500,2000,3000] },
 ];
 const BOX_DROP_TOTAL_WEIGHT = BOX_DROP_TABLE.reduce(function(s, e){ return s + e.weight; }, 0);
 
@@ -550,7 +550,7 @@ const Menu = {
 
   _loadMysteryImg(){
     const img = new Image();
-    img.src = 'mystery_mtl.png';
+    img.src = 'mystery_mtl.webp';
     this._mysteryImg = img;
   },
 
@@ -1120,9 +1120,9 @@ const Menu = {
         this._statTile('Tanks owned', tanksOwned + ' / ' + totalTanks) +
         this._statTile('Battles', (s.stats.battles || 0) + '', '🏆') +
         this._statTile('Victories', (s.stats.wins || 0) + '', '⭐') +
-        '<div class="stat-tile"><div class="stat-label">Gold</div><div class="stat-value"><img class="cur-img cur-lg" src="assets/currency/gold.png" alt="gold"> ' + gold + '</div></div>' +
-        '<div class="stat-tile"><div class="stat-label">Cash</div><div class="stat-value"><img class="cur-img cur-lg" src="assets/currency/cash.png" alt="cash"> ' + cash + '</div></div>' +
-        '<div class="stat-tile"><div class="stat-label">Coins</div><div class="stat-value"><img class="cur-img cur-lg" src="assets/currency/coin.png" alt="coins"> ' + coins + '</div></div>';
+        '<div class="stat-tile"><div class="stat-label">Gold</div><div class="stat-value"><img class="cur-img cur-lg" src="assets/currency/gold.webp" alt="gold"> ' + gold + '</div></div>' +
+        '<div class="stat-tile"><div class="stat-label">Cash</div><div class="stat-value"><img class="cur-img cur-lg" src="assets/currency/cash.webp" alt="cash"> ' + cash + '</div></div>' +
+        '<div class="stat-tile"><div class="stat-label">Coins</div><div class="stat-value"><img class="cur-img cur-lg" src="assets/currency/coin.webp" alt="coins"> ' + coins + '</div></div>';
     }
   },
   _statTile(label, value, emoji){
@@ -1158,8 +1158,8 @@ const Menu = {
       i.onerror = ()=>{};
       i.src = url;
     };
-    tryImg('tank party.jpg', document.getElementById('menu-main'));
-    tryImg('tank party.jpg', document.getElementById('menu-multiplayer'));
+    tryImg('tank party.webp', document.getElementById('menu-main'));
+    tryImg('tank party.webp', document.getElementById('menu-multiplayer'));
   },
 
   /* ---------- free roam ---------- */
@@ -3384,7 +3384,7 @@ const Menu = {
       slot.title = boxes.length + ' box' + (boxes.length > 1 ? 'es' : '') + ' — click to open';
       slot.innerHTML = '';
       const boxImg = document.createElement('img');
-      boxImg.src = 'assets/crate_icon.png';
+      boxImg.src = 'assets/crate_icon.webp';
       boxImg.style.cssText = 'width:60%;height:60%;object-fit:contain;pointer-events:none;';
       boxImg.onerror = function(){ slot.textContent = '\u{1F4E6}'; };
       slot.appendChild(boxImg);
@@ -3928,7 +3928,7 @@ const Menu = {
     const claimed = SHOP_DATA.isFreeClaimed();
     el.innerHTML =
       '<div class="shop-free-card' + (claimed ? ' claimed' : '') + '">' +
-      '<div class="shop-free-icon"><img class="cur-img cur-lg" src="assets/currency/cash.png" alt="cash"></div>' +
+      '<div class="shop-free-icon"><img class="cur-img cur-lg" src="assets/currency/cash.webp" alt="cash"></div>' +
       '<div><div style="font-weight:700;font-size:16px">Daily Free</div>' +
       '<div class="shop-free-info">' + (claimed ? 'Claimed today' : 'Get ' + SHOP_DATA.FREE_OFFER.amount + ' cash free') + '</div></div>' +
       '<div class="shop-free-btn">' + (claimed ? 'Done' : 'Claim') + '</div></div>';
@@ -3964,25 +3964,25 @@ const Menu = {
      point at the crate art that IS in the project. */
   _shopRewardArt(reward){
     return {
-      cash:        { img:'assets/currency/cash.png', label:'Cash' },
-      coins:       { img:'assets/currency/coin.png', label:'Coins' },
-      gold:        { img:'assets/currency/gold.png', label:'Gold' },
+      cash:        { img:'assets/currency/cash.webp', label:'Cash' },
+      coins:       { img:'assets/currency/coin.webp', label:'Coins' },
+      gold:        { img:'assets/currency/gold.webp', label:'Gold' },
       /* Was rewards/basic_crate.png and rewards/rare_crate.png — neither file
-         exists in the project. assets/crate_icon.png is the crate artwork that
+         exists in the project. assets/crate_icon.webp is the crate artwork that
          is actually here. */
-      basic_crate: { img:'assets/crate_icon.png', label:'Basic Crate' },
-      rare_crate:  { img:'assets/crate_icon.png', label:'Rare Crate' },
-      first_spray: { img:'assets/sprays/first_spray.png', label:'First Spray' },
+      basic_crate: { img:'assets/crate_icon.webp', label:'Basic Crate' },
+      rare_crate:  { img:'assets/crate_icon.webp', label:'Rare Crate' },
+      first_spray: { img:'assets/sprays/first_spray.webp', label:'First Spray' },
       /* Tank styles: the texture IS the card art. */
-      style_woodland_camo: { img:'assets/styles/woodland_camo.png?v=2', label:'Woodland Camo' },
-      style_desert_camo:   { img:'assets/styles/desert_camo.png?v=2', label:'Desert Storm' },
-      style_tiger_stripes: { img:'assets/styles/tiger_stripes.png?v=2', label:'Tiger Stripes' },
+      style_woodland_camo: { img:'assets/styles/woodland_camo.webp?v=2', label:'Woodland Camo' },
+      style_desert_camo:   { img:'assets/styles/desert_camo.webp?v=2', label:'Desert Storm' },
+      style_tiger_stripes: { img:'assets/styles/tiger_stripes.webp?v=2', label:'Tiger Stripes' },
     }[reward] || { img:'', label:reward || '' };
   },
   _shopCurrencyIcon(currency){
-    return currency === 'gold' ? 'assets/currency/gold.png'
-         : currency === 'coins' ? 'assets/currency/coin.png'
-         : 'assets/currency/cash.png';
+    return currency === 'gold' ? 'assets/currency/gold.webp'
+         : currency === 'coins' ? 'assets/currency/coin.webp'
+         : 'assets/currency/cash.webp';
   },
   /* The count line: "x750" for a stack of one thing, "x2" for two crates. Always
      prefixed, so the number beside the icon is never just a bare figure. */

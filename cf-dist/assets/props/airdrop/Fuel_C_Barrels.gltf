@@ -56,7 +56,7 @@
         {
             "mimeType" : "image/png",
             "name" : "resource_bits_texture",
-            "uri" : "resource_bits_texture.png"
+            "uri" : "resource_bits_texture.webp"
         }
     ],
     "accessors" : [

@@ -1,0 +1,74 @@
+# ============================================================================
+#  .assetsignore — files Cloudflare Pages must NOT upload
+# ============================================================================
+#
+#  WHY THIS FILE EXISTS
+#  --------------------
+#  Pages refuses the whole deployment if ANY single file exceeds 25 MiB. Wrangler
+#  reads .gitignore, but Pages asset uploads do not — the first deploy of this
+#  project died on:
+#
+#      Error: Pages only supports files up to 25 MiB in size
+#      assets/maps/core2.blend is 89.3 MiB in size
+#
+#  That .blend is a Blender AUTHORING SOURCE. The map ships as the .glb beside
+#  it (assets/maps/TL_core2.glb, 2.9 MB) and nothing in the browser ever fetches
+#  the .blend — every ".blend" in the JavaScript is THREE.AdditiveBlending, a
+#  material property, not a file path.
+#
+#  It is ignored here rather than deleted. Deleting somebody's 89 MB source file
+#  to make a deploy go through is not a call an automated tool should make.
+#
+#  EVERYTHING BELOW IS SAFE TO EXCLUDE
+#  -----------------------------------
+#  None of it is referenced by index.html or by any script the game loads. If
+#  something here ever turns out to be needed, the game will 404 on it in the
+#  same way a missing file always has, and it will be obvious.
+# ============================================================================
+
+# Blender authoring sources. See above: 89 MB, never fetched, breaks the limit.
+*.blend
+
+# Editor scratch. Original FBX imports, kept for the map editor's own reloads
+# and for re-export. The shipped geometry is the .glb under assets/.
+uploads/
+
+# A corrupt 2026-09-05 repository snapshot: 2,289 files, 203 MB, kept only as
+# evidence that the tree object is unrecoverable. Git is the real backup.
+.git-corrupt/
+.git/
+
+# Tooling. Wrangler, miniflare state, build helpers.
+node_modules/
+.wrangler/
+tools/
+.vscode/
+
+# Stale duplicate of the game tree and its build output.
+dist/
+cf-dist/
+
+# Accounts setup documentation and the test suite. Neither is served, and the
+# test folder contains a copy of lib-auth.js that must never be mistaken for
+# the real one.
+test/
+ACCOUNTS-SETUP.md
+*.md
+
+# Old, no-longer-used account worker. It backed the KV-based system that D1 has
+# replaced. The clan registry still lives here — see js/config.js CLAN_API_URL —
+# so this is EXCLUDED FROM THE UPLOAD ONLY, not deleted.
+clan-api-worker/
+matchmaking-worker/
+
+# Scratch from profiling and local testing.
+_edgeprof/
+_edgeprof3/
+*.log
+*.err
+
+# Editor and OS noise.
+.DS_Store
+Thumbs.db
+desktop.ini
+*.tmp

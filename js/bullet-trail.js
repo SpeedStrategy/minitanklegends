@@ -1,33 +1,49 @@
+/* Shared scratch vectors for BulletTrailManager.update(). One set for every
+   manager instance, created on first use, so rebuilding the per-point maths
+   allocates nothing per frame. See the note where they are used. */
+let _btTmpL = null, _btTmpR = null;
+
 class BulletTrailManager {
   constructor(scene, opts){
     this.scene = scene;
     const o = opts || {};
     this.maxTrails = o.maxTrails || 48;
-    this.fadeTime = o.fadeTime || 0.18;
-    this.burstTime = o.burstTime || 0.14;
+    this.fadeTime = o.fadeTime || 1;
     this.width = o.width || 0.12;
-    this.burstWidthMul = o.burstWidthMul || 4;
     this.color = new THREE.Color(o.color || 0xffcc00);
-    this._white = new THREE.Color(0xffffff);
+    this.maxOpacity = o.maxOpacity != null ? o.maxOpacity : 1;
+    this.noBurst = o.noBurst || false;
+    this.maxPts = o.maxPts || 32;
     this._pool = [];
     this._active = [];
     this._sparks = [];
     this._sparkPool = [];
     this._sparkTex = this._makeSparkTex();
-    this._v = new THREE.Vector3();
-    this._mid = new THREE.Vector3();
+    this._right = new THREE.Vector3();
     this._dir = new THREE.Vector3();
     this._toCam = new THREE.Vector3();
-    this._right = new THREE.Vector3();
-    this._r = new THREE.Vector3();
-    this._d = new THREE.Vector3();
     for(let i = 0; i < this.maxTrails; i++) this._pool.push(this._createTrail());
   }
 
   _createTrail(){
+    const maxV = this.maxPts * 2;
+    const maxI = (this.maxPts - 1) * 6;
+    const posArr = new Float32Array(maxV * 3);
+    const idxArr = new Uint16Array(maxI);
+    for(let i = 0; i < this.maxPts - 1; i++){
+      const vi = i * 2;
+      const ii = i * 6;
+      idxArr[ii]   = vi;
+      idxArr[ii+1] = vi + 1;
+      idxArr[ii+2] = vi + 2;
+      idxArr[ii+3] = vi + 1;
+      idxArr[ii+4] = vi + 3;
+      idxArr[ii+5] = vi + 2;
+    }
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3));
-    geo.setIndex(new THREE.BufferAttribute(new Uint8Array([0,1,2, 1,3,2]), 1));
+    geo.setAttribute('position', new THREE.BufferAttribute(posArr, 3));
+    geo.setIndex(new THREE.BufferAttribute(idxArr, 1));
+    geo.setDrawRange(0, 0);
     const mat = new THREE.MeshBasicMaterial({
       color: this.color,
       transparent: true,
@@ -40,7 +56,7 @@ class BulletTrailManager {
     mesh.frustumCulled = false;
     mesh.visible = false;
     this.scene.add(mesh);
-    return { mesh, start: new THREE.Vector3(), end: new THREE.Vector3(), fading: false, fadeTimer: 0, burstTimer: 0, _burstStart: new THREE.Vector3() };
+    return { mesh, pts: [], fading: false, fadeTimer: 0, age: 0 };
   }
 
   _makeSparkTex(){
@@ -85,63 +101,66 @@ class BulletTrailManager {
   spawn(startPos){
     if(!this._pool.length) return null;
     const t = this._pool.pop();
-    t.start.copy(startPos);
-    t.end.copy(startPos);
+    t.pts = [{x: startPos.x, y: startPos.y, z: startPos.z}];
     t.fading = false;
     t.fadeTimer = 0;
-    t.burstTimer = 0;
+    t.age = 0;
     t.mesh.material.color.copy(this.color);
-    t.mesh.material.opacity = 1;
+    t.mesh.material.opacity = this.maxOpacity;
     t.mesh.visible = true;
+    t.mesh.geometry.setDrawRange(0, 0);
     this._active.push(t);
     return t;
   }
 
   pushPosition(trail, x, y, z){
-    if(!trail) return;
-    trail.end.set(x, y, z);
+    if(!trail || trail.fading) return;
+    const pts = trail.pts;
+    const last = pts[pts.length - 1];
+    const dx = x - last.x, dy = y - last.y, dz = z - last.z;
+    const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+    if(dist < 0.3) return;
+    pts.push({x: x, y: y, z: z});
+    if(pts.length > this.maxPts) pts.shift();
   }
 
   endTrail(trail){
     if(!trail || trail.fading) return;
     trail.fading = true;
     trail.fadeTimer = this.fadeTime;
-    trail.burstTimer = this.burstTime;
-    trail._burstStart.copy(trail.start);
-    this._burstSparks(trail.end, 4 + Math.floor(Math.random() * 4));
+    if(!this.noBurst){
+      const end = trail.pts[trail.pts.length - 1];
+      if(end) this._burstSparks({x: end.x, y: end.y, z: end.z}, 4 + Math.floor(Math.random() * 4));
+    }
   }
 
   update(dt, camera){
     const arr = this._active;
     const camPos = camera.position;
-    const v = this._v, mid = this._mid, dir = this._dir;
-    const toCam = this._toCam, right = this._right;
-    const r = this._r, d = this._d;
+    const right = this._right, dir = this._dir, toCam = this._toCam;
+    /* Module scratch, allocated ONCE.
+       These were previously constructed inside the per-point loop: a brand new
+       THREE.Vector3 for every single point of every live trail, sixty times a
+       second. With a dozen tanks firing that is thousands of short-lived
+       objects per frame, which is the textbook way to guarantee a major GC
+       pause a few seconds into a firefight -- and a major GC pause is exactly
+       what a player reports as "the game freezes at a random moment".
+       The values are only read within one iteration, so one shared set is
+       completely safe here. */
+    const tmpL = _btTmpL || (_btTmpL = new THREE.Vector3());
+    const tmpR = _btTmpR || (_btTmpR = new THREE.Vector3());
 
     for(let i = arr.length - 1; i >= 0; i--){
       const t = arr[i];
       const m = t.mesh;
       const posAttr = m.geometry.attributes.position;
       const verts = posAttr.array;
+      t.age += dt;
 
       if(t.fading){
         t.fadeTimer -= dt;
-        const burstLeft = t.burstTimer;
-        if(burstLeft > 0){
-          t.burstTimer -= dt;
-          const bp = 1 - (t.burstTimer / this.burstTime);
-          t.start.lerpVectors(t._burstStart, t.end, bp);
-          const easeOut = 1 - (1 - bp) * (1 - bp);
-          const widthMul = 1 + (this.burstWidthMul - 1) * (easeOut < 0.5 ? easeOut * 2 : 2 * (1 - easeOut));
-          t.mesh.material.color.copy(this.color).lerp(this._white, Math.sin(bp * Math.PI) * 0.6);
-          const burstOpacity = 1 + Math.sin(bp * Math.PI * 2) * 0.3;
-          t.mesh.material.opacity = Math.min(1, Math.max(burstOpacity, t.fadeTimer / this.fadeTime));
-        } else {
-          t.mesh.material.color.copy(this.color);
-          t.mesh.material.opacity = Math.max(0, t.fadeTimer / this.fadeTime);
-        }
-
-        if(t.fadeTimer <= 0 && t.burstTimer <= 0){
+        t.mesh.material.opacity = Math.max(0, t.fadeTimer / this.fadeTime) * this.maxOpacity;
+        if(t.fadeTimer <= 0){
           m.visible = false;
           t.mesh.material.color.copy(this.color);
           this._pool.push(t);
@@ -150,39 +169,37 @@ class BulletTrailManager {
         }
       }
 
-      v.copy(t.end).sub(t.start);
-      const len = v.length();
-      if(len < 0.05){ if(!t.fading && t.burstTimer <= 0){ m.visible = false; continue; } continue; }
-      dir.copy(v).divideScalar(len);
+      const pts = t.pts;
+      const n = pts.length;
+      if(n < 2){ m.visible = false; continue; }
 
-      mid.addVectors(t.start, t.end).multiplyScalar(0.5);
-      toCam.copy(camPos).sub(mid);
-      const camDist = toCam.length();
-      toCam.divideScalar(camDist);
-
-      right.crossVectors(dir, toCam);
-      if(right.lengthSq() < 1e-6){
-        right.set(1, 0, 0);
-        if(Math.abs(dir.dot(right)) > 0.9) right.set(0, 0, 1);
-        right.cross(dir).normalize();
-      } else {
+      let vi = 0;
+      for(let j = 0; j < n; j++){
+        const p = pts[j];
+        if(j < n - 1){
+          const nx = pts[j+1].x - p.x, nz = pts[j+1].z - p.z;
+          const nl = Math.sqrt(nx*nx + nz*nz) || 1;
+          dir.set(nx / nl, 0, nz / nl);
+        } else if(j > 0){
+          const px = p.x - pts[j-1].x, pz = p.z - pts[j-1].z;
+          const pl = Math.sqrt(px*px + pz*pz) || 1;
+          dir.set(px / pl, 0, pz / pl);
+        } else {
+          dir.set(1, 0, 0);
+        }
+        toCam.set(camPos.x - p.x, camPos.y - p.y, camPos.z - p.z);
+        right.crossVectors(dir, toCam);
+        if(right.lengthSq() < 1e-6) right.set(1, 0, 0);
         right.normalize();
+        const hw = this.width * 0.5;
+        tmpL.set(p.x + right.x * hw, p.y + right.y * hw, p.z + right.z * hw);
+        tmpR.set(p.x - right.x * hw, p.y - right.y * hw, p.z - right.z * hw);
+        verts[vi] = tmpL.x; verts[vi+1] = tmpL.y; verts[vi+2] = tmpL.z;
+        verts[vi+3] = tmpR.x; verts[vi+4] = tmpR.y; verts[vi+5] = tmpR.z;
+        vi += 6;
       }
-
-      const burstScale = t.fading && t.burstTimer > 0
-        ? 1 + (this.burstWidthMul - 1) * (1 - Math.abs(1 - t.burstTimer / this.burstTime * 2))
-        : 1;
-      const hw = this.width * 0.5 * burstScale;
-      const hl = len * 0.5;
-      r.copy(right).multiplyScalar(hw);
-      d.copy(dir).multiplyScalar(hl);
-
-      verts[0]  = mid.x + r.x + d.x; verts[1]  = mid.y + r.y + d.y; verts[2]  = mid.z + r.z + d.z;
-      verts[3]  = mid.x - r.x + d.x; verts[4]  = mid.y - r.y + d.y; verts[5]  = mid.z - r.z + d.z;
-      verts[6]  = mid.x + r.x - d.x; verts[7]  = mid.y + r.y - d.y; verts[8]  = mid.z + r.z - d.z;
-      verts[9]  = mid.x - r.x - d.x; verts[10] = mid.y - r.y - d.y; verts[11] = mid.z - r.z - d.z;
-
       posAttr.needsUpdate = true;
+      m.geometry.setDrawRange(0, (n - 1) * 2 * 3);
       m.visible = true;
     }
 

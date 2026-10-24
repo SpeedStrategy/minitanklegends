@@ -402,10 +402,10 @@ window.Missions = (function(){
     _currentTab = cur;
 
     var tabHtml = [
-      { k:'daily',      icon:'assets/icons/missions-daily.png',      label:'Daily',      type:'supply' },
-      { k:'clan',       icon:'assets/icons/missions-clan.png',       label:'Clan',       type:'platoon' },
-      { k:'challenges', icon:'assets/icons/missions-challenge.png',  label:'Challenges', type:'special' },
-      { k:'event',      icon:'assets/icons/missions-event.png',      label:'Event',      type:'event' }
+      { k:'daily',      icon:'assets/icons/missions-daily.webp',      label:'Daily',      type:'supply' },
+      { k:'clan',       icon:'assets/icons/missions-clan.webp',       label:'Clan',       type:'platoon' },
+      { k:'challenges', icon:'assets/icons/missions-challenge.webp',  label:'Challenges', type:'special' },
+      { k:'event',      icon:'assets/icons/missions-event.webp',      label:'Event',      type:'event' }
     ].map(function(t){
       return '<div class="ms-tab' + (t.k === cur ? ' active' : '') + '" data-ms-tab="' + t.k + '" data-type="' + t.type + '" tabindex="0" role="button" aria-label="' + t.label + ' missions">' +
         '<img class="ms-tab-icon" src="' + t.icon + '" alt="">' +
@@ -548,8 +548,8 @@ window.Missions = (function(){
 
   function rewardBadge(cash, coins){
     var b = '';
-    if(cash) b += '<span class="ms-reward ms-reward-cash"><img class="ms-reward-icon" src="assets/currency/cash.png" alt="">' + cash.toLocaleString() + '</span>';
-    if(coins) b += '<span class="ms-reward ms-reward-coins"><img class="ms-reward-icon" src="assets/currency/coin.png" alt="">' + coins + '</span>';
+    if(cash) b += '<span class="ms-reward ms-reward-cash"><img class="ms-reward-icon" src="assets/currency/cash.webp" alt="">' + cash.toLocaleString() + '</span>';
+    if(coins) b += '<span class="ms-reward ms-reward-coins"><img class="ms-reward-icon" src="assets/currency/coin.webp" alt="">' + coins + '</span>';
     return b || '<span class="ms-reward ms-reward-none">—</span>';
   }
 

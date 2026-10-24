@@ -135,19 +135,11 @@ window.Garage = (function(){
         _loading = null;
         resolve(_gltfScene);
       }, undefined, () => {
-        // fetch failed (file:// where fetch is blocked, offline, CDN down).
-        // Try the inline copy first (js/garage-inline.js, loaded lazily),
-        // then fall back to the procedural hangar.
+        // GLB fetch failed (file://, offline, CDN down). Fall back to the
+        // procedural hangar so the garage still opens.
         _loading = null;
-        if(window.GARAGE_GLB_DATA_URL){
-          _parseInline().then(resolve);
-        }else{
-          const s = document.createElement('script');
-          s.src = 'js/garage-inline.js';
-          s.onload = () => { _parseInline().then(resolve); };
-          s.onerror = () => { _procedural = _buildProcedural(); resolve(_procedural); };
-          document.head.appendChild(s);
-        }
+        _procedural = _buildProcedural();
+        resolve(_procedural);
       });
     });
     return _loading;

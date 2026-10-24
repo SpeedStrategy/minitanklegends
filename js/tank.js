@@ -4635,6 +4635,25 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     } else if(game && game.spawnDamageLabel){
       game.spawnDamageLabel(this.x, this.def.turret.h + this.def.body.h + 3.6, this.z, amount);
     }
+    /* THE HIT SOUNDS. Not attached to the shell (that one already has the
+       muzzle pop and the impact burst on its own path); the hull has its own
+       voice:
+         a damage thud - sub thud + metal crunch, louder and deeper the more
+         the hit costs - silenced for bits of chip damage that are below what
+         an ear will even notice.
+       Distance rule as everywhere else: full volume near the local tank,
+       fading out, silent across the map (the audio budget is per-event, and
+       a faraway brawl must not spend it). */
+    if(window.Audio && Audio.armorHit && game && this.hp > 0 && amount >= 2){
+      try {
+        const lt = game.localTank;
+        const d = lt ? Math.hypot(lt.x - this.x, lt.z - this.z) : -1;
+        const frac = Math.min(1, amount / Math.max(20, (this.maxHp || 200) * 0.35));
+        const v = d < 0 ? 0.45 : (1 - d / 80);
+        if(v > 0.03) Audio.armorHit(v, frac);
+        else if(d < 160) Audio.armorHit(0.03, frac);
+      } catch(e){}
+    }
     if(this.hp <= 0){
       this.hp = 0; this.alive = false;
       if(fromTank && fromTank !== this) fromTank.kills++;
@@ -5212,11 +5231,19 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
   _netSmoothTick(){
     const buf = this._netBuf;
     if(!buf || !buf.length) return;
-    /* The render delay: a bit over two snapshot intervals keeps the render
-       clock inside the two samples that bracket it even with arrival jitter.
-       At 12 Hz that is ~220 ms; a 20 Hz direct link gets ~140 ms; the floor
-       stops a direct link from drawing into the unsent future. */
-    const delay = Math.max(90, Math.min(320, this._netIntMs * 2.2 + 40));
+    /* The render delay: a little more than one snapshot interval keeps the
+       render clock inside the two samples that bracket it for most arrivals,
+       while the coasting below absorbs what remains. Measured end-to-end
+       before tuning: ~180 ms of network plus this buffer — so buffer size has
+       been the bigger half of the "remote players feel late" report. The old
+       2.2x + 40 spent 223 ms at 12 Hz and 150 ms at 20 Hz just holding the
+       two samples; at 1.45x the same cover costs 165 / 117 ms, with a dead
+       band (1.45 * interval minus the next arrival's age) as the slack any
+       single late packet is allowed to eat before coasting on measured
+       velocity. Floors and ceiling stay near the old ones: a direct link
+       never renders into the unsent future, and a starved relay never draws
+       unbounded old truth. */
+    const delay = Math.max(85, Math.min(240, this._netIntMs * 1.45 + 45));
     const rt = performance.now() - delay;
     const last = buf[buf.length - 1];
     let tx, tz, th, tt, ty;

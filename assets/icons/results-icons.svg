@@ -1,0 +1,120 @@
+<!-- ===========================================================================
+     results-icons.svg — the stat icons for the post-battle results screen.
+
+     WHY THESE ARE SVG AND NOT PNG, AND WHY THEY ARE DRAWN RATHER THAN FOUND
+
+     The results screen needed an icon for damage, for kills, for assists and for
+     place in team, and the game's asset folders had none of them — the only
+     pictograms that existed were three CURRENCY icons and a handful of menu
+     glyphs. The result was a damage figure labelled with a picture of cash,
+     which is simply wrong: it says the damage was money.
+
+     Rather than re-use a currency icon and hope nobody looks closely, these are
+     drawn. SVG specifically, because:
+
+       - they are vectors, so one 24x24 file is sharp at any size, and the
+         results screen uses them at three different sizes (stat cards, reward
+         row, leaderboard headers);
+       - they inherit `currentColor`, so one icon is gold on the player's own row
+         and white on everyone else's without a second file;
+       - they cost well under a kilobyte each, against tens of kilobytes for a
+         PNG at the same fidelity, and the game already has a 38 MB first load.
+
+     They are referenced with <use href="...#id">, not inlined, so the four
+     symbols are fetched once and shared by every element that needs them.
+
+     THE SET, AND WHY EACH ONE READS THE WAY IT DOES
+
+     damage  a shell about to land, with a burst behind it — the thing that
+             causes damage, rather than a bar chart
+     kills   a tank silhouette inside a reticle — the target you removed
+     assists a second, dimmer tank beside the first, with a link between them —
+             you did the damage, someone else did the killing, and that gap is
+             precisely what an assist is
+     place   a laurel wreath — the same idea World of Tanks uses, and the one
+             piece of its visual language worth borrowing
+     =========================================================================== -->
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+
+  <!-- DAMAGE. A shell tip travelling into an impact burst. -->
+  <symbol id="res-icon-damage" viewBox="0 0 24 24">
+    <g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <!-- impact burst, behind the shell -->
+      <path d="M18.6 5.4 20.4 4.2M18.9 9.1l2.3.2M16.8 2.9l.9-1.7" opacity=".55"/>
+      <path d="M15.4 7.2h5.2M18 4.6v5.2" opacity=".55"/>
+    </g>
+    <!-- the shell -->
+    <g fill="currentColor">
+      <path d="M3.4 20.6 12.2 11.8l1.7 1.7-8.8 8.8z"/>
+      <path d="M12.9 8.2 15.1 4a1 1 0 0 1 1.4-.1l2.9 2.9a1 1 0 0 1-.1 1.4l-4.2 2.2z"/>
+    </g>
+  </symbol>
+
+  <!-- KILLS. A tank hull and turret, inside a reticle. -->
+  <symbol id="res-icon-kills" viewBox="0 0 24 24">
+    <!-- reticle corners -->
+    <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity=".5">
+      <path d="M2.6 7.4V3.6a1 1 0 0 1 1-1h3.8M20.6 7.4V3.6a1 1 0 0 0-1-1h-3.8M2.6 16.6v3.8a1 1 0 0 0 1 1h3.8M20.6 16.6v3.8a1 1 0 0 1-1 1h-3.8"/>
+    </g>
+    <!-- hull -->
+    <path fill="currentColor" d="M6.1 14.4h11.8l1.3 3.1a.9.9 0 0 1-.85 1.3H5.65a.9.9 0 0 1-.85-1.3z"/>
+    <!-- barrel -->
+    <path fill="currentColor" d="M18.4 8.9h1.5a.5.5 0 0 1 .5.5v.6a.5.5 0 0 1-.5.5h-1.5z"/>
+    <!-- turret -->
+    <path fill="currentColor" d="M8.1 8.2h6.2l1.5 2.1H6.6z"/>
+    <!-- tracks -->
+    <g fill="currentColor" opacity=".55">
+      <rect x="6.2" y="19.1" width="11.6" height="1.5" rx=".75"/>
+    </g>
+  </symbol>
+
+  <!-- ASSISTS. Two tanks, one bright and one dim, joined by a stroke: I did the
+       damage, the other one did the kill, and neither alone is the whole story. -->
+  <symbol id="res-icon-assists" viewBox="0 0 24 24">
+    <!-- the link: a diagonal stroke between the two -->
+    <path fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" opacity=".6"
+          d="M8.6 15.4 15.4 8.6"/>
+    <!-- ally (dim, behind) -->
+    <g fill="currentColor" opacity=".45">
+      <path d="M13.3 15.1h6.2l.7 1.7a.5.5 0 0 1-.45.74h-6.8a.5.5 0 0 1-.45-.74z"/>
+      <path d="M14.6 11.1h3.4l.8 1.1h-5z"/>
+      <rect x="13.5" y="18" width="6.4" height=".85" rx=".42"/>
+    </g>
+    <!-- me (bright, front) -->
+    <g fill="currentColor">
+      <path d="M3.6 15.1h6.2l.7 1.7a.5.5 0 0 1-.45.74H3.35a.5.5 0 0 1-.45-.74z"/>
+      <path d="M4.9 11.1h3.4l.8 1.1h-5z"/>
+      <rect x="3.8" y="18" width="6.4" height=".85" rx=".42"/>
+    </g>
+  </symbol>
+
+  <!-- PLACE IN TEAM. A laurel wreath, as World of Tanks uses. -->
+  <symbol id="res-icon-place" viewBox="0 0 24 24">
+    <g fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+      <path d="M8.4 3.2c-2.6 2.4-3.9 5.6-3.9 9.1 0 3.4 1.3 6.5 3.9 8.9"/>
+      <path d="M15.6 3.2c2.6 2.4 3.9 5.6 3.9 9.1 0 3.4-1.3 6.5-3.9 8.9"/>
+    </g>
+    <!-- leaves along each stem -->
+    <g fill="currentColor" opacity=".7">
+      <ellipse cx="5.3" cy="7.1" rx="1.5" ry=".85" transform="rotate(-38 5.3 7.1)"/>
+      <ellipse cx="4.6" cy="11.6" rx="1.5" ry=".85" transform="rotate(-12 4.6 11.6)"/>
+      <ellipse cx="5.3" cy="16.1" rx="1.5" ry=".85" transform="rotate(14 5.3 16.1)"/>
+      <ellipse cx="18.7" cy="7.1" rx="1.5" ry=".85" transform="rotate(38 18.7 7.1)"/>
+      <ellipse cx="19.4" cy="11.6" rx="1.5" ry=".85" transform="rotate(12 19.4 11.6)"/>
+      <ellipse cx="18.7" cy="16.1" rx="1.5" ry=".85" transform="rotate(-14 18.7 16.1)"/>
+    </g>
+    <!-- the number's ribbon -->
+    <g fill="currentColor">
+      <path d="M9.4 18.4h5.2l-.9 3.1-1.7-1.5-1.7 1.5z"/>
+    </g>
+  </symbol>
+
+  <!-- COLON used to label the player's own row. Kept as a symbol so the accent
+       follows currentColor on the highlighted row. -->
+  <symbol id="res-icon-cash-badge" viewBox="0 0 24 24">
+    <circle cx="12" cy="12" r="8.2" fill="none" stroke="currentColor" stroke-width="1.6"/>
+    <path fill="currentColor" d="M11 7.2h2v1.1h2.6v1.8h-4.2v1.3h4.2v1.8H13v1.1h-2v-1.1H8.4v-1.8h4.2v-1.3H8.4V8.3H11z"/>
+  </symbol>
+
+</svg>

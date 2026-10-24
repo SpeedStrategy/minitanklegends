@@ -218,6 +218,22 @@ var Editor123 = {
 
             '<div style="color:#888;font-size:12px;margin-top:6px">Set hitbox, turret<br>pivot &amp; shell spawn</div></div>' +
 
+            '<div class="e123-launcher-btn" data-mode="collections" style="width:210px;padding:44px 20px;background:linear-gradient(145deg,#252a32,#1e232a);border-radius:18px;cursor:pointer;border:2px solid #2a2f36;transition:.2s">' +
+
+            '<div style="font-size:44px;margin-bottom:10px">\u{1F3AF}</div>' +
+
+            '<div style="font-size:17px;font-weight:700">Collections</div>' +
+
+            '<div style="color:#888;font-size:12px;margin-top:6px">Assign tanks to<br>collection slots</div></div>' +
+
+            '<div class="e123-launcher-btn" data-mode="mapimporter" style="width:210px;padding:44px 20px;background:linear-gradient(145deg,#252a32,#1e232a);border-radius:18px;cursor:pointer;border:2px solid #2a2f36;transition:.2s">' +
+
+            '<div style="font-size:44px;margin-bottom:10px">\u{1F5FA}</div>' +
+
+            '<div style="font-size:17px;font-weight:700">Map Importer</div>' +
+
+            '<div style="color:#888;font-size:12px;margin-top:6px">Import GLB maps,<br>detect spawns &amp; publish</div></div>' +
+
             '</div>' +
 
             '<div id="e123-l-back" style="margin-top:36px;padding:10px 36px;background:#2a2f36;border-radius:10px;cursor:pointer;display:inline-block;color:#888;font-size:13px;transition:.15s">← Back to Menu</div></div>';
@@ -239,6 +255,10 @@ var Editor123 = {
                     else if (this.dataset.mode === 'clan') Editor123._renderClanEditor();
 
                     else if (this.dataset.mode === 'tank'){ if(window.TankEditor) Editor123._renderTankEditor = window.TankEditor.render; if(Editor123._renderTankEditor) Editor123._renderTankEditor(); else Editor123.toast('Tank Editor not loaded'); }
+
+                    else if (this.dataset.mode === 'collections') Editor123._renderCollectionEditor();
+
+                    else if (this.dataset.mode === 'mapimporter'){ if(window.MapImporter) window.MapImporter.render(); else Editor123.toast('Map Importer not loaded'); }
 
                     else Editor123._render3DEditor();
 
@@ -3369,7 +3389,7 @@ var Editor123 = {
 
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
-        renderer.outputEncoding = THREE.sRGBEncoding;
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
 
         host.appendChild(renderer.domElement);
 
@@ -4063,7 +4083,7 @@ var Editor123 = {
 
                 }
 
-                var mat = new THREE.MeshStandardMaterial({ color: baseColor, roughness: 0.6, metalness: 0.1 });
+                var mat = Toon.mat({ color: baseColor });
 
                 mesh = new THREE.Mesh(geo, mat);
 
@@ -4097,7 +4117,7 @@ var Editor123 = {
 
                 var sGeo = new THREE.ShapeGeometry(shape);
 
-                var sMat = new THREE.MeshStandardMaterial({ color: baseColor, roughness: 0.6, metalness: 0.1, side: THREE.DoubleSide });
+                var sMat = Toon.mat({ color: baseColor, side: THREE.DoubleSide });
 
                 mesh = new THREE.Mesh(sGeo, sMat);
 
@@ -4107,7 +4127,7 @@ var Editor123 = {
 
                 var pw = o.planeW || 2, ph = o.planeH || 2;
 
-                var imgMat = new THREE.MeshStandardMaterial({ color: baseColor, roughness: 0.5, metalness: 0.0, side: THREE.DoubleSide });
+                var imgMat = Toon.mat({ color: baseColor, side: THREE.DoubleSide });
 
                 if (o.imgUrl) {
 
@@ -4165,7 +4185,7 @@ var Editor123 = {
 
                 isSound = true;
 
-                var sndMat = new THREE.MeshStandardMaterial({ color: baseColor, roughness: 0.3, metalness: 0.1, transparent: true, opacity: 0.5 });
+                var sndMat = Toon.mat({ color: baseColor, transparent: true, opacity: 0.5 });
 
                 mesh = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 16), sndMat);
 
@@ -4209,7 +4229,7 @@ var Editor123 = {
 
                     if (self._noiseTex) {
 
-                        self._noiseTex.encoding = THREE.LinearEncoding;
+                        self._noiseTex.colorSpace = THREE.NoColorSpace;
 
                         wMat.uniforms.uNoiseTex.value = self._noiseTex;
 
@@ -4231,7 +4251,7 @@ var Editor123 = {
 
                     waterGeo2.rotateX(-Math.PI / 2);
 
-                    mesh = new THREE.Mesh(waterGeo2, new THREE.MeshStandardMaterial({ color: 0x3a8ec8, transparent: true, opacity: 0.7, side: THREE.DoubleSide }));
+                    mesh = new THREE.Mesh(waterGeo2, Toon.mat({ color: 0x3a8ec8, transparent: true, opacity: 0.7, side: THREE.DoubleSide }));
 
                     mesh.frustumCulled = false;
 
@@ -4247,7 +4267,7 @@ var Editor123 = {
 
                 if (o.subType === 'painted') {
 
-                    var pMat = new THREE.MeshStandardMaterial({ color: groundLinear, roughness: 0.9, metalness: 0.0, transparent: true, opacity: 0.6 });
+                    var pMat = Toon.mat({ color: groundLinear, transparent: true, opacity: 0.6 });
 
                     var pGeo = new THREE.CircleGeometry((o.planeW || 2) / 2, 16);
 
@@ -4259,7 +4279,7 @@ var Editor123 = {
 
                     var gw = o.planeW || 40, gh = o.planeH || 40;
 
-                    var gMat = new THREE.MeshStandardMaterial({ color: groundLinear, roughness: 0.9, metalness: 0.05 });
+                    var gMat = Toon.mat({ color: groundLinear });
 
                     var groundGeo = new THREE.PlaneGeometry(gw, gh);
 
@@ -4274,10 +4294,8 @@ var Editor123 = {
             } else if (kind === 'spawnpoint') {
 
                 // Render spawn point as a colored cylinder with indicator
-                var spawnMat = new THREE.MeshStandardMaterial({ 
+                var spawnMat = Toon.mat({ 
                     color: baseColor, 
-                    roughness: 0.3, 
-                    metalness: 0.2,
                     transparent: true,
                     opacity: 0.7
                 });
@@ -4376,7 +4394,7 @@ var Editor123 = {
 
                 if (!libItem) return;
 
-                var mat = new THREE.MeshStandardMaterial({ color: baseColor, roughness: 0.6, metalness: 0.1 });
+                var mat = Toon.mat({ color: baseColor });
 
                 mesh = new THREE.Mesh(new THREE.BoxGeometry(size, size, size), mat);
 
@@ -4530,13 +4548,9 @@ var Editor123 = {
 
                                     }
 
-                                    c.material = new THREE.MeshStandardMaterial({
+                                    c.material = Toon.mat({
 
                                         color: rockColor,
-
-                                        roughness: 1.0,
-
-                                        metalness: 0.0,
 
                                         flatShading: true,
 
@@ -6086,7 +6100,7 @@ var Editor123 = {
 
         offers.forEach(function (o, i) {
 
-            var priceStr = o.price + ' ' + (o.currency === 'gems' ? '\u25C6' : (o.currency === 'coins' ? '\u25CF' : '$'));
+            var priceStr = o.price + ' ' + (o.currency === 'gold' ? '\u25C6' : (o.currency === 'coins' ? '\u25CF' : '$'));
 
             html += '<div class="se-offer-card" data-idx="' + i + '" style="background:#22272e;border:1px solid #333;border-radius:10px;padding:10px 14px;margin-bottom:8px;cursor:pointer;transition:.1s">' +
 
@@ -6132,7 +6146,7 @@ var Editor123 = {
 
     _shopAddOffer: function () {
 
-        var newOffer = { reward:'cash', amount:100, price:10, currency:'gems', priority:1, stock:10 };
+        var newOffer = { reward:'cash', amount:100, price:10, currency:'gold', priority:1, stock:10 };
 
         SHOP_DATA.offers.push(newOffer);
 
@@ -6168,13 +6182,13 @@ var Editor123 = {
 
             '<h4 style="color:#ffb12b;margin:0 0 12px;font-size:13px">Edit Offer</h4>' +
 
-            '<label style="color:#888;font-size:11px">Reward (cash/coins/gems/basic_crate/rare_crate)</label><input id="se-e-reward" value="' + offer.reward + '" style="width:100%;padding:6px;border-radius:6px;border:1px solid #333;background:#222;color:#fff;font-size:12px;margin-bottom:8px">' +
+            '<label style="color:#888;font-size:11px">Reward (cash/coins/gold/basic_crate/rare_crate)</label><input id="se-e-reward" value="' + offer.reward + '" style="width:100%;padding:6px;border-radius:6px;border:1px solid #333;background:#222;color:#fff;font-size:12px;margin-bottom:8px">' +
 
             '<label style="color:#888;font-size:11px">Amount</label><input id="se-e-amount" type="number" value="' + offer.amount + '" style="width:100%;padding:6px;border-radius:6px;border:1px solid #333;background:#222;color:#fff;font-size:12px;margin-bottom:8px">' +
 
             '<label style="color:#888;font-size:11px">Price</label><input id="se-e-price" type="number" value="' + offer.price + '" style="width:100%;padding:6px;border-radius:6px;border:1px solid #333;background:#222;color:#fff;font-size:12px;margin-bottom:8px">' +
 
-            '<label style="color:#888;font-size:11px">Currency (cash/coins/gems)</label><input id="se-e-currency" value="' + offer.currency + '" style="width:100%;padding:6px;border-radius:6px;border:1px solid #333;background:#222;color:#fff;font-size:12px;margin-bottom:8px">' +
+            '<label style="color:#888;font-size:11px">Currency (cash/coins/gold)</label><input id="se-e-currency" value="' + offer.currency + '" style="width:100%;padding:6px;border-radius:6px;border:1px solid #333;background:#222;color:#fff;font-size:12px;margin-bottom:8px">' +
 
             '<label style="color:#888;font-size:11px">Priority (1-3, higher=more likely)</label><input id="se-e-priority" type="number" value="' + offer.priority + '" style="width:100%;padding:6px;border-radius:6px;border:1px solid #333;background:#222;color:#fff;font-size:12px;margin-bottom:8px">' +
 
@@ -7142,6 +7156,183 @@ var Editor123 = {
             });
         } catch (e) {
             return [];
+        }
+    },
+
+    /* ═══════════════════════════
+       COLLECTION EDITOR
+       ═══════════════════════════ */
+
+    _renderCollectionEditor: function () {
+        this._mode = 'collections';
+        var c = document.getElementById('editor123-content');
+
+        var allTanks = [];
+        if (typeof TANKS === 'object') {
+            Object.keys(TANKS).forEach(function (k) {
+                if (k !== 'tankdisplay' && k !== 'dummy' && TANKS[k] && TANKS[k].name) {
+                    allTanks.push({ id: k, name: TANKS[k].name, color: TANKS[k].color, turretColor: TANKS[k].turretColor });
+                }
+            });
+            allTanks.sort(function (a, b) { return a.name.localeCompare(b.name); });
+        }
+
+        // Deep-clone so edits don't affect live data until Save
+        var collections = (typeof Menu !== 'undefined' && Menu._COLLECTIONS)
+            ? JSON.parse(JSON.stringify(Menu._COLLECTIONS)) : [];
+
+        this._colEditDraft = collections;
+
+        var html = '<div style="max-width:900px;margin:0 auto;padding:20px">';
+        html += '<div style="display:flex;align-items:center;gap:16px;margin-bottom:28px">';
+        html += '<div id="e123-col-back" style="padding:8px 16px;background:#2a2f36;border-radius:8px;cursor:pointer;color:#888;font-size:13px">← Back</div>';
+        html += '<h2 style="color:#ffb12b;margin:0;font-size:20px">Collection Editor</h2>';
+        html += '<div style="flex:1"></div>';
+        html += '<div id="e123-col-save" style="padding:8px 20px;background:#ffb12b;border-radius:8px;cursor:pointer;color:#111;font-size:13px;font-weight:700">Save</div>';
+        html += '</div>';
+
+        collections.forEach(function (col, ci) {
+            html += '<div style="margin-bottom:28px">';
+            html += '<div style="color:#888;font-size:12px;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px">Collection ' + col.id + '</div>';
+
+            // Top row: 3 slots
+            html += '<div style="display:flex;gap:12px;margin-bottom:8px">';
+            for (var ti = 0; ti < 3; ti++) {
+                html += Editor123._colSlotHtml(ci, ti, col.tanks[ti], allTanks);
+            }
+            html += '</div>';
+
+            // Bottom row: 2 slots (left-aligned)
+            html += '<div style="display:flex;gap:12px">';
+            for (var ti = 3; ti < 5; ti++) {
+                html += Editor123._colSlotHtml(ci, ti, col.tanks[ti], allTanks);
+            }
+            html += '</div>';
+
+            html += '</div>';
+        });
+
+        html += '</div>';
+        c.innerHTML = html;
+
+        // Wire slot clicks
+        c.querySelectorAll('.e123-col-slot').forEach(function (slot) {
+            slot.onmouseover = function () { this.style.borderColor = '#ffb12b'; this.style.transform = 'translateY(-2px)'; };
+            slot.onmouseout = function () { this.style.transform = ''; };
+            slot.onclick = function (e) {
+                if (e.target.classList.contains('e123-col-clear')) return;
+                var ci = parseInt(this.dataset.col);
+                var ti = parseInt(this.dataset.slot);
+                Editor123._pickTankForSlot(ci, ti, allTanks);
+            };
+        });
+
+        // Wire clear buttons
+        c.querySelectorAll('.e123-col-clear').forEach(function (btn) {
+            btn.onclick = function (e) {
+                e.stopPropagation();
+                var ci = parseInt(this.dataset.col);
+                var ti = parseInt(this.dataset.slot);
+                Editor123._colEditDraft[ci].tanks[ti] = null;
+                Editor123._renderCollectionEditor();
+            };
+        });
+
+        document.getElementById('e123-col-back').onclick = function () { Editor123._renderLauncher(); };
+        document.getElementById('e123-col-save').onclick = function () { Editor123._saveCollections(); };
+    },
+
+    _colSlotHtml: function (ci, ti, tankId, allTanks) {
+        var tDef = (tankId && typeof TANKS !== 'undefined' && TANKS[tankId]) ? TANKS[tankId] : null;
+        var bodyColor = tDef ? '#' + tDef.color.toString(16).padStart(6, '0') : '';
+        var turtColor = tDef ? '#' + tDef.turretColor.toString(16).padStart(6, '0') : '';
+        var borderC = tDef ? 'rgba(255,177,43,0.6)' : '#333';
+        var bgStyle = tDef
+            ? 'background:rgba(0,0,0,0.4)'
+            : 'background:rgba(0,0,0,0.25)';
+
+        var h = '<div class="e123-col-slot" data-col="' + ci + '" data-slot="' + ti + '" style="width:150px;height:90px;border:2px solid ' + borderC + ';border-radius:14px;' + bgStyle + ';cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:.2s;position:relative;overflow:hidden">';
+
+        if (tDef) {
+            // Tank body preview
+            h += '<div style="width:60px;height:28px;border-radius:6px;background:' + bodyColor + ';margin-bottom:5px"></div>';
+            // Turret preview
+            h += '<div style="width:30px;height:14px;border-radius:4px;background:' + turtColor + ';margin-bottom:4px"></div>';
+            // Barrel
+            h += '<div style="width:24px;height:5px;border-radius:3px;background:#2a2a2e;margin-bottom:4px"></div>';
+            // Name
+            h += '<div style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.85);text-shadow:0 1px 4px rgba(0,0,0,.7)">' + tDef.name + '</div>';
+            // Clear button
+            h += '<div class="e123-col-clear" data-col="' + ci + '" data-slot="' + ti + '" style="position:absolute;top:4px;right:6px;font-size:10px;color:rgba(255,255,255,0.4);cursor:pointer" title="Remove">✕</div>';
+        } else {
+            h += '<div style="font-size:24px;color:#444">+</div>';
+            h += '<div style="font-size:10px;color:#555;margin-top:4px">Empty</div>';
+        }
+
+        h += '</div>';
+        return h;
+    },
+
+    _pickTankForSlot: function (ci, ti, allTanks) {
+        var c = document.getElementById('editor123-content');
+        var collections = this._colEditDraft || [];
+        var currentId = collections[ci] ? collections[ci].tanks[ti] : null;
+
+        var html = '<div style="max-width:900px;margin:0 auto;padding:20px">';
+        html += '<div style="display:flex;align-items:center;gap:16px;margin-bottom:24px">';
+        html += '<div id="e123-pick-back" style="padding:8px 16px;background:#2a2f36;border-radius:8px;cursor:pointer;color:#888;font-size:13px">← Back</div>';
+        html += '<h2 style="color:#ffb12b;margin:0;font-size:18px">Pick Tank — Collection ' + collections[ci].id + ', Slot ' + (ti + 1) + '</h2>';
+        html += '</div>';
+
+        html += '<div style="display:flex;flex-wrap:wrap;gap:10px">';
+        allTanks.forEach(function (t) {
+            var bodyColor = '#' + t.color.toString(16).padStart(6, '0');
+            var turtColor = '#' + t.turretColor.toString(16).padStart(6, '0');
+            var selected = t.id === currentId;
+            var borderC = selected ? '#4caf50' : '#333';
+            html += '<div class="e123-pick-tank" data-tank="' + t.id + '" style="width:140px;padding:14px 10px;border:2px solid ' + borderC + ';border-radius:12px;background:rgba(255,255,255,0.04);cursor:pointer;text-align:center;transition:.2s">';
+            html += '<div style="width:48px;height:22px;border-radius:5px;background:' + bodyColor + ';margin:0 auto 4px"></div>';
+            html += '<div style="width:24px;height:11px;border-radius:3px;background:' + turtColor + ';margin:0 auto 4px"></div>';
+            html += '<div style="width:18px;height:4px;border-radius:2px;background:#2a2a2e;margin:0 auto 8px"></div>';
+            html += '<div style="font-size:12px;color:#ddd;font-weight:600">' + t.name + '</div>';
+            if (selected) html += '<div style="font-size:10px;color:#4caf50;margin-top:4px">✓ Current</div>';
+            html += '</div>';
+        });
+        html += '</div></div>';
+        c.innerHTML = html;
+
+        c.querySelectorAll('.e123-pick-tank').forEach(function (el) {
+            el.onmouseover = function () { this.style.borderColor = '#ffb12b'; };
+            el.onmouseout = function () {
+                var tid = this.dataset.tank;
+                var isCurrent = tid === currentId;
+                this.style.borderColor = isCurrent ? '#4caf50' : '#333';
+            };
+            el.onclick = function () {
+                var tankId = this.dataset.tank;
+                Editor123._colEditDraft[ci].tanks[ti] = tankId;
+                Editor123._renderCollectionEditor();
+            };
+        });
+
+        document.getElementById('e123-pick-back').onclick = function () { Editor123._renderCollectionEditor(); };
+    },
+
+    _saveCollections: function () {
+        if (!this._colEditDraft) {
+            this.toast('No changes to save');
+            return;
+        }
+        if (typeof Menu === 'undefined') {
+            this.toast('Menu not loaded');
+            return;
+        }
+        try {
+            Menu._COLLECTIONS = this._colEditDraft;
+            localStorage.setItem('tankparty_collections', JSON.stringify(this._colEditDraft));
+            this.toast('Collections saved!');
+        } catch (e) {
+            this.toast('Save failed: ' + e.message);
         }
     },
 

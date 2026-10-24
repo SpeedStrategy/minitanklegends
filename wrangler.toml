@@ -1,3 +1,17 @@
 name = "mini-tank-legends"
 compatibility_date = "2024-12-01"
 pages_build_output_dir = "."
+
+# Pages Functions binding for the accounts API (functions/api/*).
+# The matchmaker DO lives at tanklg.nojus-t.workers.dev (index.html pins
+# WORKER_HOST) and is NOT affected by this file. This binding must exist
+# here: when wrangler reads a toml during `pages deploy`, deployment
+# bindings come ONLY from the toml (dashboard/project-config bindings are
+# ignored), and without it /api/health reports "db":"down".
+# Deployment-level evidence: old deploys (no toml read) carried
+# {"DB":{"id":"f9e7fb59-a8b7-4b89-8701-504b55fee7fa"}}; toml deploys
+# without this block carried NONE.
+[[d1_databases]]
+binding = "DB"
+database_name = "mtl-accounts"
+database_id = "f9e7fb59-a8b7-4b89-8701-504b55fee7fa"

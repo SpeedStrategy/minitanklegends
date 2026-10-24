@@ -30,7 +30,7 @@ var STYLE_DEFS = {
   woodland_camo: {
     id: 'woodland_camo',
     name: 'Woodland Camo',
-    texture: 'assets/styles/woodland_camo.png?v=2',
+    texture: 'assets/styles/woodland_camo.webp?v=2',
     price: 1200,
     currency: 'gold',
     desc: 'Olive-drab military woodland pattern.',
@@ -39,7 +39,7 @@ var STYLE_DEFS = {
   desert_camo: {
     id: 'desert_camo',
     name: 'Desert Storm',
-    texture: 'assets/styles/desert_camo.png?v=2',
+    texture: 'assets/styles/desert_camo.webp?v=2',
     price: 1200,
     currency: 'gold',
     desc: 'Sandy desert pattern with brown blotches.',
@@ -48,7 +48,7 @@ var STYLE_DEFS = {
   tiger_stripes: {
     id: 'tiger_stripes',
     name: 'Tiger Stripes',
-    texture: 'assets/styles/tiger_stripes.png?v=2',
+    texture: 'assets/styles/tiger_stripes.webp?v=2',
     price: 1800,
     currency: 'gold',
     desc: 'Loud orange paint job with black stripes.',

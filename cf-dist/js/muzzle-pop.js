@@ -101,7 +101,17 @@ const MuzzlePop = (() => {
   };
 
   /* ---- timing ------------------------------------------------------------ */
-  const LIFE      = 1.50;    /* total: flash, then the coal hanging in the air */
+  /* The whole sequence - flash, cool-down, smoke - is driven by uProg mapped
+     from this life, so halving it plays the same show twice as fast. The user
+     asked for exactly that: the flash is out of your face in half the time. */
+  const LIFE      = 0.75;    /* total: flash, then the coal hanging in the air */
+
+  /* How long the cloud stays GLUED to the gun, as a fraction of its life.
+     While it is a flash it must sit on the muzzle: the tank keeps moving and
+     turning during a shot, and a flash left behind in world space reads as
+     "the barrel fired from over there". Once it has cooled to smoke it is
+     released and drifts on its own, like real gunsmoke does. */
+  const ANCHOR_HOR = 0.24;
   const FLASH_END = 0.080 / LIFE;   /* the hot part is over in 80ms            */
   const COOL_YEL  = 0.030 / LIFE;   /* white -> yellow, at about 45ms         */
   const COOL_END  = 0.150 / LIFE;   /* yellow -> orange -> coal, by 150ms     */
@@ -389,6 +399,10 @@ const MuzzlePop = (() => {
           mesh: new THREE.Mesh(this.geo, new THREE.MeshBasicMaterial()),
           uniforms: null, life: 0, maxLife: LIFE, seed: 0, size: 3,
           vx: 0, vy: 0, vz: 0, spin: 0, active: false,
+          /* Barrel anchoring: while `anchor` is set and the cloud is still in
+             its flash phase, the mesh is re-pinned to the gun every frame, so
+             the flash cannot drift behind a moving/turning tank. */
+          anchor: null, fx: 0, fz: 1, lead: 0, released: true,
         });
       }
       for(const c of this.clouds){
@@ -461,7 +475,7 @@ const MuzzlePop = (() => {
       return best;
     }
 
-    play(pos, dir, big, cameraPos){
+    play(pos, dir, big, cameraPos, anchorTank){
       if(cameraPos){
         const d = Math.hypot(cameraPos.x - pos.x, cameraPos.z - pos.z);
         if(d > MAX_DIST) return;
@@ -494,6 +508,14 @@ const MuzzlePop = (() => {
       c.mesh.quaternion.copy(_q1).multiply(_q2);
       c.spin = 0;
       c.vx = fx * 2.4; c.vz = fz * 2.4; c.vy = 1.1;
+      /* Glue it to the gun when the caller hands the tank over: while anchored
+         the cloud follows the muzzle so the flash rides the barrel exactly. */
+      if(anchorTank){
+        c.anchor = anchorTank; c.fx = fx; c.fz = fz;
+        c.lead = big ? 1.5 : 1.2; c.released = false;
+      } else {
+        c.anchor = null; c.released = true;
+      }
       if(c.uniforms){ c.uniforms.uSeed.value = c.seed; c.uniforms.uProg.value = 0; c.uniforms.uTime.value = 0; }
     }
 
@@ -503,8 +525,39 @@ const MuzzlePop = (() => {
         if(!c.active) continue;
         c.life -= dt;
         c.age  += dt;
-        if(c.life <= 0){ c.active = false; c.mesh.visible = false; continue; }
+        if(c.life <= 0){ c.active = false; c.mesh.visible = false; c.anchor = null; continue; }
         const k = 1 - c.life / c.maxLife;            /* 0 -> 1 */
+
+        /* BARREL ANCHOR PHASE. Before the flash has cooled into smoke the
+           cloud is re-pinned to the muzzle every frame - tank movement and
+           turret turn included - so the flash stays fixed to the barrel, not
+           to a point in the world. The muzzle can go away (tank destroyed, or
+           the anchor is actually a remote ghost) or the flash phase expires;
+           then the cloud is released into ordinary smoke drift. */
+        if(c.anchor && !c.released){
+          let ok = false;
+          try {
+            if(c.anchor.alive && !c.anchor.dying && c.anchor.muzzle){
+              const m = c.anchor.muzzle();
+              if(m && m.pos){
+                c.mesh.position.set(
+                  m.pos.x + c.fx * c.lead,
+                  m.pos.y + 0.4,
+                  m.pos.z + c.fz * c.lead
+                );
+                ok = true;
+              }
+            }
+          } catch(e){}
+          if(!ok || c.life < c.maxLife * (1 - ANCHOR_HOR)){
+            /* Release: keep everything accumulated so the smoke simply picks
+               up drifting from wherever the barrel left it. */
+            c.released = true; c.anchor = null;
+          } else {
+            if(c.uniforms){ c.uniforms.uProg.value = k; c.uniforms.uTime.value = time; }
+            continue;   /* anchored clouds skip the drift below */
+          }
+        }
 
         /* Drifts slowly along the barrel and up, and eases off as it goes. */
         const drag = 1 - 0.6 * k;
@@ -545,12 +598,12 @@ const MuzzlePop = (() => {
       if(!this._fx) this._fx = new MuzzleCloudFX(scene, useTSL);
       return this._fx;
     },
-    play(scene, pos, dir, big, cameraPos){
+    play(scene, pos, dir, big, cameraPos, anchorTank){
       if(cameraPos){
         const d = Math.hypot(cameraPos.x - pos.x, cameraPos.z - pos.z);
         if(d > MAX_DIST) return;
       }
-      try { this.get(scene).play(pos, dir, big, null); } catch(e){}
+      try { this.get(scene).play(pos, dir, big, null, anchorTank); } catch(e){}
     },
     update(scene, dt){
       if(!this._fx) return;

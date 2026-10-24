@@ -195,10 +195,10 @@ class World {
       return tex;
     };
 
-    this.texGround = shrink(loader.load(base + 'texture_01.png'), 'texGround');
+    this.texGround = shrink(loader.load(base + 'texture_01.webp'), 'texGround');
     this.texGround.wrapS = this.texGround.wrapT = THREE.RepeatWrapping;
     this.texGround.repeat.set(8, 8);
-    this.texWall = shrink(loader.load(base + 'texture_04.png'), 'texWall');
+    this.texWall = shrink(loader.load(base + 'texture_04.webp'), 'texWall');
     this.texWall.wrapS = this.texWall.wrapT = THREE.RepeatWrapping;
     this.texWall.repeat.set(1, 1);
     this._makeGround();

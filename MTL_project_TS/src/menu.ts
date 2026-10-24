@@ -336,7 +336,7 @@ export const Menu: MenuAPI = {
 
   _loadMysteryImg(): void {
     const img = new Image();
-    img.src = 'mystery_mtl.png';
+    img.src = 'mystery_mtl.webp';
     this._mysteryImg = img;
   },
 

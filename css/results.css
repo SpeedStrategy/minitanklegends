@@ -1,0 +1,1856 @@
+/* ===========================================================================
+   results.css ? the screen shown when a battle ends.
+
+   WHY THIS FILE LOOKS THE WAY IT DOES
+
+   Every version of this screen before the current one was built from drawn
+   rectangles: chamfered polygons with an inked outline, opaque plates, hard
+   bands with instantaneous stops, and a heavy black cast under each panel. It
+   read as a control panel bolted over the picture, because a rectangle drawn
+   on top of a 3D scene is a rectangle drawn on top of a 3D scene, however
+   carefully it is cut.
+
+   The reference this screen is built from does the opposite. Nothing in it
+   ends: the red stripe behind the word VICTORY runs out rather than stopping,
+   the panels are dimmer at their edges than in their middles, and the only
+   hard-edged object anywhere is the button. The word itself is gold gradient
+   type with the stripe showing through the counters of the letters, not white
+   type on a coloured block.
+
+   So the rule for everything here is FEATHER, DON'T DRAW:
+
+     * panels are tints whose edges are masked out to nothing over 22-30px, so
+       they have no boundary, only a place where they stop being dark;
+     * the top of the window and the bottom of the window are where panels end
+       vertically, because the screen's own edge is the one edge that cannot
+       read as a frame;
+     * type carries its own legibility with multi-part shadows and gradients
+       clipped to the glyphs, instead of sitting on a plate;
+     * one element on the screen is solid and outlined ? the CONTINUE button ?
+       because an action with no edge is an action you have to hunt for.
+
+   TWO THINGS THAT LOOK LIKE STYLE BUT ARE ACTUALLY CONSTRAINTS:
+
+     * Chromium silently discards a mask on any element that also carries
+       backdrop-filter. Every masked panel here is therefore a plain tinted
+       element with no blur, and this is noted in place at each one. The
+       previous glass version blurred; this one feathers, and feathering is
+       what the reference does anyway.
+     * A pseudo-element inside a scrolling box scrolls with the content, so
+       panel tints are backgrounds on the scroller itself rather than
+       ::before layers, or they slide out of frame the first time the list
+       moves.
+
+   THE THREE COLOURS, AND WHAT EACH ONE MEANS
+
+     gold    the player. Their own row, their own numbers, their rewards.
+     red     the stripe behind the headline, warm for a win and drained for a
+             defeat; the enemy board's heading.
+     blue    your own team's heading and its bar in the score chart.
+
+   Yellow appearing anywhere else would dilute the only thing it is for, which
+   is finding your own row in a table of sixteen without reading a single name.
+
+   THE TANK IS THE SCENE
+
+   The canvas is a fixed layer at the back of the whole screen and the UI
+   floats over it, so the tank is framed against the full window instead of
+   inside a panel. Nothing in the UI is allowed to sit directly on the tank's
+   hull: the centre column rises from the foot of the screen and the
+   leaderboards hang from its top edge, so the middle of the screen stays clear.
+   =========================================================================== */
+:root{
+  --res-ink:        #eef3f8;
+  --res-ink-faint:  #66748a;
+
+  --res-gold:   #ffc400;
+  --res-green:  #3ddc84;
+
+  /* The one outcome tint still held as a token: the draw's stripe, which has
+     no hue of its own to state inline. Win and loss set theirs in the banner
+     rules, because they are the two that had to be tuned against the gold type
+     sitting on top of them. */
+  --res-glass-grey:   rgba(58, 64, 74, 0.34);
+
+  /* ======================================================== THE FEATHER
+
+     A panel in the reference never ends on a straight line. The red stripe
+     behind the word does not stop, it runs out; the cards do not have an edge,
+     they get dimmer towards it. Every panel here used to be a rectangle ? a
+     chamfered one, but a rectangle ? and a rectangle drawn over a 3D scene
+     reads as a sticker pasted on top of it.
+
+     This mask is how the edges run out instead: a horizontal gradient that is
+     transparent at both ends, so the left and right sides of a panel dissolve
+     over 22px. Panels that fade by different amounts are how a screen ends up
+     with one soft corner and three hard ones, so it is one value and every
+     panel uses it.
+
+     The centre column asks for 30px rather than 22 and writes its own, because
+     it is wide enough that 22px would be lost against its width; the boards
+     combine this with a bottom fade of their own so their foot dissolves too.
+
+     MASK, NOT BACKDROP-FILTER. Chromium silently drops a mask on any element
+     that also carries `backdrop-filter` ? the shape renders as a plain
+     rectangle again, which is exactly the thing being removed. So a tint and
+     its mask always live together on a plain element, and nothing on this
+     screen blurs what is behind it: the panels blend by being feathered tints
+     over the scene rather than by being glass in front of it. */
+  --res-feather:
+    linear-gradient(90deg, transparent 0, #000 22px, #000 calc(100% - 22px), transparent 100%);
+}
+#results-overlay{
+  position:fixed; inset:0; z-index:9000;
+  font-family:'Segoe UI', 'Inter', Arial, sans-serif;
+  color:var(--res-ink);
+  overflow:hidden;
+  /* No longer a flex row: the three regions are absolutely placed so the tank
+     can occupy the whole window underneath them without being squeezed. */
+}
+#results-overlay.hidden{ display:none !important; }
+
+/* --------------------------------------------------------------- THE FOG */
+
+/* A SMALL DARK GREY FOG BEHIND THE PANELS. Nothing else.
+
+   This layer used to build a room: three stacked gradients with a warm amber
+   centre, a set of repeating pilasters at 118px to suggest a hangar wall, a
+   horizontal rail at "floor level", and two large soft sheets drifting across
+   the whole viewport. Every one of those was a DECLARATION about a building
+   that does not exist — the 3D scene behind this layer already IS the place,
+   a real stage with real lights, and a CSS hangar painted over the top of it
+   was competing with it rather than sitting behind it. The pilasters in
+   particular read as a wall at a distance the scene has no depth at, and they
+   drew a vertical stripe pattern straight through the middle of the frame where
+   the player's own tank is standing.
+
+   What is left is what the panels actually need: a pool of dark grey haze
+   gathered behind them, so the type has something to sit on, and nothing at all
+   in the middle of the frame where the subject is. The haze is elliptical and
+   sits at the two ends — where the leaderboards are and where the stats are —
+   rather than filling the screen, so the centre is left clear.
+
+   The numbers are all low-alpha greys. This is fog, not a panel: it has no
+   edge, it has no gradient ramp you can point at, and it must never be dark
+   enough in the middle that the tank behind it stops being the brightest thing
+   on screen. */
+.res-backdrop{
+  position:absolute; inset:0; z-index:0; pointer-events:none;
+  background:
+    /* Nothing pooled at the top: the fog is a bank at the BOTTOM now, and a
+       matching pool up here is what made the pair read as a box. The top only
+       needs enough flat dark for the leaderboard rows to sit on. */
+    linear-gradient(180deg,
+      rgba(9,11,15,0.78)  0%,
+      rgba(9,11,15,0.34) 20%,
+      rgba(9,11,15,0.18) 40%,
+      rgba(9,11,15,0.12) 58%,
+      rgba(8,10,13,0.26) 80%,
+      rgba(8,10,13,0.52) 100%);
+}
+
+/* THE WALL STRUCTURE IS GONE — the pilasters and the floor rail are deleted,
+   not restyled. They were the part of this layer that made it a claim about a
+   building, and they were the part the player could see. `.res-backdrop::before`
+   is intentionally left undefined rather than set to `display:none`, so there
+   is one obvious place to put something here if the screen ever wants a
+   texture again. */
+
+/* THE FOG SITS AT THE BOTTOM, IN FRONT OF THE SCENE, AND IS ONE ASYMMETRIC
+   BANK.
+
+   Z-INDEX 2 IS THE WHOLE POINT OF THIS BLOCK. `.res-backdrop` is layer 0 and the
+   canvas is layer 1, and the results renderer clears to an OPAQUE buffer — so
+   anything drawn on layer 0 is invisible on this screen and always has been.
+   Measured: a pixel sampled from the canvas at 50%/88% comes back
+   rgb(127,123,116) alpha 255. There is nothing behind that canvas. The fog has
+   to be in front of the canvas (layer 1) and behind the interface (layer 3), so
+   it lives on its own element at layer 2.
+
+   It was previously a pair of mirrored ellipses, one at the top and one at the
+   bottom, both centred on 50%. Mirrored like that they are not fog, they are a
+   box — two matching lobes at opposite edges of a rectangle is the shape the
+   eye reads as a frame, and the 18px blur on top of it did nothing about that,
+   it just smeared the box rather than dissolving it.
+
+   So there is ONE bank, anchored to the bottom, and it is deliberately
+   lopsided:
+
+     * its corners are FOUR DIFFERENT radii, and the two that are visible are
+       different from each other — 64%/36% horizontally and 84%/100% vertically,
+       so the left shoulder rises higher and rounder while the right one tapers
+       off;
+     * the element is not centred either — it runs from -8% on the left to -17%
+       on the right, which pushes the mass off-axis so the silhouette has a heavy
+       end and a thin end rather than a middle;
+     * it hangs below the viewport (bottom:-16%) and overhangs both sides, so
+       three of its four edges are off-screen and there is nothing left to read
+       as a rectangle except the curve, which is the point;
+     * the two gradients inside it are centred at 26% and 71%, so the density
+       does not peak in the middle of the shape.
+
+   The blur is what turns that outline into fog: it takes the remaining geometry
+   off the top edge and off both shoulders, and at 40px against a bank roughly
+   380px tall it leaves the asymmetry readable while removing every edge.
+   Percentages throughout, so it holds its shape at any window size. */
+.res-fog{
+  position:absolute; z-index:2;
+  pointer-events:none;
+  left:-8%; right:-17%; bottom:-16%;
+  height:54vh; min-height:260px;
+  border-radius:64% 36% 0 0 / 84% 100% 0 0;
+  filter:blur(40px);
+  background:
+    radial-gradient(ellipse 66% 118% at 26% 104%, rgba(58,64,74,0.58), rgba(44,50,58,0) 72%),
+    radial-gradient(ellipse 58% 108% at 71% 96%,  rgba(48,54,62,0.50), rgba(36,42,49,0) 74%),
+    linear-gradient(180deg, rgba(30,34,40,0) 0%, rgba(30,34,40,0.30) 48%, rgba(26,30,36,0.54) 100%);
+  /* Slow drift, and only sideways: a fog bank that also RISES reads as a
+     rectangle being moved, and the whole point of the shape is that it is
+     irregular. */
+  animation:res-fog 52s ease-in-out infinite alternate;
+}
+@keyframes res-fog{
+  from{ transform:translate3d(-1.4%, 0, 0) scale(1.005); }
+  to  { transform:translate3d( 1.6%, 0, 0) scale(1.035); }
+}
+/* On the scrolling layout the canvas is only the top 52vh, so a bottom-anchored
+   bank would sit below the picture rather than across its foot. It follows the
+   canvas down instead. */
+@media (max-width: 860px), (max-height: 660px){
+  .res-fog{ position:absolute; top:52vh; bottom:auto; height:34vh; }
+}
+@media (prefers-reduced-motion: reduce){ .res-fog{ animation:none; } }
+
+/* --------------------------------------------------------------- THE TANK */
+
+.res-canvas{
+  position:absolute; inset:0; z-index:1;
+  width:100%; height:100%;
+  display:block;
+  /* Drag anywhere on the tank rotates it, so the whole frame accepts a drag
+     rather than only the hull — hitting a moving target is otherwise fiddly. */
+  cursor:grab;
+  touch-action:none;
+}
+.res-canvas:active{ cursor:grabbing; }
+
+/* ============================================================== THE BOARDS */
+
+/* A REAL GAP, AND BOARDS THAT ARE NOT STRETCHED ACROSS THE SCREEN.
+
+   They were `flex:1 1 0`, so each board took half the window minus the gap and
+   ran the full width of its half. A leaderboard of five names has no business
+   being 480px wide: the numbers ended up marooned at the far right of a very long
+   row with a lake of empty space between the name and its own damage.
+
+   Now they are a fixed comfortable width, centred, with a wide gap between them.
+   The gap is not padding — it is empty, so the tank's upper corners and the fog
+   show through it, which is what stops the top of the screen reading as one
+   continuous bar. */
+.res-top{
+  position:absolute; z-index:3;
+  top:0; left:0; right:0;
+  display:flex; gap:32px;
+  /* FLUSH WITH THE TOP OF THE WINDOW, and that is a design decision rather
+     than an oversight. A panel floating 14px below the top edge has a top
+     edge, and a top edge over a 3D scene is a frame. Sat on the edge itself
+     the heading has nothing to be an edge against, so the board can dissolve
+     down its two sides and out of its foot with no boundary anywhere. It also
+     means rows scrolling under the sticky heading can never peek through its
+     top, because there is no feathered top for them to peek through. */
+  padding:0 clamp(12px,1.4vw,24px) 0;
+  /* THE BOARDS PIN TO THEIR OWN EDGE.
+
+     They used to sit centred as a pair, which meant the right board's position
+     was derived from the width of the LEFT one — any difference in width, any
+     shrink under a narrow window, and the right board drifted while the left
+     stayed put, so the two no longer mirrored each other. Each now anchors to
+     its own margin, so the right board is aligned by construction and the whole
+     middle of the top of the screen is left open for the score plates floating
+     over the tanks. The gap between them is therefore empty by design rather
+     than by whatever the flex line had left over. */
+  justify-content:space-between;
+  /* Equal height. With `flex-start` the two boards sized to their own contents, so
+     the two title bars sat at different heights and the screen looked crooked
+     down the middle — the right board's header floated wherever its list happened
+     to end. */
+  align-items:stretch;
+}
+
+.res-board{
+  position:relative;
+  /* FIXED AND EQUAL, and no shrinking: two boards that may flex to different
+     widths can never be mirrored, and a leaderboard whose name column breathes
+     differently from its twin is the thing that reads as "not aligned". 340px
+     is narrow enough that the pair does not dominate the top of the screen and
+     wide enough for a name plus three numbers. */
+  flex:0 0 340px; width:340px; min-width:0;
+  max-height:34vh;
+  overflow-y:auto; overflow-x:hidden;
+
+  /* NO FRAME, NO CHAMFER, NO OUTLINE.
+
+     This used to be the most heavily drawn object on the screen: a chamfered
+     polygon, a backdrop blur, and a white hairline traced around the cut by
+     three chained drop-shadows. Every one of those is an EDGE, and an edge
+     drawn over a 3D scene is what makes a panel look stuck on afterwards
+     rather than part of the picture.
+
+     What replaces them is one feathered tint. The body is a flat dark wash so
+     the numbers have something to sit on; the lit band along the top and the
+     grain are the only texture; and --res-feather runs the left, right and
+     bottom edges out to nothing over 22px, so the panel has no boundary: it is
+     simply darker here and a little less dark further along.
+
+     THE MASK LIVES ON THE SAME ELEMENT AS THE BACKGROUND, not on a
+     pseudo-element, for one specific reason: a pseudo-element inside a
+     scrolling box scrolls with the content, so the tint would slide out of
+     frame the moment the list moved. A background does not scroll and a mask
+     follows its element, so both stay put while the rows travel underneath.
+
+     The top has no fade at all, deliberately. The board is flush with the top
+     of the window, so its only top edge is the screen's own edge, and fading
+     there would let rows show through the sticky heading as they pass. */
+
+  background:
+    /* grain: the surface of a material rather than a flat fill */
+    radial-gradient(rgba(255,255,255,0.038) 1px, rgba(0,0,0,0) 1px) 0 0/3px 3px,
+    /* light along the top, wide enough to read as light rather than as a line */
+    linear-gradient(180deg,
+      rgba(255,255,255,0.11) 0,
+      rgba(255,255,255,0.035) 24px,
+      rgba(255,255,255,0) 64px),
+    /* the body: dark enough to hold white type, thin enough to let the fog and
+       the tank's upper corners through */
+    linear-gradient(180deg,
+      rgba(9,13,20,0.84)   0%,
+      rgba(8,12,19,0.80)  52%,
+      rgba(7,10,16,0.72) 100%);
+
+  /* NO backdrop-filter. Chromium silently drops a mask on any element that
+     carries one, which would expose all four hard edges again in the one place
+     they are being removed. The panel blends by feathering, not by blurring. */
+  -webkit-mask-image:var(--res-feather), linear-gradient(180deg, #000 0, #000 calc(100% - 30px), transparent 100%);
+  -webkit-mask-composite:source-in;
+  mask-image:var(--res-feather), linear-gradient(180deg, #000 0, #000 calc(100% - 30px), transparent 100%);
+  mask-composite:intersect;
+
+  scrollbar-width:thin;
+  scrollbar-color:rgba(255,255,255,0.22) transparent;
+}
+.res-board::-webkit-scrollbar{ width:6px; }
+.res-board::-webkit-scrollbar-thumb{ background:rgba(255,255,255,0.20); }
+
+/* THE MIRROR IS NOW A POSITION, NOT A SHAPE.
+
+   The two boards used to be a chamfered polygon and its reflection, which was
+   a great deal of geometry to say "these are two lists". With no chamfer left
+   there is nothing to mirror, so the right board differs from the left in
+   exactly one way: the direction its hover wash runs (see .res-row). Nothing
+   else needs saying here. */
+
+/* THE HEADING. Sticky, so it must carry its own background: rows scroll
+   underneath it and without one the names run straight through it. It is
+   opaque for as far as it covers rows, and a 16px wash dissolves underneath it
+   to say which way is down ? no rule, no bar, no border. */
+.res-board-title{
+  position:sticky; top:0; z-index:2;
+  display:flex; align-items:center; justify-content:space-between;
+  /* SYMMETRICAL INSET. It was 16px on the left and 14px on the right, so the
+     left board's team name sat flush to its stripe while the right board's
+     player count floated two pixels away from its own, a small enough gap to
+     be felt rather than seen, and exactly the kind of thing that makes a
+     mirrored pair look off. It is now 22px on both sides, which is also what
+     keeps the type clear of the 22px feather running down each edge. */
+  padding:14px 22px 16px;
+  /* A declared height, because the sticky column-header below it is pinned to
+     `top:46px` and a sticky offset that is guessed rather than declared drifts
+     the moment the padding changes. */
+  height:46px; box-sizing:border-box;
+  font-size:12px; font-weight:800; letter-spacing:2.4px;
+  color:#fff;
+  background:linear-gradient(180deg,
+    rgba(11,16,24,0.94) 0%,
+    rgba(11,16,24,0.91) 72%,
+    rgba(11,16,24,0.87) 100%);
+}
+/* The team colour is in the TYPE, not in a painted bar down the edge. The old
+   stripe was an inset 4px shadow on the outer side, and under the feather
+   there is no edge left for a stripe to sit on: not having one is the whole
+   point of the panel. The colour still reads instantly, because the name is
+   the first thing on the line. */
+.res-board-title.blue{ color:#8ab4ff; }
+.res-board-title.red { color:#ff9a96; }
+/* A wash that dissolves, instead of the 3px black bar that used to sit here as
+   a hard line drawn right across the panel. */
+.res-board-title::after{
+  content:''; position:absolute; left:0; right:0; top:100%; height:16px;
+  background:linear-gradient(180deg, rgba(3,6,10,0.55), rgba(3,6,10,0));
+  pointer-events:none;
+}
+.res-board-count{
+  font-size:10px; letter-spacing:1px; color:rgba(255,255,255,0.42);
+  font-variant-numeric:tabular-nums;
+  padding:1px 7px;
+  background:rgba(0,0,0,0.35);
+}
+
+/* ---------------------------------------------------------------- A ROW */
+
+.res-row{
+  display:grid;
+  /* Tighter columns than before (26/62/42/52 -> 24/56/36/46) so the name keeps
+     the space the narrower board gives up, and a symmetric 14px inset on both
+     sides so the right board's numbers stop short of its stripe exactly as the
+     left board's names start clear of theirs. */
+  grid-template-columns:24px minmax(0,1fr) 56px 36px 46px;
+  align-items:center; gap:7px;
+  /* 22px, which is exactly the width of the feather: the type starts the
+     moment the panel has finished fading, so no name and no number is ever
+     sitting on the soft part of the edge. */
+  padding:6px 22px;
+  font-size:13px;
+  color:#e6ecf3;
+  border-bottom:1px solid rgba(255,255,255,0.05);
+  /* THE HOVER IS A WASH, NOT AN EDGE.
+
+     It used to be a 3px gold bar pinned to the left of the row. Under the
+     feather that bar sat in the first 3px of the panel, where the mask has
+     already taken the alpha to zero, so the feedback was invisible for the
+     same reason every other edge on this panel is invisible.
+
+     What is here instead is a gold wash that starts warm on the leading side
+     and runs out to nothing, which is the same gesture as every other shape on
+     this screen: it fades rather than stops. The right-hand board mirrors the
+     direction, and that is now the ONLY difference between the two boards.
+
+     It used to also slide 3px right. That is gone: a row that MOVES under the
+     pointer is a row whose columns stop lining up with the header the moment
+     you point at it. */
+  transition:background .16s ease, color .12s ease;
+  cursor:default;
+}
+.res-row:last-child{ border-bottom:none; }
+.res-row:hover{
+  background:linear-gradient(90deg,
+    rgba(255,196,0,0.20) 0%,
+    rgba(255,196,0,0.09) 42%,
+    rgba(255,196,0,0) 100%);
+}
+.res-board-right .res-row:hover{
+  background:linear-gradient(270deg,
+    rgba(255,196,0,0.20) 0%,
+    rgba(255,196,0,0.09) 42%,
+    rgba(255,196,0,0) 100%);
+}
+.res-row:focus-visible{
+  outline:2px solid var(--res-gold);
+  outline-offset:-2px;
+}
+.res-row.empty{
+  display:block; text-align:center; padding:20px 22px;
+  color:var(--res-ink-faint); font-style:italic;
+}
+
+/* THE HEADER ROW. This was missing entirely, which is why the three numbers
+   after each name meant nothing.
+
+   STICKY BENEATH THE HEADING, at the heading's exact height. It used to sit at
+   `top:31px`, which was the height of the OLD heading; when the heading gained
+   the padding that keeps its type clear of the feather, nothing moved here, so
+   the column labels slid underneath the heading and the first row of numbers
+   lost its own labels. The 46px is not repeated as a guess in two places: the
+   heading declares the same 46px as its height. */
+.res-row-head{
+  position:sticky; top:46px; z-index:1;
+  padding-top:5px; padding-bottom:5px;
+  font-size:9.5px; font-weight:700; letter-spacing:1.6px;
+  color:var(--res-ink-faint);
+  /* Opaque, with no blur of its own. It has to be: rows travel underneath it,
+     and the moment it is translucent the tiny grey column labels and a passing
+     player name occupy the same pixels. Its left inset shadow is gone with the
+     rest of the edges — 2px in from the left is well inside the feather, so it
+     had already faded to nothing. */
+  background:rgba(9, 13, 20, 0.94);
+  border-bottom:1px solid rgba(255,255,255,0.12);
+  cursor:help;
+}
+.res-row-head:hover{ background:rgba(14, 20, 29, 0.96); }
+
+/* THE PLAYER'S OWN SCORE PLATE. Sits above the player's tank as a flat label in
+   plain DOM, so it survives the stage rotation without a second 3D camera, and is
+   bound to the tank's CSS anchor rather than to a GPU mesh.
+
+   Rendered above the stage: it is generated after the boards are laid out, so the
+   hall of fame's two stacks never collide with a plate. Three plates, one for
+   each tank, laid out over their own marker. */
+
+.res-float{
+  position:absolute; z-index:10;
+  /* TWO LINES. The name, then the figures under it. This used to be one line
+     carrying name + DMG + KILLS + ASSISTS with the labels inline, which made
+     each plate about twice the width of the tank beneath it — and three plates
+     that wide, centred on three tanks, overlap well before the window is
+     narrow. The name is now the widest thing on the plate and the numbers sit
+     under it.
+
+     Column, not row, and centred: the plate grows vertically over its tank
+     rather than sideways across its neighbour. */
+  display:flex; flex-direction:column; align-items:center; gap:2px;
+  pointer-events:none;
+  text-align:center;
+  font-size:clamp(13px, 1.35vw, 19px); font-weight:900;
+  letter-spacing:.4px;
+  /* These float directly over the tank with no panel behind them, so they cannot
+     be glass — there is nothing behind them to blur, only the 3D scene. They
+     keep the dark halo, because that is what keeps light type readable against
+     a lit pool on the floor, and the halo is a soft shadow rather than four
+     hard black silhouettes.
+
+     NO KEYLINE. The inset highlight cap this used to carry drew a hard 2px line
+     along the top of the plate, which was a border around nothing: there is no
+     panel edge there, so it read as a rule floating in mid-air. */
+  filter:
+    drop-shadow(0 0 4px rgba(5,7,11,0.94))
+    drop-shadow(0 0 14px rgba(255,255,255,0.10));
+}
+.res-float-name{
+  font-size:1em; font-weight:900; letter-spacing:.4px;
+  color:#fff;
+  max-width:min(30vw, 190px);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  text-shadow:0 2px 10px rgba(0,0,0,0.90);
+}
+/* The figures. Smaller than the name by a clear step — this is supporting
+   information read at a glance, not the thing being looked at. */
+.res-float-stats{ display:flex; align-items:baseline; gap:9px; }
+.res-float-stat{ display:inline-flex; align-items:baseline; gap:3px; }
+.res-float-stat i{
+  font-style:normal; font-size:.62em; font-weight:800; letter-spacing:.9px;
+  color:rgba(255,255,255,0.52);
+}
+.res-float-stat b{
+  font-size:.82em; font-weight:900; color:#fff;
+  font-variant-numeric:tabular-nums;
+}
+
+/* Team colour is carried by the NAME only, and only as a tint. The figures stay
+   white on all three: they are the same kind of number on all three tanks, and
+   colour-coding a figure makes it look like a different statistic. */
+.res-float.you   .res-float-name{ color:#ffd84d; }
+.res-float.foe   .res-float-name{ color:#ff9a96; }
+.res-float.ally  .res-float-name{ color:#8ab4ff; }
+
+.res-rank{ color:var(--res-ink-faint); font-size:12px; text-align:right; font-variant-numeric:tabular-nums; }
+.res-name{
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  letter-spacing:.2px;
+}
+.res-you-tag{
+  display:inline-block;
+  margin-right:7px; padding:1px 5px;
+  font-size:8.5px; font-weight:800; letter-spacing:1.2px;
+  color:#1a1405; background:var(--res-gold);
+  clip-path:polygon(0 0, 100% 0, calc(100% - 4px) 100%, 0 100%);
+  vertical-align:1px;
+}
+.res-dmg, .res-kills, .res-assists{
+  font-variant-numeric:tabular-nums;
+  font-size:12.5px;
+  text-align:right;
+  color:#dbe3ec;
+}
+.res-kills, .res-assists{ color:#b6c2d0; }
+
+/* THE PLAYER'S OWN ROW — the only yellow in the screen.
+
+   LAYERED, NOT GRADED. It used to be a 90-degree gradient fading from gold to
+   nothing, which is the smoothest thing on the screen and read as a wash of
+   colour rather than as a highlight.
+
+   A comic does not highlight by tinting — it lays solid shapes on top. So the row
+   is one dark ochre block, with a second, brighter slab occupying the left half
+   over it. Two flat tones meeting at a hard edge, which is what makes it look
+   drawn rather than airbrushed. */
+.res-row.you{
+  position:relative; z-index:1;
+  /* Translucent gold. The row has to stay findable in a table of sixteen, so it
+     keeps its hue — but a solid `#4a3a06` block is opaque enough to sit on top
+     of the glass as a separate sticker, which is what the whole panel is trying
+     not to be. */
+  background:rgba(112, 88, 12, 0.42);
+  color:#ffe680;
+  font-weight:800;
+  box-shadow:inset 5px 0 0 var(--res-gold);
+}
+.res-row.you::after{
+  content:''; position:absolute; inset:0; pointer-events:none;
+  background:rgba(160, 126, 14, 0.34);
+  clip-path:polygon(0 0, 38% 0, 30% 100%, 0 100%);
+}
+.res-row.you > *{ position:relative; z-index:1; }
+.res-row.you .res-rank{ color:var(--res-gold); }
+.res-row.you .res-dmg{ color:#ffd84d; }
+.res-row.you .res-kills,
+.res-row.you .res-assists{ color:#ffe680; }
+.res-row.you:hover{ background:rgba(140, 110, 16, 0.52); }
+.res-row.you:hover::after{ background:rgba(190, 152, 20, 0.42); }
+
+/* ============================================================ CENTRE COLUMN */
+
+/* Sits over the tank but clear of its hull: the leaderboards own the top of the
+   screen and this column holds the lower two thirds, so the tank is seen between
+   them rather than behind them. */
+.res-centre{
+  position:absolute; z-index:3;
+  left:50%; transform:translateX(-50%);
+  bottom:0;
+  width:min(760px, calc(100% - 48px));
+  display:flex; flex-direction:column; align-items:center;
+  gap:10px;
+  /* 30px on both sides, which is exactly where the feather finishes, so
+     nothing the column holds can ever drift onto the soft part of its own
+     edge. */
+  padding:0 30px 18px;
+
+  /* NO max-height ON THIS COLUMN, and that is a decision rather than an
+     omission.
+
+     It is anchored to the FOOT of the screen, so it grows upward, and it holds
+     about 360px of content that does not scale plus the banner, which does. A
+     cap here looks like the answer and is not: at 700px tall a cap of 88vh is
+     616px against a column that is 510px, so it never engages, and at the
+     heights where it WOULD engage it engages by clipping the top of the
+     column — which is the banner, the one thing on this screen that must never
+     be half off.
+
+     The vertical budget is actually spent by the banner, so that is where it is
+     spent: the banner's height is capped on `vh` as well as `vw`, and the
+     scrolling layout below takes over at 660px where there is genuinely not
+     enough room for this one. Measured at 1000x700: 31px of clearance between
+     the top of this column and the bottom of the leaderboards. */
+
+  /* THE COLUMN EMERGES FROM THE FOOT OF THE SCREEN INSTEAD OF SITTING ON IT.
+
+     It used to be a rectangle: a 760px slab with a white hairline, a backdrop
+     blur, a chamfer in each bottom corner, and a hard top edge running across
+     the screen behind the banner. That is a frame, and it was the last one
+     left.
+
+     One vertical gradient does most of the work. It starts at zero opacity, so
+     there is no top edge to see: the column is simply the darkness at the foot
+     of the screen thickening as it rises to meet the numbers, and the banner
+     straddles the place where it begins, exactly as the word straddles the
+     stripe. It ends dark at the bottom because the bottom is the window's own
+     edge, which like the boards' top edge needs no fade, only darkness.
+
+     The horizontal edges are the same feather the boards use, at 30px to match
+     the padding above. No backdrop-filter, for the reason already given twice:
+     Chromium drops the mask on any element that carries one. */
+  background:linear-gradient(180deg,
+    rgba(6,9,14,0)    0%,
+    rgba(6,9,14,0.24) 16%,
+    rgba(6,9,14,0.54) 40%,
+    rgba(6,9,14,0.72) 70%,
+    rgba(5,7,12,0.85) 100%);
+  -webkit-mask-image:linear-gradient(90deg, transparent 0, #000 30px, #000 calc(100% - 30px), transparent 100%);
+  mask-image:linear-gradient(90deg, transparent 0, #000 30px, #000 calc(100% - 30px), transparent 100%);
+}
+
+/* ---------------------------------------------------------------- BANNER */
+
+/* AN ORGANIC BRUSH-STRIPE, NOT A CHAMFERED SHAPE.
+
+   The reference's red stripe behind the word does not terminate in straight
+   lines: it tapers and feathers into the scene the way a brushstroke does,
+   unevenly, softly, with no visible boundary.
+
+   This cannot be made with a clip-path polygon, because polygons are straight
+   lines by definition. So the colour lives on TWO pseudo-elements, each a
+   blurred radial gradient masked with a horizontal linear gradient so the ends
+   run out over about 60px; each is offset vertically and given a different
+   width and vertical bias, so their union is an uneven stripe rather than a
+   rectangle, a parallelogram, or anything two edges alike.
+
+   The blur on the gradients IS the feather: there is no hard edge left for a
+   mask to trip over, which matters because Chromium drops a mask on any element
+   carrying backdrop-filter. Nothing here blurs the scene either, for the same
+   reason the panels do not.
+
+   WIN IS THE REFERENCE'S RED. The stripe used to turn green on a win, and the
+   photograph this screen is built from puts warm red behind the word VICTORY
+   with gold type on top of it. The three outcomes are told apart by the TYPE
+   and the sub-line rather than by the stripe: gold on red is a victory, cold
+   silver on a dimmer crimson is a defeat, grey on grey is a draw. */
+.res-banner{
+  position:relative;
+  display:flex; align-items:center; justify-content:center; gap:26px;
+  padding:18px 78px 22px;
+  background:none;
+  -webkit-backdrop-filter:none;
+  backdrop-filter:none;
+}
+
+/* The word and its sub-line travel as one block, so the sub-line is always
+   centred under the word regardless of how wide the word runs. */
+.res-banner-main{
+  display:flex; flex-direction:column; align-items:center; gap:9px;
+}
+
+/* THE TWO FEATHERED LAYERS. Each layer's mask is TWO gradients intersected:
+
+   1. an ELLIPTICAL radial deliberately smaller than the element, so its fade
+      reaches zero before the top and bottom edges, which is what kills the hard
+      horizontal edges, and whose curvature makes the shape organic;
+   2. a HORIZONTAL taper pulling the ends in asymmetrically, so the two ends are
+      not mirror images, the hand-cut quality the reference has.
+
+   `intersect` is essential: the default layer composite is `add`, which would
+   UNION the two masks and leave the element fully opaque again. */
+.res-banner::before,
+.res-banner::after{
+  content:''; position:absolute; z-index:0; pointer-events:none;
+  -webkit-mask-image:
+    radial-gradient(ellipse 62% 78% at 47% 50%, #000 38%, rgba(0,0,0,0.55) 62%, transparent 88%),
+    linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.4) 8%, #000 26%, #000 72%, rgba(0,0,0,0.45) 90%, transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    radial-gradient(ellipse 62% 78% at 47% 50%, #000 38%, rgba(0,0,0,0.55) 62%, transparent 88%),
+    linear-gradient(90deg, transparent 0%, rgba(0,0,0,0.4) 8%, #000 26%, #000 72%, rgba(0,0,0,0.45) 90%, transparent 100%);
+  mask-composite: intersect;
+}
+
+/* DEFEAT, which is the base rule because 'loss' is the outcome the markup
+   falls back to. Colder and dimmer than the win: the same organic shape, but
+   drained of the orange that makes the victory stripe read as lit. */
+.res-banner::before{
+  inset:-6px -2% -2px 0;
+  background:radial-gradient(ellipse 75% 90% at 46% 45%,
+    rgba(150, 30, 44, 0.72) 0%,
+    rgba(116, 22, 34, 0.46) 55%,
+    rgba(96, 18, 28, 0) 90%);
+}
+.res-banner::after{
+  inset:2px 0 -6px 3%;
+  background:radial-gradient(ellipse 80% 95% at 54% 55%,
+    rgba(150, 30, 44, 0.60) 0%,
+    rgba(110, 20, 32, 0.38) 50%,
+    rgba(96, 18, 28, 0) 88%);
+}
+
+/* VICTORY. The reference's stripe: a warm, saturated crimson with an orange
+   core, so the gold type sitting on it looks lit from behind rather than
+   pasted over a flat red. */
+.res-banner.win::before{
+  background:radial-gradient(ellipse 72% 92% at 46% 44%,
+    rgba(232, 96, 44, 0.86) 0%,
+    rgba(214, 58, 40, 0.70) 42%,
+    rgba(178, 34, 30, 0) 90%);
+}
+.res-banner.win::after{
+  background:radial-gradient(ellipse 76% 98% at 54% 57%,
+    rgba(255, 130, 48, 0.72) 0%,
+    rgba(206, 48, 36, 0.55) 46%,
+    rgba(170, 30, 26, 0) 88%);
+}
+
+/* DRAW: the same shape, no allegiance in it. */
+.res-banner.draw::before{
+  background:radial-gradient(ellipse 70% 88% at 46% 42%,
+    var(--res-glass-grey) 0%,
+    rgba(58, 64, 74, 0.60) 52%,
+    rgba(58, 64, 74, 0) 88%);
+}
+.res-banner.draw::after{
+  background:radial-gradient(ellipse 74% 96% at 54% 58%,
+    rgba(84, 92, 104, 0.85) 0%,
+    rgba(58, 64, 74, 0.52) 48%,
+    rgba(58, 64, 74, 0) 86%);
+}
+
+/* Everything the banner holds paints above the stripe. */
+.res-banner > *{ position:relative; z-index:2; }
+
+/* THE WORD, OR THE ARTWORK.
+
+   The banner leads with the drawn artwork — a crown and chevrons over VICTORY, a
+   skull and chevrons over DEFEAT — and the gradient word underneath it is the
+   fallback, not the alternative.
+
+   The wrapper holds BOTH, STACKED IN ONE BOX, and which one is visible is a
+   single opacity on each. That is deliberate on three counts:
+
+     * the artwork is a WEBP, and a webp is a thing that can fail to arrive. The
+       word is on screen from the first frame and is only ever replaced by an
+       image that has already decoded, so a 404 costs a missing flourish rather
+       than a banner;
+     * it is stacked rather than swapped, so swapping cannot move anything. The
+       two share one box of fixed height and cross-fade over 180ms. A display
+       swap would change the height of the banner by a line and shove the score
+       chart down the screen at the exact moment the player is looking at it;
+     * the word is never removed from the document. It is the accessible name,
+       it is what a text search finds, and it is what is left when the picture
+       is not there.
+
+   `res-has-art` is added by _armBannerArt once the <img> has actually DECODED,
+   not when it is merely requested — so the window where the banner is blank is
+   zero rather than however long the fetch takes. */
+.res-banner-art{
+  position:relative;
+  /* The height both alternatives share.
+
+     Driven by the viewport in BOTH axes, and this is the number that most
+     needed both. `.res-centre` is anchored to the foot of the screen with no
+     max-height, so everything added to this stack is added UPWARD — a banner
+     sized on width alone is generous on a wide window and eats the top of a
+     600px-tall one. The `vh` term is what stops that, and the two clamp ends
+     keep it from being silly on a phone or absurd on a 4K panel.
+
+     The artwork is roughly three times the height of the word it stands in for,
+     because both source images carry a lot of transparent space above and below
+     the type. Sizing the box to the word's own height would crop the crown and
+     the chevrons off. */
+  height:clamp(72px, min(16.5vw, 19vh), 196px);
+  width:100%;
+}
+.res-banner-art > *{
+  position:absolute; inset:0;
+  display:grid; place-items:center;
+  transition:opacity .18s linear;
+}
+
+/* The artwork is sized by its HEIGHT and never by its width. Both source images
+   are a wide banner with a lot of transparent space around the word, so a
+   width-driven size would make the word itself tiny and the empty space
+   enormous — the type in the picture is about a third of the image height, so
+   the image box has to be roughly three times the height of the word it stands
+   in for. */
+.res-banner-img{
+  opacity:0;
+  height:100%; width:auto; max-width:100%;
+  object-fit:contain;
+  filter:
+    drop-shadow(0 4px 14px rgba(4,6,10,0.92))
+    drop-shadow(0 0 40px rgba(4,6,10,0.55));
+  user-select:none; -webkit-user-drag:none;
+  pointer-events:none;
+}
+.res-has-art .res-banner-img{ opacity:1; }
+.res-has-art .res-banner-text{ opacity:0; }
+
+/* THE ARTWORK BREATHES.
+
+   Only once it is actually on screen — the animation is on the `.res-has-art`
+   rule rather than the image's, so a failed load costs nothing and the
+   fallback word stays perfectly still.
+
+   A 6s cycle moving two pixels and 1.2%, which is under the threshold of
+   "something is animating" and over the threshold of "this is a dead picture".
+   The brightness is the part that matters: the artwork is a metallic gradient
+   with a crown and a skull in it, and a flat one sits on a dark screen looking
+   like a JPEG pasted over the top. Letting its highlights lift very slightly
+   makes it read as lit by the same room as the tanks behind it. */
+@keyframes res-art-breathe{
+  0%,100%{ transform:translateY(0) scale(1); filter:brightness(1); }
+  50%    { transform:translateY(-2px) scale(1.012); filter:brightness(1.07); }
+}
+.res-has-art .res-banner-img{ animation:res-art-breathe 6s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce){
+  .res-has-art .res-banner-img{ animation:none; }
+}
+
+/* The fallback word, sized to sit inside the shared box with room to breathe.
+   Its old rule below still owns the gradient, the tracking and the glow; this
+   only sets the size, because the size is now relative to the box the two share
+   rather than to the viewport. */
+.res-banner-art .res-banner-text{
+  font-size:clamp(34px, min(10vw, 12.5vh), 118px);
+  line-height:1;
+}
+
+/* THE WORD IS GRADIENT TYPE, NOT WHITE TYPE ON A COLOUR BLOCK.
+
+   White with a heavy dark halo was doing the job of a plate: it made the word
+   readable by making it opaque, which is exactly what a plate does. Filling the
+   letterforms with a gradient and clipping it to the text does the same job
+   while leaving the stripe visible THROUGH the counters of the letters, so the
+   word and the stripe read as one drawn object instead of two stacked ones.
+
+   The glow is a filter, not a text-shadow, because text-shadow paints in a
+   single colour behind the glyphs and would print a dark rim around a
+   gradient-filled letter. A drop-shadow reads the alpha that is actually on
+   screen, so the bloom that leaks out around VICTORY is the same gold the
+   letters are made of. */
+.res-banner-text{
+  font-size:clamp(32px, 5vw, 62px);
+  font-weight:900; letter-spacing:8px;
+  line-height:1;
+  background:linear-gradient(180deg, #f4f8ff 0%, #d3dfee 34%, #9aacc8 68%, #8094b2 100%);
+  -webkit-background-clip:text; background-clip:text;
+  -webkit-text-fill-color:transparent;
+  color:transparent;
+  filter:
+    drop-shadow(0 2px 8px rgba(4,6,10,0.90))
+    drop-shadow(0 0 24px rgba(4,6,10,0.70));
+}
+/* Gold on red for a win, with the warm bloom the reference has around the
+   word. The two drop-shadows at the end are what make it look lit: a tight
+   bright one and a wide dim one, both in the type's own colour. */
+.res-banner.win .res-banner-text{
+  /* background-IMAGE, not the `background` shorthand. The shorthand resets
+     every longhand it does not mention, and background-clip is one of them, so
+     writing `background:` here silently restored the clip to border-box and
+     left the word as a solid gold rectangle with transparent letters in it —
+     the clip is set once, on the rule above, and these only swap the paint. */
+  background-image:linear-gradient(180deg, #fff8d8 0%, #ffe684 30%, #ffc62e 62%, #ff9f16 100%);
+  filter:
+    drop-shadow(0 2px 8px rgba(24,8,0,0.88))
+    drop-shadow(0 0 20px rgba(255,174,44,0.60))
+    drop-shadow(0 0 46px rgba(255,126,24,0.38));
+}
+.res-banner.draw .res-banner-text{
+  background-image:linear-gradient(180deg, #ffffff 0%, #dfe5ee 40%, #a8b3c4 100%);
+}
+
+/* THE SUB-LINE. One short line of tracked capitals under the word, which is
+   the detail that makes the banner look composed rather than generated: the
+   word alone is a label, the word plus a line under it is a title card. The
+   outcome is spelled out in it as well, so a defeat is never mistaken for a
+   victory by someone reading the stripe alone. */
+.res-banner-sub{
+  font-size:clamp(9px, 1.05vw, 11.5px);
+  font-weight:800; letter-spacing:6px;
+  color:rgba(233,240,250,0.88);
+  text-shadow:
+    0 0 8px rgba(4,6,10,0.95),
+    0 0 20px rgba(4,6,10,0.70);
+}
+
+/* THE PLACE, as a small stacked badge with a rule that fades at both ends
+   rather than the 2px hard bar it used to have. */
+.res-banner-place{
+  position:relative;
+  display:flex; flex-direction:column; align-items:center; gap:3px;
+  padding-left:28px;
+}
+.res-banner-place b{
+  font-size:clamp(26px, 3.2vw, 40px); font-weight:900; line-height:1;
+  color:var(--res-gold);
+  text-shadow:
+    0 0 10px rgba(4,6,10,0.92),
+    0 0 24px rgba(255,196,0,0.45);
+}
+.res-banner-place i{
+  font-style:normal;
+  font-size:9px; font-weight:800; letter-spacing:3px;
+  color:rgba(255,255,255,0.58);
+  text-shadow:0 0 8px rgba(4,6,10,0.95);
+}
+.res-banner-place::before{
+  content:''; position:absolute; left:0; top:-6px; bottom:-6px; width:1px;
+  background:linear-gradient(180deg,
+    transparent 0%, rgba(255,255,255,0.34) 28%,
+    rgba(255,255,255,0.34) 72%, transparent 100%);
+}
+
+
+/* --------------------------------------------------------- THE SCORE CHART
+
+   The one element on this screen that is a picture rather than a number: two
+   bars, one per side, drawn against each other so the shape of the battle is
+   legible before any figure on it is read. A tall blue bar over a short red
+   one says "we won" faster than VICTORY does, and it says it for THIS battle
+   rather than for every battle.
+
+   The bars are the only place on the screen with a saturated fill that is not
+   gold, because gold is reserved for the player's own row and the rewards.
+   They grow from the left on load, which is what makes the comparison land as
+   a comparison rather than as two static rectangles. */
+.res-score{
+  position:relative;
+  /* HUGS its content and centres itself, rather than being a fixed 640px box
+     with the rows left-aligned inside it. The rows now size to their own
+     content, so a fixed width left a wide empty band to the right of the
+     numbers on every screen. */
+  width:fit-content; max-width:100%;
+  margin:0 auto;
+  padding:4px 0 2px;
+  text-align:center;
+}
+.res-score-cap{
+  font-size:9.5px; font-weight:800; letter-spacing:3.4px;
+  color:#9fb0c4;
+  margin-bottom:9px;
+  text-shadow:0 0 10px rgba(4,6,10,0.95);
+}
+.res-score-row{
+  display:grid;
+  /* THREE FIXED-WIDTH COLUMNS, and the last one is fixed on purpose.
+
+     `auto` was the obvious choice for the name and the figure, and it is wrong:
+     grid hands leftover space to `auto` tracks, so both of them stretched to
+     share it and the six-digit number ended up in a 426px column with the
+     attribution shoved to the far edge. `max-content` refuses the slack.
+
+     The attribution column is a FIXED width rather than content-sized for a
+     reason that only shows up mid-animation: a name like "RedPlayer11" is wider
+     than "RedPlayer2", and if the column resized to fit, every name change
+     would move the number. Fixed means the figure sits still for the whole
+     count and only the words after it change. */
+  grid-template-columns:max-content max-content 210px;
+  align-items:baseline; gap:12px;
+  padding:3px 0;
+}
+.res-score-name{
+  font-size:11px; font-weight:800; letter-spacing:1.8px;
+  text-align:right; color:#c9d5e3;
+  white-space:nowrap;
+  text-shadow:0 0 10px rgba(4,6,10,0.95);
+}
+.res-score-row.mine  .res-score-name{ color:#8ab4ff; }
+.res-score-row.theirs .res-score-name{ color:#ff9a96; }
+
+/* THE NUMBER IS THE WHOLE CHART NOW.
+
+   There is no trough and no fill, so the figure carries the whole comparison on
+   its own — which means it has to be big enough to be the thing you look at.
+   Tabular figures because this number changes ~60 times a second during the
+   count and a proportional face makes the whole block jitter as digit widths
+   swap under it. Glow rather than a keyline: the brief for this screen is
+   minimalistic, and a number inside a bordered box is a number in a box. The
+   drop-shadow is what keeps it readable over the lit floor pool behind it. */
+.res-score-val{
+  font-family:'Lilita One','Fredoka',var(--res-display,system-ui),sans-serif;
+  font-size:30px; font-weight:900; line-height:1.05;
+  text-align:left;
+  font-variant-numeric:tabular-nums;
+  color:#fff;
+  text-shadow:
+    0 2px 10px rgba(4,6,10,0.98),
+    0 0 22px rgba(255,255,255,0.22);
+}
+.res-score-row.mine   .res-score-val{ text-shadow:0 2px 10px rgba(4,6,10,0.98), 0 0 22px rgba(120,175,255,0.40); }
+.res-score-row.theirs .res-score-val{ text-shadow:0 2px 10px rgba(4,6,10,0.98), 0 0 22px rgba(255,130,110,0.36); }
+
+/* THE PLAYER CURRENTLY BEING ADDED.
+
+   On the slack column, and that is the point of the column: the number's box is
+   sized to its digits, so a four-digit figure and a six-digit figure are
+   different widths, and putting the name beside the number would shove this text
+   sideways on every step of the count. Out here, the name has room to land. */
+.res-score-who{
+  font-size:11px; font-weight:800; letter-spacing:.6px;
+  color:rgba(255,255,255,0.82);
+  padding-left:2px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  opacity:0;
+  text-shadow:0 0 12px rgba(4,6,10,0.98);
+  text-align:left;
+}
+.res-score-who.on{
+  opacity:1;
+  animation:res-who .42s cubic-bezier(.2,.9,.3,1) both;
+}
+@keyframes res-who{
+  0%  { opacity:0; transform:translateX(7px); }
+  100%{ opacity:1; transform:translateX(0); }
+}
+
+/* THE SKIP HINT. Tiny, and tucked into the corner of the block. A six-second
+   count the player cannot get out of is a worse fault than the one it is
+   animating, but a skip prompt across the middle would put back the clutter the
+   rest of this change just removed. */
+.res-score-skip{
+  position:absolute; right:0; bottom:-3px;
+  font-size:8.5px; font-weight:800; letter-spacing:1.6px;
+  color:rgba(255,255,255,0.28);
+  text-shadow:0 0 10px rgba(4,6,10,0.95);
+  transition:opacity .30s ease;
+  pointer-events:none;
+}
+.res-score-skip.gone{ opacity:0; }
+
+
+/* -------------------------------------------------------------- STAT CARDS */
+
+/* STATS AND REWARDS, SIDE BY SIDE. One row instead of two, which is what frees
+   the vertical space the tank needs to be the subject of the screen rather than a
+   thumbnail at the top of it. */
+.res-mainrow{
+  display:flex; align-items:stretch; justify-content:center;
+  gap:12px; flex-wrap:wrap;
+}
+.res-stats{
+  display:flex; gap:9px; flex-wrap:wrap; justify-content:center; align-content:center;
+}
+
+/* --------------------------------------------------------- NO FRAMES, JUST LIGHT
+
+   The bottom of the screen is frameless. Every element here used to be a
+   chamfered plate with an ink outline, stacked six deep, and it read as a control
+   panel laid over the top of the scene — the diorama became a picture in a window
+   with a settings menu bolted underneath it.
+
+   A frame is the expensive thing. It costs opacity, it puts a hard edge across the
+   middle of the image, and above all it separates the numbers from the tank they
+   describe. What is left instead is type and glow.
+
+   The reason frameless text survives a moving 3D image is that a glow is doing two
+   jobs. The dark halo keeps white text readable when it passes over a lit pool on
+   the floor; the coloured bloom makes the number read as lit rather than printed.
+   A single tight drop-shadow would not — it only works over flat colour. */
+.res-stat{
+  position:relative;
+  display:flex; align-items:center; gap:10px;
+  min-width:154px;
+  padding:6px 14px 6px 11px;
+  /* No background, no clip-path, no ink outline. */
+}
+.res-stat::before{
+  /* A soft pool of light behind each figure in place of a plate. Wider than the
+     text and feathered to nothing at the edges, so it never reads as an edge of
+     its own.
+
+     It is also much thinner than it was. The centre column behind it now does
+     most of the darkening, so a pool at the old strength stacked two darks on
+     top of each other and printed a visible darker patch in the middle of the
+     screen, which is the frame by another name. */
+  content:''; position:absolute; inset:-8px -6px;
+  background:radial-gradient(ellipse 64% 76% at 50% 50%,
+    rgba(5,7,11,0.50) 0%, rgba(5,7,11,0.30) 44%, rgba(5,7,11,0) 78%);
+  pointer-events:none;
+}
+.res-stat > *{ position:relative; z-index:1; }
+
+.res-stat-val{
+  font-size:25px; font-weight:800; color:#fff; line-height:1.05;
+  font-variant-numeric:tabular-nums;
+  letter-spacing:.5px;
+  /* The glow that replaces the frame. Four zero-blur silhouettes make a solid
+     dark halo for the white to sit on, then two soft blooms for the light. */
+  text-shadow:
+    -2px 0 0 #05070b,  2px 0 0 #05070b,
+     0 -2px 0 #05070b, 0  2px 0 #05070b,
+     0 0 10px rgba(5,7,11,0.95),
+     0 0 20px rgba(255,255,255,0.16);
+}
+.res-stat-of{
+  font-size:14px; color:#a9b6c6; font-weight:600;
+  text-shadow:0 0 8px rgba(5,7,11,0.95);
+}
+.res-stat-cap{
+  margin-top:2px;
+  font-size:9.5px; font-weight:800; letter-spacing:1.8px;
+  color:#b3c0d0;
+  text-shadow:0 0 8px rgba(5,7,11,0.95), 0 1px 2px rgba(5,7,11,0.9);
+}
+
+/* ------------------------------------------------------------ REWARDS */
+
+.res-rewards{
+  position:relative;
+  display:flex; flex-direction:column; justify-content:center;
+  min-width:250px;
+  padding:8px 22px 9px;
+  /* Frameless, like the stat cards. The gold glow below stands in for the panel
+     that used to be here. */
+  text-align:center;
+}
+.res-rewards::before{
+  /* A wider, warmer pool than the stat cards use, because this is the number the
+     player came away with and it needs to hold its own against the scene. Thinned
+     for the same reason as the stat pools: the column behind it is dark now. */
+  content:''; position:absolute; inset:-12px -10px;
+  background:radial-gradient(ellipse 60% 78% at 50% 50%,
+    rgba(5,7,11,0.56) 0%, rgba(5,7,11,0.34) 44%, rgba(5,7,11,0) 78%);
+  pointer-events:none;
+}
+.res-rewards > *{ position:relative; z-index:1; }
+.res-rewards-cap{
+  font-size:10px; font-weight:800; letter-spacing:3.4px;
+  color:var(--res-gold);
+  margin-bottom:6px;
+  text-shadow:0 0 8px rgba(5,7,11,0.95), 0 0 16px rgba(255,196,0,0.45);
+}
+.res-rewards-row{ display:flex; justify-content:center; gap:26px; }
+.res-reward{ display:flex; align-items:center; gap:10px; }
+.res-reward-icon{
+  width:32px; height:32px; object-fit:contain;
+  filter:drop-shadow(0 0 3px rgba(5,7,11,0.95)) drop-shadow(0 0 10px rgba(255,196,0,0.40));
+}
+.res-reward-val{
+  font-size:31px; font-weight:900; color:#fff; line-height:1;
+  font-variant-numeric:tabular-nums;
+  /* The same six-part halo the stat figures use, plus a gold bloom because this
+     is the one number on the screen that represents money. */
+  text-shadow:
+    -2px 0 0 #05070b,  2px 0 0 #05070b,
+     0 -2px 0 #05070b, 0  2px 0 #05070b,
+     0 0 10px rgba(5,7,11,0.95),
+     0 0 22px rgba(255,196,0,0.35);
+}
+.res-reward-cap{
+  font-size:10px; letter-spacing:2.2px; color:#b3c0d0; font-weight:700;
+  text-shadow:0 0 8px rgba(5,7,11,0.95);
+}
+
+/* ------------------------------------------------------------- MISSIONS */
+
+/* THE MISSION COUNT — one figure, dressed as a raised key cap.
+
+   This is the settings screen's 3D button, and deliberately so. That button is
+   the game's own "this is a solid thing" language — a hard 2px black border, a
+   hard offset shadow in the same black, and a press-in — so the one piece of good
+   news on this screen speaks the language the player has already learned rather
+   than inventing a second one. Raised, not glowing-from-within: the offset shadow
+   is what makes it read as a physical cap sitting on the panel, and a soft blur
+   would flatten it back into a sticker.
+
+   WHITE, not gold. Gold means "this is the player's own row" everywhere else on
+   this screen, and spending it here would make a footnote look like a payout. */
+.res-missions{
+  position:relative;
+  display:inline-flex; align-items:center; gap:10px;
+  padding:6px 16px 7px;
+  background:linear-gradient(180deg,#f6f8fb 0%,#d4dbe4 62%,#b9c3d0 100%);
+  border:2px solid #000;
+  border-radius:10px;
+  box-shadow:
+    3px 3px 0 #000,
+    0 0 20px rgba(214,232,255,0.30),
+    0 0 44px rgba(160,196,255,0.16);
+}
+.res-missions-num{
+  font-size:23px; font-weight:800; line-height:1;
+  color:#0c1017;
+  /* Tabular so the figure does not shuffle sideways when it changes between
+     battles, which is the one thing a count on a repeated screen must not do. */
+  font-variant-numeric:tabular-nums;
+  text-shadow:0 1px 0 rgba(255,255,255,0.75);
+}
+.res-missions-cap{
+  font-size:9.5px; letter-spacing:2.2px; font-weight:800;
+  color:#2b3440;
+  text-shadow:0 1px 0 rgba(255,255,255,0.6);
+}
+
+.res-foot{
+  position:relative;
+  display:flex; align-items:center; justify-content:center; gap:20px;
+}
+
+.res-hint{
+  font-size:10px; letter-spacing:2.6px;
+  color:rgba(255,255,255,0.42);
+  white-space:nowrap;
+  text-shadow:0 0 10px rgba(5,7,11,0.95);
+}
+
+/* The skipped-battle note. Frameless like everything else in the bottom cluster. */
+.res-skipped{
+  align-self:center;
+  padding:4px 14px;
+  font-size:10.5px; letter-spacing:1.5px;
+  color:#e0cf9f;
+  text-shadow:0 0 8px rgba(5,7,11,0.95), 0 0 14px rgba(255,196,0,0.28);
+}
+
+/* ------------------------------------------------------------- CONTINUE */
+
+.res-continue{
+  margin-top:2px;
+  padding:13px 54px;
+  font-size:12.5px; font-weight:800; letter-spacing:4px;
+  color:#2b1d02;
+  /* THE ONE LIT OBJECT ON THE SCREEN.
+
+     Everything else on this screen is a feathered tint, which means nothing
+     here has an edge for the eye to catch. That is correct for a panel and
+     wrong for the thing you are meant to press: an action with no edge is an
+     action you have to hunt for. So this is a filled, rounded, unmistakably
+     solid plate — a key rather than a card — and it is rounded instead of
+     chamfered because the chamfered parallelogram it used to be was the last
+     piece of the old hard-edged language left anywhere.
+
+     The glow is what ties it to the glass. A white bloom in the middle of the
+     gold says lit; the wider warm bloom says the light belongs to this object
+     rather than being ambient. The black ink outline is gone with everything
+     else, because ink on a screen that has no other ink reads as a mistake. */
+  background:linear-gradient(180deg,
+    #fff0b8 0%,
+    #ffd667 34%,
+    #ffbe36 68%,
+    #ffa617 100%);
+  border:none; border-radius:12px; cursor:pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.90),
+    inset 0 -3px 0 rgba(150,92,0,0.30),
+    0 3px 12px rgba(0,0,0,0.50),
+    0 0 20px rgba(255,206,96,0.34),
+    0 0 46px rgba(255,178,52,0.20);
+  transition:box-shadow .15s ease, transform .12s ease;
+}
+.res-continue:hover{
+  transform:translateY(-1px);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.95),
+    inset 0 -3px 0 rgba(150,92,0,0.28),
+    0 5px 16px rgba(0,0,0,0.52),
+    0 0 26px rgba(255,222,140,0.55),
+    0 0 60px rgba(255,178,52,0.32);
+}
+.res-continue:active{ transform:translateY(1px); filter:brightness(0.96); }
+.res-continue:focus-visible{ outline:2px solid #fff; outline-offset:3px; }
+
+/* The key breathes, very slowly, and only when it has been given nothing else
+   to do. The pulse is on a 3.4s cycle and moves the glow by a few percent, which
+   reads as "lit" rather than "flashing" — a results screen is something the
+   player looks at while they read, so anything with a heartbeat faster than
+   this becomes a distraction within about ten seconds. Paused entirely while
+   hovered, because at that point the player has already found it. */
+@keyframes res-key-breathe{
+  0%,100%{ box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.90),
+      inset 0 -3px 0 rgba(150,92,0,0.30),
+      0 3px 12px rgba(0,0,0,0.50),
+      0 0 20px rgba(255,206,96,0.34),
+      0 0 46px rgba(255,178,52,0.20); }
+  50%    { box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.95),
+      inset 0 -3px 0 rgba(150,92,0,0.26),
+      0 3px 13px rgba(0,0,0,0.50),
+      0 0 26px rgba(255,214,120,0.46),
+      0 0 62px rgba(255,178,52,0.30); }
+}
+.res-continue{ animation:res-key-breathe 3.4s ease-in-out infinite; }
+.res-continue:hover{ animation-play-state:paused; }
+@media (prefers-reduced-motion: reduce){
+  .res-continue{ animation:none; }
+}
+
+/* ============================================================ THE ARRIVAL */
+
+/* THE SCREEN BUILDS ITSELF.
+
+   Everything above is static CSS, and a results screen that simply appears is a
+   results screen that reads as a page that loaded. So the panels arrive, in the
+   order the eye reads them in: the two leaderboards from the top corners, the
+   banner, then the chart, the stat cards, the rewards and the key last — the
+   thing you press should be the last thing that arrives, because it is the
+   thing you press last.
+
+   NO JUNCTION NEEDS THE TIMING. `_buildDOM` rewrites the overlay's innerHTML on
+   every show, so the elements are new nodes every time and CSS animations run
+   on them automatically. A class on the overlay, a set of keyframes and a
+   `nth-child` ladder is the whole mechanism — there is no timer to leak, nothing
+   to cancel if the player leaves mid-arrival, and reopening the screen replays
+   it because there is nothing cached.
+
+   The delays are short on purpose. The screen is cut to by a cinematic that has
+   already told the player the battle is over, and an arrival that takes two
+   seconds to finish starts fighting the reading rather than framing it. The
+   whole sequence lands inside ~900ms. */
+@keyframes res-drop{
+  from{ opacity:0; transform:translate3d(0,-16px,0); }
+  to  { opacity:1; transform:none; }
+}
+@keyframes res-rise{
+  from{ opacity:0; transform:translate3d(0,18px,0); }
+  to  { opacity:1; transform:none; }
+}
+@keyframes res-pop{
+  0%  { opacity:0; transform:scale(0.86); }
+  70% { opacity:1; transform:scale(1.03); }
+  100%{ opacity:1; transform:scale(1); }
+}
+@keyframes res-fade{ from{ opacity:0; } to{ opacity:1; } }
+
+.res-board{ animation:res-drop .42s cubic-bezier(.2,.9,.3,1) both; }
+.res-board-left { animation-delay:.05s; }
+.res-board-right{ animation-delay:.11s; }
+
+.res-banner{ animation:res-rise .46s cubic-bezier(.2,.9,.3,1) both .18s; }
+.res-score   { animation:res-rise .40s cubic-bezier(.2,.9,.3,1) both .30s; }
+.res-stats   { animation:res-rise .40s cubic-bezier(.2,.9,.3,1) both .36s; }
+.res-rewards { animation:res-rise .40s cubic-bezier(.2,.9,.3,1) both .44s; }
+.res-missions{ animation:res-rise .40s cubic-bezier(.2,.9,.3,1) both .50s; }
+.res-foot    { animation:res-fade  .34s ease both .58s; }
+
+/* The four stat cards land one after another, 55ms apart. This is the only
+   stagger in the screen that is per-item rather than per-panel, because the
+   cards are read as a row of four and arriving them together makes the row look
+   like one object pasted on. */
+.res-stat{ animation:res-pop .38s cubic-bezier(.2,1.1,.4,1) both .40s; }
+.res-stat:nth-child(1){ animation-delay:.40s; }
+.res-stat:nth-child(2){ animation-delay:.455s; }
+.res-stat:nth-child(3){ animation-delay:.510s; }
+.res-stat:nth-child(4){ animation-delay:.565s; }
+
+/* Rows inside a board, same idea and much faster — 26ms. Ten rows at 26ms is a
+   quarter of a second, which reads as the list filling rather than as a queue.
+
+   The ladder starts at n+2, not n+1, and that is not a typo: the first child of
+   a board is its sticky heading, so the first ROW is the second child. Written
+   as n+1 the first row would take the second rung and every row would arrive one
+   step late. The n+N form also has the property that the last rule wins for all
+   later rows, so this is seven lines rather than one per possible row count. */
+.res-row{ animation:res-fade .26s ease both; }
+.res-row:nth-child(n+2){ animation-delay:.10s;  }
+.res-row:nth-child(n+3){ animation-delay:.126s; }
+.res-row:nth-child(n+4){ animation-delay:.152s; }
+.res-row:nth-child(n+5){ animation-delay:.178s; }
+.res-row:nth-child(n+6){ animation-delay:.204s; }
+.res-row:nth-child(n+7){ animation-delay:.230s; }
+.res-row:nth-child(n+8){ animation-delay:.256s; }
+.res-row:nth-child(n+9){ animation-delay:.282s; }
+
+/* The key last, and the only thing that arrives with a lift rather than a
+   fade — it is the one control, and a control that grows into place reads as
+   pressable in a way that a control that merely appears does not. */
+.res-continue{ animation:res-pop .40s cubic-bezier(.2,1.15,.4,1) both .62s; }
+
+@media (prefers-reduced-motion: reduce){
+  /* Every arrival collapses to a plain fade of its own duration. The stagger
+     survives as a very slight one so the screen still assembles rather than
+     snapping in as a single block, but nothing moves. */
+  .res-board, .res-banner, .res-score, .res-stats, .res-rewards,
+  .res-missions, .res-stat, .res-row, .res-continue{
+    animation-name:res-fade;
+    animation-duration:.20s;
+    animation-delay:0s;
+    transform:none;
+  }
+  .res-foot{ animation:none; opacity:1; }
+}
+
+/* ========================================================== THE HOUSE STYLE */
+
+/* THE GAME'S OWN BUTTON LANGUAGE, APPLIED TO THE PLACES THAT DID NOT HAVE IT.
+
+   The missions pill on this screen has been a comic plate since it was built —
+   a hard 2px black keyline, a gradient face, a 3px 3px 0 black offset — and it
+   is the only thing on the screen that looks like the rest of the game. Every
+   other panel here was frameless feathered glass. So this screen read as a
+   different product with one borrowed sticker on it, and that is exactly what
+   it looked like next to the main menu.
+
+   So the plate is now a recipe rather than a one-off, and the four stat cards,
+   the rewards block and the board headings are all built from it. Three things
+   make it read as the game's button and not as a rounded rectangle:
+
+     THE KEYLINE.  A solid dark border, not a hairline and not a glow. This is
+                   what the missions pill and `.clan-3d-btn` both do, and it is
+                   what makes an edge read as drawn rather than as lit.
+     THE HARD OFFSET.  A shadow with no blur at all, sitting down and to the
+                   right. Blur makes a panel look soft and lit; a hard offset
+                   makes it look like a physical object standing on the screen,
+                   and it is the single strongest cue.
+     THE LIP.  On the one control you press, the offset becomes a solid bar
+                   UNDER the face which the press collapses — `.clan-3d-btn`
+                   again, and the reason that button feels like a button.
+
+   The dark variant is used here rather than the light one the missions pill
+   uses, because these panels sit on a dark screen and a near-white plate in the
+   middle of the lower third would out-shout the tank. The structure is
+   identical; only the values differ. */
+.res-plate{
+  /* NO KEYLINE.
+
+     Every plate on this screen wore a 2px solid black border with a 3px hard
+     offset shadow under it. That is the house style for a BUTTON — it is where
+     the style came from, `.clan-3d-btn`, and on a button the offset is the lip
+     the press collapses. On a plate of numbers there is no press, so all the
+     keyline did was draw a rectangle and a second rectangle round four digits.
+
+     What is left is the light: an inset top highlight so the surface still has
+     an edge to catch, and a soft drop so the plate sits above the fog instead
+     of being printed on it. Glow, no line — which is what makes it read as
+     minimalistic rather than merely as plainer. */
+  border:0;
+  border-radius:14px;
+  background:linear-gradient(180deg,
+    rgba(56,62,72,0.90) 0%,
+    rgba(38,43,51,0.90) 52%,
+    rgba(28,32,39,0.90) 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.15),      /* the lit top edge */
+    inset 0 -2px 0 rgba(0,0,0,0.26),           /* and the shaded bottom one */
+    0 10px 26px rgba(0,0,0,0.46),              /* the drop onto the fog */
+    0 0 34px rgba(255,255,255,0.05);           /* and the glow that replaces the line */
+}
+
+/* THE FOUR NUMBER PLACEHOLDERS.
+
+   These were bare text on the backdrop with nothing behind them at all, so the
+   eye had nothing to hold on to while reading four numbers that are the point of
+   the screen. Each one is a plate — now a plate with no outline, so it is a
+   surface with light on it rather than a box drawn round a digit. */
+.res-stat{
+  padding:8px 16px 8px 12px;
+  border-radius:14px;
+  transition:transform .14s ease, box-shadow .14s ease, filter .14s ease;
+}
+.res-stat:hover{
+  transform:translateY(-2px);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.18),
+    inset 0 -2px 0 rgba(0,0,0,0.26),
+    0 14px 30px rgba(0,0,0,0.50),
+    0 0 40px rgba(255,255,255,0.07);
+  filter:brightness(1.08);
+}
+.res-stat:active{
+  transform:translateY(2px);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.11),
+    inset 0 -2px 0 rgba(0,0,0,0.30),
+    0 5px 12px rgba(0,0,0,0.44);
+}
+.res-stat-val{
+  font-family:'Lilita One','Fredoka',var(--res-display,system-ui),sans-serif;
+  /* White, and the stroke goes with the keyline. The black outline existed to
+     separate the digits from a dark plate; with the plate lit from the top and
+     the figure glowing, it is a second edge in the same place. */
+  -webkit-text-stroke:0;
+  letter-spacing:0.5px;
+  color:#fff;
+  text-shadow:0 0 16px rgba(255,255,255,0.16);
+}
+.res-stat-cap{
+  -webkit-text-stroke:0;
+  letter-spacing:2.2px;
+  color:rgba(255,255,255,0.58);
+}
+
+/* THE REWARDS BLOCK. Same plate — the cash figure is the one number on the
+   screen that is not a statistic, and it should not look like one. */
+.res-rewards{
+  padding:10px 24px 11px;
+  border-radius:14px;
+  background:linear-gradient(180deg,
+    rgba(74,62,34,0.90) 0%,
+    rgba(52,43,23,0.90) 52%,
+    rgba(38,31,16,0.90) 100%);
+  transition:transform .14s ease, box-shadow .14s ease;
+}
+.res-rewards:hover{
+  transform:translateY(-2px);
+  box-shadow:
+    inset 0 1px 0 rgba(255,236,180,0.22),
+    inset 0 -2px 0 rgba(0,0,0,0.28),
+    0 14px 30px rgba(0,0,0,0.50),
+    0 0 40px rgba(255,214,140,0.08);
+}
+.res-reward-val{
+  font-family:'Lilita One','Fredoka',var(--res-display,system-ui),sans-serif;
+  -webkit-text-stroke:0;
+  color:#fff;
+  text-shadow:0 0 16px rgba(255,226,150,0.24);
+}
+
+/* THE BOARD HEADINGS. A plate rather than a bare line of type, so the top of
+   each board has something with an edge to it and the rows below read as
+   belonging to it. Sits on the board's own sticky bar, so it scrolls with the
+   heading and not with the list. Same no-keyline rule as everything else. */
+.res-board-title{
+  border:0;
+  border-radius:12px;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.16),
+    0 3px 12px rgba(0,0,0,0.42);
+}
+.res-board-title.blue   { background:linear-gradient(180deg, rgba(30,52,92,0.90) 0%, rgba(18,32,60,0.90) 100%); }
+.res-board-title.red    { background:linear-gradient(180deg, rgba(92,30,34,0.90) 0%, rgba(58,17,20,0.90) 100%); }
+.res-board-title.ally   { background:linear-gradient(180deg, rgba(36,72,52,0.90) 0%, rgba(21,44,31,0.90) 100%); }
+.res-board-name{
+  font-family:'Lilita One','Fredoka',var(--res-display,system-ui),sans-serif;
+  -webkit-text-stroke:0;
+  letter-spacing:1.6px;
+  color:#fff;
+  text-shadow:0 0 14px rgba(255,255,255,0.14);
+}
+
+/* The team-score trough used to be restyled down here, on top of its own block
+   above, which is where it picked up a 2px keyline and a hard gradient. Both
+   that block and this one are gone: the number is the chart now, and a figure
+   with a border round it is the box the minimalistic brief is asking to delete.
+   Kept as a note rather than deleted silently, because "the team score looks
+   different" is a much harder thing to trace than "this rule changed". */
+
+/* THE KEY. Chunky 3D, and the only element here with a real LIP: a solid bar
+   under the face which the press collapses. This is `.clan-3d-btn` from the
+   clan editor, on the game's primary gold, and it is the difference between a
+   button that looks like a button and a rounded rectangle with a glow on it. */
+.res-continue{
+  border:2px solid rgba(0,0,0,0.90);
+  border-radius:14px;
+  box-shadow:
+    0 6px 0 #6d4300,        /* the lip */
+    0 12px 26px rgba(0,0,0,0.55),
+    inset 0 2px 0 rgba(255,255,255,0.55),
+    inset 0 -3px 0 rgba(120,72,0,0.42);
+  animation:res-key-press 3.4s ease-in-out infinite;
+}
+.res-continue:hover{
+  transform:translateY(-2px);
+  box-shadow:
+    0 8px 0 #6d4300,
+    0 16px 32px rgba(0,0,0,0.60),
+    inset 0 2px 0 rgba(255,255,255,0.62),
+    inset 0 -3px 0 rgba(120,72,0,0.38),
+    0 0 30px rgba(255,214,120,0.45);
+}
+.res-continue:active{
+  transform:translateY(5px);
+  box-shadow:
+    0 1px 0 #6d4300,
+    0 5px 12px rgba(0,0,0,0.50),
+    inset 0 2px 0 rgba(255,255,255,0.40),
+    inset 0 -3px 0 rgba(120,72,0,0.50);
+}
+/* The old glow pulse animated `box-shadow` directly and fought the press
+   states for the same property. This one animates a CSS variable instead — it
+   only ever moves the GLOW, never the lip or the offsets — so hovering and
+   pressing still work while it runs. */
+@keyframes res-key-press{
+  0%,100%{ filter:brightness(1) drop-shadow(0 0 8px rgba(255,206,96,0.22)); }
+  50%    { filter:brightness(1.06) drop-shadow(0 0 16px rgba(255,214,120,0.40)); }
+}
+@media (prefers-reduced-motion: reduce){
+  .res-continue{ animation:none; }
+}
+
+/* THE PLAYER'S OWN ROW. Given the same lip treatment as everything else, so the
+   one row that matters most is also the one that reads as a distinct object. */
+.res-row.you{
+  box-shadow:inset 0 1px 0 rgba(255,236,180,0.14);
+  border-left:0;
+}
+.res-row.you:hover{
+  box-shadow:inset 0 1px 0 rgba(255,236,180,0.20);
+}
+
+/* ============================================================== RESPONSIVE */
+
+@media (max-width: 1100px){
+  /* padding-top stays 0: the boards are flush with the top edge of the window
+     by design, and giving them a 10px gap here would reintroduce exactly the
+     top edge the feather exists to remove. */
+  .res-top{ gap:12px; padding:0 12px 0; }
+  .res-row{ grid-template-columns:22px minmax(0,1fr) 54px 36px 44px; font-size:12px; }
+  .res-centre{ width:calc(100% - 28px); }
+  .res-stat{ min-width:146px; padding:8px 14px 8px 11px; }
+  .res-stat-val{ font-size:21px; }
+  .res-score-row{ grid-template-columns:max-content max-content 158px; gap:9px; }
+  .res-score-name{ font-size:10px; letter-spacing:1.2px; }
+  /* Scaled down with the window rather than merely left at 30px — this is the
+     one figure on the screen that is allowed to shrink, because it is the one
+     that would otherwise push the attribution off the end of a narrow row. */
+  .res-score-val{ font-size:24px; }
+}
+
+/* Below this the two boards cannot both be read side by side, OR there is not
+   enough height for the bottom-anchored centre column to fit under them.
+
+   The height half used to be 560px, which was measured before the banner was
+   this large and is now wrong: at 700px tall the centre column clears the
+   leaderboards by 31px, at 660px it is touching, and under that the banner
+   starts underneath them. So the switch happens at 660, which is where the
+   arithmetic actually runs out.
+
+   It is not a common size, and 720p — the size most laptops are — stays on the
+   bottom-anchored layout, which is the one this screen is designed around. */
+@media (max-width: 860px), (max-height: 660px){
+  #results-overlay{ overflow-y:auto; }
+  .res-top{ position:absolute; flex-direction:column; gap:10px; }
+  .res-board{ max-height:26vh; }
+  /* 34px, not 12: the column's side feather is still 30px here, and content
+     that starts inside the feather is content that fades out at its own edges. */
+  .res-centre{
+    position:static; transform:none; width:100%; padding:38vh 34px 16px;
+    /* The cap and the clip both come off here. This layout is a normal scrolling
+       document rather than a bottom-anchored column, so there is nothing to
+       overflow and the ceiling would only hide the key — which is at the very
+       bottom, the one element on the screen that must never be unreachable. */
+    max-height:none; overflow:visible; justify-content:flex-start;
+  }
+  .res-canvas{ height:52vh; bottom:auto; }
+}
+
+@media (prefers-reduced-motion: reduce){
+  .res-row, .res-continue{ transition:none; }
+  /* The count-up is settled from JS before it ever starts under reduced motion —
+     _startScoreClimb checks the same query and calls _scoreSettle instead of
+     scheduling a frame — so there is nothing here to switch off. The rule that
+     used to be here disabled the bar sweep, and the bar it referred to is gone.
+     Kept as a comment rather than left as a selector matching nothing, which
+     reads like a setting that is still doing something. */
+}
+
+/* ===========================================================================
+   THE END-OF-BATTLE CINEMATIC
+
+   The last four seconds of every match. The camera leaves the follow rig,
+   flies in front of the player's tank, holds on it, and then cuts to the
+   results screen.
+
+   This is deliberately SEPARATE from the results screen itself and sits
+   UNDER it in z-order. The results screen owns `#results-overlay`; this owns
+   `#endcine`. Mixing them would mean the cinematic had to be re-implemented
+   every time the results layout moved, and it would mean a failure to build
+   the results DOM took the cinematic down with it.
+
+   The progress bar in the middle is the one piece of UI in here. Every
+   cinematic that cannot be skipped is a cinematic the player resents, and the
+   only way to skip one is to be told it can be skipped.
+   =========================================================================== */
+
+#endcine{
+  position:fixed; inset:0; z-index:9000;
+  pointer-events:none;
+  overflow:hidden;
+  /* The canvas is behind this. Without a background the bars are still solid
+     black — that is the whole point of them — and everything else is a
+     transparent tint, which is why this one stays empty. */
+  contain:strict;
+}
+
+/* --- letterbox ---------------------------------------------------------- */
+/* Bars that slam shut from nothing and then hold. The overshoot in the timing
+   is what makes them read as an impact rather than a fade: they arrive in
+   180ms, overshoot to 14% and settle back to 11.5% over the next 240ms. */
+.endcine-bar{
+  position:absolute; left:-2%; width:104%;
+  height:0; background:#000;
+  will-change:height;
+}
+.endcine-bar--t{ top:0; box-shadow:0 6px 26px rgba(0,0,0,.85); }
+.endcine-bar--b{ bottom:0; box-shadow:0 -6px 26px rgba(0,0,0,.85); }
+
+#endcine.is-on .endcine-bar{ animation:endcine-bar-in .42s cubic-bezier(.2,1.5,.4,1) forwards; }
+#endcine.is-out .endcine-bar{ animation:endcine-bar-out .34s cubic-bezier(.6,0,.9,.3) forwards; }
+
+@keyframes endcine-bar-in{
+  0%   { height:0; }
+  43%  { height:14%; }
+  100% { height:11.5%; }
+}
+@keyframes endcine-bar-out{
+  0%   { height:11.5%; }
+  100% { height:0; }
+}
+
+/* --- the flash ---------------------------------------------------------- */
+/* A single element whose opacity is driven from JS, because the two flashes
+   have to land on exact frames of the shot (frame 1 and the cut) and a CSS
+   animation cannot be asked to start at a moment chosen at runtime. */
+.endcine-flash{
+  position:absolute; inset:0; opacity:0;
+  background:#fff;
+  will-change:opacity;
+}
+/* The flash falling away OFF the results screen.
+
+   Run as an animation rather than as an inline opacity because it has to outlive
+   the shot: the shot clock is torn down when Results.show() is called, and this
+   is on screen after that. See Game._endCinePresent. */
+#endcine.is-out .endcine-flash{ animation:endcine-flash-out .46s cubic-bezier(.2,.7,.3,1) forwards; }
+
+@keyframes endcine-flash-out{
+  0%   { opacity:1; }
+  38%  { opacity:.72; }
+  100% { opacity:0; }
+}
+
+/* --- vignette ----------------------------------------------------------- */
+/* Pulls the eye to the middle of the frame while the camera is on the tank.
+   Purely radial, so it costs one gradient and no blend mode. */
+.endcine-vig{
+  position:absolute; inset:0; opacity:0;
+  background:radial-gradient(ellipse 62% 58% at 50% 52%,
+             rgba(0,0,0,0) 0%, rgba(0,0,0,0) 42%,
+             rgba(0,0,0,.42) 78%, rgba(0,0,0,.78) 100%);
+  will-change:opacity;
+}
+
+/* --- the headline ------------------------------------------------------- */
+.endcine-title{
+  position:absolute; left:0; right:0; top:50%;
+  transform:translateY(-50%);
+  text-align:center;
+  opacity:0;
+  will-change:opacity, transform;
+}
+
+/* The word itself. A gold gradient clipped to the glyphs, matching the results
+   screen's own VICTORY treatment, so the cut from here to there does not change
+   the colour of the word the player was just reading. */
+.endcine-word{
+  display:inline-block;
+  font:900 clamp(48px, 11vw, 168px)/0.92 var(--mtl-display, 'Impact', 'Haettenschweiler', 'Arial Narrow Bold', sans-serif);
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  background:linear-gradient(180deg,#fff8e0 0%,#ffd76a 42%,#c8891f 78%,#8a5a0d 100%);
+  -webkit-background-clip:text; background-clip:text;
+  color:transparent; -webkit-text-fill-color:transparent;
+  filter:drop-shadow(0 6px 18px rgba(0,0,0,.85)) drop-shadow(0 0 34px rgba(255,190,80,.35));
+  will-change:transform, filter, letter-spacing;
+}
+.endcine[data-outcome="loss"] .endcine-word{
+  background:linear-gradient(180deg,#ffe9e9 0%,#ff8080 40%,#a51f1f 80%,#5c0d0d 100%);
+  filter:drop-shadow(0 6px 18px rgba(0,0,0,.85)) drop-shadow(0 0 34px rgba(255,70,70,.32));
+}
+/* A skipped battle is not a win and not a loss, so it is not coloured as
+   either. Grey reads as "nobody won this", which is exactly what happened. */
+.endcine[data-outcome="skip"] .endcine-word{
+  background:linear-gradient(180deg,#f4f6fa 0%,#c2cad6 42%,#7c8798 80%,#4a5462 100%);
+  filter:drop-shadow(0 6px 18px rgba(0,0,0,.85));
+}
+
+.endcine-sub{
+  margin-top:.5em;
+  font:700 clamp(11px, 1.5vw, 18px)/1.3 var(--mtl-ui, 'Segoe UI', system-ui, sans-serif);
+  letter-spacing:.42em; text-transform:uppercase;
+  color:rgba(255,255,255,.72);
+  text-shadow:0 2px 10px rgba(0,0,0,.9);
+  padding-left:.42em; /* optical: trailing letter-spacing reads as off-centre */
+}
+
+/* The rule under the subtitle: a hairline that grows out of the centre, so the
+   lockup reads as one object rather than a word floating over a line. */
+.endcine-rule{
+  height:2px; margin:14px auto 0; width:0;
+  background:linear-gradient(90deg,transparent,rgba(255,255,255,.55),transparent);
+  will-change:width;
+}
+
+/* --- skip affordance ---------------------------------------------------- */
+.endcine-skip{
+  position:absolute; left:0; right:0; bottom:13.5%;
+  text-align:center;
+  font:600 11px/1 var(--mtl-ui, 'Segoe UI', system-ui, sans-serif);
+  letter-spacing:.34em; text-transform:uppercase;
+  color:rgba(255,255,255,.34);
+  opacity:0;
+  transition:opacity .4s ease;
+}
+#endcine.is-on .endcine-skip{ opacity:1; }
+
+@media (max-width:640px){
+  .endcine-sub{ letter-spacing:.28em; padding-left:.28em; }
+}
+
+@media (prefers-reduced-motion: reduce){
+  /* No slam, no overshoot — the bars are simply already there. The JS honours
+     the same preference and drops the shot to a short fade, so this block only
+     has to stop the bars animating on top of that. */
+  #endcine.is-on .endcine-bar,
+  #endcine.is-out .endcine-bar{ animation:none; height:11.5%; }
+  #endcine.is-out .endcine-bar{ height:0; }
+  .endcine-skip{ transition:none; }
+  /* The flash still has to come down, so this one is shortened rather than
+     dropped — an instant change from white to the results screen is exactly the
+     hard cut this preference is about. */
+  #endcine.is-out .endcine-flash{ animation:endcine-flash-out .46s linear forwards; }
+  @keyframes endcine-flash-out{ 0%{opacity:1} 100%{opacity:0} }
+}

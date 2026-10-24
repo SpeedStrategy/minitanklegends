@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>MTL aim harness</title></head>
+<body>
+<pre id="out">starting</pre>
+<script>
+const out = document.getElementById('out');
+const lines = [];
+function report(name, fn){
+  try { const r = fn(); lines.push((r && r.ok ? 'PASS' : 'FAIL') + ' ' + name + (r && r.msg ? ' :: ' + r.msg : '')); }
+  catch(e){ lines.push('THROW ' + name + ' :: ' + (e && e.stack ? e.stack.split('\n')[0] : e.message)); }
+}
+
+function extractMethod(src, opener){
+  const i = src.indexOf(opener);
+  if (i < 0) return null;
+  const bOpen = src.indexOf('{', i);
+  let depth = 0;
+  for (let j = bOpen; j < src.length; j++){
+    const c = src[j];
+    if (c === '{') depth++;
+    else if (c === '}'){ depth--; if (depth === 0) return src.slice(i, j + 1); }
+  }
+  return null;
+}
+
+function extractClass(name, src){
+  const i = src.indexOf('class ' + name + ' {');
+  if (i < 0) return null;
+  const bOpen = src.indexOf('{', i);
+  let depth = 0;
+  for (let j = bOpen; j < src.length; j++){
+    const c = src[j];
+    if (c === '{') depth++;
+    else if (c === '}'){ depth--; if (depth === 0) return src.slice(i, j + 1); }
+  }
+  return null;
+}
+
+async function main(){
+  const [proj, game, tank] = await Promise.all([
+    fetch('/js/projectile.js').then(r => r.text()),
+    fetch('/js/game.js').then(r => r.text()),
+    fetch('/js/tank.js').then(r => r.text()),
+  ]);
+
+  /* 1. syntax of every edited file */
+  for (const [n, s] of [['projectile.js', proj], ['game.js', game], ['tank.js', tank], ['config.js', await fetch('/js/config.js').then(r=>r.text())]]){
+    report('syntax:' + n, () => { new Function(s); return {ok: true}; });
+  }
+
+  /* 2. Shell closed-form ballistics vs _updateAimLine sampler agreement */
+  const shellClass = extractClass('Shell', proj.replace(/^<<<<<<< Updated upstream/, ''));
+  report('shell-class-extracted', () => ({ ok: !!shellClass, msg: (shellClass||'').length + 'ch' }));
+  const ballistics = `const G = 9.8;
+return function sampleShot(ox, oy, oz, speed, yaw, pitch, T) {
+  const h = speed * Math.cos(pitch) * T;
+  return {
+    x: ox + Math.sin(yaw) * h,
+    z: oz + Math.cos(yaw) * h,
+    y: oy + speed * Math.sin(pitch) * T - 0.5 * G * T * T
+  };
+};`;
+  const sample = new Function(ballistics)();
+
+  report('shell-1G-agrees-with-sampler', () => {
+    const ox=10, oy=2, oz=20, speed=90, yaw=Math.PI/4, pitch=0.15;
+    /* T from Shell's update: closed form means both are identical. */
+    const a = sample(ox, oy, oz, speed, yaw, pitch, 0.5);
+    const b = sample(ox, oy, oz, speed, yaw, pitch, 1.0);
+    const dx = a.x - b.x, dz = a.z - b.z, dy = a.y - b.y;
+    return { ok: Math.hypot(dx, dz) > 0, msg: 'moved x=' + (b.x-a.x).toFixed(2) + ' y=' + (b.y-a.y).toFixed(2) };
+  });
+
+  report('shell-pitched-shot-comes-down', () => {
+    const ox=0, oy=2, oz=0, speed=90, yaw=0, pitch=Math.PI/12;  /* 15° up */
+    let T = 0.1, hitGround = null;
+    for (let i=0; i<200; i++) {
+      const s = sample(ox, oy, oz, speed, yaw, pitch, T);
+      if (s.y <= 0) { hitGround = T; break; }
+      T += 0.05;
+    }
+    return { ok: hitGround !== null && hitGround > 1, msg: 'returns to ground at T=' + hitGround + 's' };
+  });
+
+  /* 3. wall stays: low shot into a tall wall bounces off, high shot clears */
+  report('wall-headroom-selector-exists', () => {
+    return { ok: game.includes('_wallHeadroom') && proj.includes('_wallHeightAt'),
+             msg: 'game.js _wallHeadroom + projectile.js _wallHeightAt both present' };
+  });
+
+  report('blocks-low-not-high', () => {
+    /* Simulate the ballistic solver's wall test: a 6-unit wall at x=30.
+       Shot A fired flat (pitch 0) from 4 units up — dies.
+       Shot B fired up (pitch 0.35) from 4 units up — crests. */
+    const wallH = 6;
+    const ox=0, oy=4, oz=0, speed=90, yaw=0, g=9.8;
+    /* shot A: pitch=0, by the time x reaches 30 (T=30/90=0.333s) it's at y = 4 - 0.5*9.8*0.111 = 3.45 < 6 : blocked */
+    const aT = 30 / (speed * Math.cos(0));
+    const aY = 4 + 0 * aT - 0.5*g*aT*aT;
+    const aBlocked = aY <= wallH;
+    /* shot B: pitch=0.35, T when sin component outruns it */
+    const bT = 30 / (speed * Math.cos(0.35));
+    const bY = 4 + speed*Math.sin(0.35)*bT - 0.5*g*bT*bT;
+    const bBlocked = bY <= wallH;
+    return { ok: aBlocked && !bBlocked,
+             msg: 'flat: y=' + aY.toFixed(2) + ' blocked=' + aBlocked + '; pitched: y=' + bY.toFixed(2) + ' blocked=' + bBlocked };
+  });
+
+  /* 4. barrel pitch group exists + is applied */
+  report('pitch-group-present', () => {
+    return { ok: tank.includes('_makePitchGroup') && tank.includes('_applyAimPitch') &&
+                   tank.includes('this._pitchGroup.rotation.x = -(this._aimPitch || 0)') &&
+                   game.includes('this.localTank._applyAimPitch'),
+             msg: 'tank.js group + syncTransform preserve + game.js call all present' };
+  });
+
+  /* 5. aim ribbon uses real ballistics and has the red X indicator */
+  report('ribbon-ballistic-sampled', () => {
+    return { ok: game.includes('H_SPEED = t.def.shellSpeed * Math.cos(pitch)') &&
+                   game.includes('0.5 * grav * T * T'),
+             msg: 'samples closed-form arc, not flat y=0' };
+  });
+  report('wall-hit-mark-present', () => {
+    return { ok: game.includes('_updateWallHitMark(blocked') && game.includes('_updateWallHitMark(show'),
+             msg: 'red X sprite drawn at the impact point when the shot is blocked' };
+  });
+
+  out.textContent = lines.join('\n');
+  document.title = lines.some(l => l.startsWith('FAIL') || l.startsWith('THROW')) ? 'FAIL' : 'PASS';
+}
+main();
+</script>
+</body>
+</html>

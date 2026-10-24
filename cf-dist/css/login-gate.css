@@ -5,7 +5,7 @@
 
    THE SEQUENCE
    ------------
-     1. assets/TL_loadingscreen.jpg, with the game's own loading bar   (BootLoading)
+     1. assets/TL_loadingscreen.webp, with the game's own loading bar   (BootLoading)
      2. THIS screen, the moment boot finishes
      3. the menu, once the player has chosen
 
@@ -44,7 +44,7 @@
 
    A relative url() in a stylesheet resolves against the STYLESHEET, not the
    document. This file lives in css/, so `url('assets/...')` asked the browser
-   for /css/assets/TL_loadingscreen.jpg — a 404 — and the gate rendered as flat
+   for /css/assets/TL_loadingscreen.webp — a 404 — and the gate rendered as flat
    dark grey. The loading screen never had the problem because its background is
    an inline style on an element, which resolves against the document.
 
@@ -53,7 +53,7 @@
 .login-gate-bg {
   position: absolute;
   inset: -2%;
-  background: #1c2230 url('/assets/TL_loadingscreen.jpg') center center / cover no-repeat;
+  background: #1c2230 url('/assets/TL_loadingscreen.webp') center center / cover no-repeat;
   /* A very slow push. Barely perceptible frame to frame, but over ten seconds it
      reads as a living screen rather than a photograph stuck on a wall. */
   animation: lg-drift 26s ease-in-out infinite alternate;

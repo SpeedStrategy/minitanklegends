@@ -773,14 +773,33 @@ const CaptureCircle = (() => {
       root.scale.set(1, 1, 1);
       root.updateMatrixWorld(true);
       const box = new THREE.Box3().setFromObject(root);
+      /* X/Z must centre on the POLE, not on the whole model. The cloth flies
+         away to one side of the pole, so a full-bbox centre plants the pole
+         leaning off the middle of the circle - which is exactly the visible
+         mismatch between "the ring" and "the flag standing in it". Measure
+         only the meshes that are NOT the flag cloth, and stand that axis
+         precisely on the centre point. */
+      const poleBox = new THREE.Box3();
+      root.traverse((o) => {
+        if(!o.isMesh){ return; }
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        let isCloth = false;
+        for(const mt of mats){
+          const nm = ((o.name || '') + ' ' + (mt && mt.name ? mt.name : '')).toLowerCase();
+          if(nm.indexOf('flag') !== -1){ isCloth = true; break; }
+        }
+        if(isCloth) return;
+        poleBox.expandByObject(o);
+      });
+      const useBox = poleBox.isEmpty() ? box : poleBox;
       const size = new THREE.Vector3(); box.getSize(size);
       const h = (size.y > 0.0001) ? size.y : 1;
       const s = FLAG_H / h;
       root.scale.setScalar(s);
       root.position.set(
-        -((box.min.x + box.max.x) / 2) * s,
+        -((useBox.min.x + useBox.max.x) / 2) * s,
         -box.min.y * s,
-        -((box.min.z + box.max.z) / 2) * s
+        -((useBox.min.z + useBox.max.z) / 2) * s
       );
 
       const cloth = [];
@@ -819,6 +838,14 @@ const CaptureCircle = (() => {
       if(zone){
         root.position.x += zone.cx || 0;
         root.position.z += zone.cz || 0;
+      }
+      /* The load is async: if the ground probe moved this zone's base height
+         while the model was still downloading, the captured groundY is stale.
+         Snap to whatever the probe has live for this zone, so the flag lands
+         ON the ground instead of floating above (or buried under) it. */
+      if(_boundZone === zone && isFinite(_flagGroundY) &&
+         Math.abs(_flagGroundY - groundY) > 0.002){
+        root.position.y += _flagGroundY - groundY;
       }
       _own.add(root);
       _game.scene.add(root);

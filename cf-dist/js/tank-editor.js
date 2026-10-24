@@ -3529,23 +3529,24 @@ window.TankEditor = (function(){
     if(v.model.rx || v.model.ry || v.model.rz){
       out.modelRotate = { x: round(v.model.rx || 0), y: round(v.model.ry || 0), z: round(v.model.rz || 0) };
     }
-    out.body = { w: v.body.w, h: v.body.h, l: v.body.l };
-    out.pivot = { x: v.pivot.x, y: v.pivot.y, z: v.pivot.z };
+    var _ms = (v.model.scale > 0) ? v.model.scale : 1;
+    out.body = { w: round(v.body.w * _ms), h: round(v.body.h * _ms), l: round(v.body.l * _ms) };
+    out.pivot = { x: round(v.pivot.x * _ms), y: round(v.pivot.y * _ms), z: round(v.pivot.z * _ms) };
     /* The turret block carries BOTH the turret's box size (w/h/l) and its
        measured mount point (x/y/z), exactly the shape config.js already uses
        (see the striker / mortar entries there). Emitting only x/y/z would
        clobber w/h/l and break the turret mesh, so merge the live mount point
        on top of whatever size the def already has. */
-    out.turret = Object.assign({}, (def && def.turret) || {}, { x: v.turret.x, y: v.turret.y, z: v.turret.z });
+    out.turret = Object.assign({}, (def && def.turret) || {}, { x: round(v.turret.x * _ms), y: round(v.turret.y * _ms), z: round(v.turret.z * _ms) });
     /* The fire point is where the shell leaves the barrel (barrelEnd in the
        preview, barrelEnd in the game). config.js already names this firePoint;
        the editor internally calls it shell, but the exported name is firePoint
        so the game actually reads it. */
-    out.firePoint = { x: v.shell.x, y: v.shell.y, z: v.shell.z };
+    out.firePoint = { x: round(v.shell.x * _ms), y: round(v.shell.y * _ms), z: round(v.shell.z * _ms) };
     /* The casing (spent-shell eject) point. config.js already names this
        casingPoint; the editor internally calls it casing, but the exported
        name is casingPoint so the game actually reads it. */
-    out.casingPoint = { x: v.casing.x, y: v.casing.y, z: v.casing.z };
+    out.casingPoint = { x: round(v.casing.x * _ms), y: round(v.casing.y * _ms), z: round(v.casing.z * _ms) };
     /* _modelOffset is the name the editor PRINTS for your reference only —
        the game does not read that key (see config.js's own comment on it). The
        value that actually moves the model is the model:{x,y,z} pair, which is

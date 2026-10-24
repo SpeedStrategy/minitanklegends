@@ -601,6 +601,9 @@ class Input {
     let val = 0;
     if(this.keys[this.binds.camLeft]) val -= 1;
     if(this.keys[this.binds.camRight]) val += 1;
+    // < and > keys also rotate the camera (common expectation)
+    if(this.keys['Comma']) val -= 1;
+    if(this.keys['Period']) val += 1;
     const touch = this._camRotateTouch || 0;
     return val || touch;
   }

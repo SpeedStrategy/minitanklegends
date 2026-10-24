@@ -107,7 +107,7 @@
 
   <!-- Loading Screen (hidden until fullscreen prompt is dismissed) -->
   <div id="loading-screen" style="position:fixed;top:0;left:0;width:100%;height:100%;z-index:100000;display:none;flex-direction:column;align-items:center;justify-content:flex-end;padding-bottom:28vh;opacity:0;transition:opacity 0.5s ease;">
-    <div id="loading-bg" style="position:absolute;top:0;left:0;width:100%;height:100%;background:#1c2230 url('assets/TL_loadingscreen.jpg') center center / cover no-repeat;"></div>
+    <div id="loading-bg" style="position:absolute;top:0;left:0;width:100%;height:100%;background:#1c2230 url('assets/TL_loadingscreen.webp') center center / cover no-repeat;"></div>
     <div id="loading-vignette" style="position:absolute;top:0;left:0;width:100%;height:100%;background:radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.55) 100%);"></div>
     <div style="position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;gap:10px;width:50vw;max-width:400px;">
       <div id="loading-status" style="font-size:14px;color:rgba(255,255,255,0.85);letter-spacing:2px;text-shadow:0 0 8px rgba(0,0,0,0.7);font-family:Arial,sans-serif;">Initializing...</div>
@@ -122,7 +122,7 @@
   <div id="game-root"></div>
 
   <div id="crosshair" style="display:none;position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);pointer-events:none;z-index:5;">
-    <div style="width:6px;height:6px;background:#f84;border-radius:50%;box-shadow:0 0 4px #f84, 0 0 8px rgba(255,136,68,0.4);"></div>
+    <div style="width:8px;height:8px;background:#f84;border-radius:50%;box-shadow:0 0 6px #f84, 0 0 12px rgba(255,136,68,0.6), 0 0 20px rgba(255,136,68,0.3);"></div>
   </div>
 
 
@@ -296,11 +296,11 @@
 
           <div class="profile-bottom">
 
-            <span class="profile-coin"><img class="cur-img" src="assets/currency/cash.png" alt="cash"><span id="profile-cash-num">0</span></span>
+            <span class="profile-coin"><img class="cur-img" src="assets/currency/cash.webp" alt="cash"><span id="profile-cash-num">0</span></span>
 
-            <span class="profile-crystal"><img class="cur-img" src="assets/currency/gold.png" alt="gold"><span id="profile-gold-num">0</span></span>
+            <span class="profile-crystal"><img class="cur-img" src="assets/currency/gold.webp" alt="gold"><span id="profile-gold-num">0</span></span>
 
-            <span class="profile-coin profile-coins-extra"><img class="cur-img" src="assets/currency/coin.png" alt="coins"><span id="profile-coins-num">0</span></span>
+            <span class="profile-coin profile-coins-extra"><img class="cur-img" src="assets/currency/coin.webp" alt="coins"><span id="profile-coins-num">0</span></span>
 
           </div>
 
@@ -310,7 +310,7 @@
 
         <div id="btn-settings-gear" data-open="settings" title="Settings">
 
-          <img src="gear.png" alt="Settings">
+          <img src="gear.webp" alt="Settings">
 
         </div>
 
@@ -340,19 +340,19 @@
           <div class="btn-play" id="btn-play"><span class="btn-play-cap">SEARCHING</span><span class="btn-play-num">PLAY</span></div>
         </div>
         <div class="platoon-btn" id="btn-platoon" title="Platoon">
-          <img src="assets/icons/platoon.png" alt="Platoon">
+          <img src="assets/icons/platoon.webp" alt="Platoon">
         </div>
       </div>
 
       <div class="main-menu-crates" id="main-menu-crates">
 
-        <div class="crate-slot" data-slot="0"><img src="mystery_mtl.png" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
+        <div class="crate-slot" data-slot="0"><img src="mystery_mtl.webp" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
 
-        <div class="crate-slot" data-slot="1"><img src="mystery_mtl.png" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
+        <div class="crate-slot" data-slot="1"><img src="mystery_mtl.webp" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
 
-        <div class="crate-slot" data-slot="2"><img src="mystery_mtl.png" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
+        <div class="crate-slot" data-slot="2"><img src="mystery_mtl.webp" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
 
-        <div class="crate-slot" data-slot="3"><img src="mystery_mtl.png" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
+        <div class="crate-slot" data-slot="3"><img src="mystery_mtl.webp" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
 
       </div>
 
@@ -376,7 +376,7 @@
 
         <div class="btn" id="btn-play-battle">Battle Mode &#x25B6;</div>
 
-        <div class="btn btn-back" id="btn-play-back"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" id="btn-play-back"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -396,7 +396,7 @@
 
         <div class="btn" id="btn-battle-mp">Private Room (P2P)</div>
 
-        <div class="btn btn-back" data-back="menu-play-select"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" data-back="menu-play-select"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -419,7 +419,7 @@
 
           <!-- LOCKED-MODE-START (restore by deleting these two markers)
           <div class="gm-card" data-gamemode="random-battle">
-            <div class="gm-card-bg" style="background-image:url('assets/gamemodes/random-battle.png')"></div>
+            <div class="gm-card-bg" style="background-image:url('assets/gamemodes/random-battle.webp')"></div>
             <div class="gm-card-overlay"></div>
             <div class="gm-card-content">
               <div class="gm-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M16 8h.01"/><path d="M8 8h.01"/><path d="M8 16h.01"/><path d="M16 16h.01"/><path d="M12 12h.01"/></svg></div>
@@ -498,7 +498,7 @@
 
         <div class="btn btn-subtle" id="btn-join-hidden">Join Hidden Room</div>
 
-        <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -580,7 +580,7 @@
 
         <div class="btn btn-primary" id="btn-start-host">Start Hosting</div>
 
-        <div class="btn btn-back" data-back="menu-multiplayer"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" data-back="menu-multiplayer"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -598,7 +598,7 @@
 
         <div id="room-list" class="room-list"><div class="muted">Searching for public roomsï¿½</div></div>
 
-        <div class="btn btn-back" data-back="menu-multiplayer"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" data-back="menu-multiplayer"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -620,7 +620,7 @@
 
         <div class="btn btn-primary" id="btn-connect-hidden">Connect</div>
 
-        <div class="btn btn-back" data-back="menu-multiplayer"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" data-back="menu-multiplayer"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -642,7 +642,7 @@
 
         <div id="collections-bottom-bar">
 
-          <div class="btn btn-back" id="collections-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+          <div class="btn btn-back" id="collections-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
         </div>
 
@@ -662,11 +662,11 @@
 
           <div class="shop-currencies">
 
-            <span class="shop-coin-disp"><img class="cur-img cur-lg" src="assets/currency/cash.png" alt="cash"> <span id="shop-cash">0</span></span>
+            <span class="shop-coin-disp"><img class="cur-img cur-lg" src="assets/currency/cash.webp" alt="cash"> <span id="shop-cash">0</span></span>
 
-            <span class="shop-coin-disp"><img class="cur-img cur-lg" src="assets/currency/coin.png" alt="coins"> <span id="shop-coins">0</span></span>
+            <span class="shop-coin-disp"><img class="cur-img cur-lg" src="assets/currency/coin.webp" alt="coins"> <span id="shop-coins">0</span></span>
 
-            <span class="shop-gold-disp"><img class="cur-img cur-lg" src="assets/currency/gold.png" alt="gold"> <span id="shop-gold">0</span></span>
+            <span class="shop-gold-disp"><img class="cur-img cur-lg" src="assets/currency/gold.webp" alt="gold"> <span id="shop-gold">0</span></span>
 
           </div>
 
@@ -690,7 +690,7 @@
 
             <div class="shop-sidebar-section" data-section="tlplus" style="--btn-bg:#d97706">TL+</div>
 
-            <div class="shop-sidebar-back" id="shop-back-main"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> BACK</div>
+            <div class="shop-sidebar-back" id="shop-back-main"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> BACK</div>
 
           </div>
 
@@ -803,7 +803,7 @@
           </div>
 
           <div class="shop-buy-back" id="shop-back-buy">
-            <img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back
+            <img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back
           </div>
 
         </div>
@@ -848,7 +848,7 @@
         <div class="shop-receive-done" id="shop-receive-done">
           <div class="shop-receive-congrats">CONGRADITIONS</div>
           <div class="shop-receive-back" id="shop-receive-back">
-            <img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back
+            <img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back
           </div>
         </div>
 
@@ -868,7 +868,7 @@
 
         <div class="storage-grid" id="storage-grid"></div>
 
-        <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -1816,7 +1816,7 @@
 
         <div id="preview-stats" style="font-size:13px;color:var(--muted);text-align:center;line-height:1.6"></div>
 
-        <div class="btn btn-back" id="btn-preview-back"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" id="btn-preview-back"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -1840,7 +1840,7 @@
 
         <div class="btn" id="btn-revert-map" style="margin-top:8px">Revert Map (restore original)</div>
 
-        <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -1886,7 +1886,7 @@
 
         </div>
 
-        <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -1920,7 +1920,7 @@
 
         <div class="btn btn-primary clan-3d-btn clan-ico" id="btn-create-clan-submit"><span class="clan-ico-ani">&#x1F6E1;</span> CREATE CLAN</div>
 
-        <div class="btn btn-back" data-back="menu-clans"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" data-back="menu-clans"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -1972,7 +1972,7 @@
 
         </div>
 
-        <div class="btn btn-back" data-back="menu-clans"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" data-back="menu-clans"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -1992,7 +1992,7 @@
       <div class="clan-ui-container">
 
         <!-- Back arrow (top-left): go search other clans, does NOT leave the clan -->
-        <div class="btn btn-back clan-ui-back-arrow" data-back="menu-clans" id="btn-clan-ui-back" title="Search for other clans (you stay in this clan)"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""></div>
+        <div class="btn btn-back clan-ui-back-arrow" data-back="menu-clans" id="btn-clan-ui-back" title="Search for other clans (you stay in this clan)"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""></div>
 
         <!-- Custom canvas layout (Clan Editor design) rendered with live data -->
 
@@ -2052,11 +2052,11 @@
 
           <div class="btn clan-3d-btn" id="btn-copy-clan-code">Copy Join Code</div>
 
-          <div class="btn clan-3d-btn btn-danger" id="btn-leave-clan" title="Leave Clan"><img src="assets/icons/logout.png" alt="" class="logout-ico"></div>
+          <div class="btn clan-3d-btn btn-danger" id="btn-leave-clan" title="Leave Clan"><img src="assets/icons/logout.webp" alt="" class="logout-ico"></div>
 
         </div>
 
-        <div class="btn btn-back" data-back="menu-clans"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="btn btn-back" data-back="menu-clans"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -2108,7 +2108,7 @@
 
         <div class="me-btn me-btn-primary" id="me-apply">Set as Main Menu</div>
 
-        <div class="me-btn" id="me-back"><img class="back-ico" src="assets/icons/left-arrow.png" alt=""> Back</div>
+        <div class="me-btn" id="me-back"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
 
       </div>
 
@@ -2358,88 +2358,91 @@
 
     // Game scripts, in exactly the order this page used to list them.
     const GAME_SCRIPTS = [
-      'js/toon.js',
-      'js/xray.js',
-      'js/config.js',
-      'js/vfx.js',
-      'js/fireball.js',
-      'js/mortar-blast.js',
-      'js/muzzle-pop.js',
-      'js/shaders.js',
-      'js/video-vfx.js',
-      'js/decal.js',
+      'js/toon.js?v=20260929b',
+      'js/xray.js?v=20261008p',
+      'js/config.js?v=20261011d',
+      'js/vfx.js?v=1787330007',
+      'js/fireball.js?v=20260929m',
+      'js/mortar-blast.js?v=20261006a',
+      'js/muzzle-pop.js?v=20261024a',
+      'js/spark-lines.js?v=20261024a',
+      'js/shaders.js?v=1787330007',
+      'js/video-vfx.js?v=20260926b',
+      'js/decal.js?v=20260927e',
       
-      'js/obj_data.js',
-      'js/models.js',
-      'js/water-shader.js',
-      'js/water-tsl.js',
-      'js/world.js',
+      'js/obj_data.js?v=1787330007',
+      'js/models.js?v=20261010a',
+      'js/water-shader.js?v=20260929a',
+      'js/water-tsl.js?v=20260926a',
+      'js/world.js?v=20261011c',
       /* BEFORE tank.js: Tank._drawHp calls HPBarStyles.draw for the nameplate,
          and falls back to a plain solid bar if the module is not there yet. The
          style preview page loads this same file to render the five options. */
-      'js/hpbar-styles.js',
-      'js/tank.js',
-      'js/tank-sprays.js',
+      'js/hpbar-styles.js?v=20261006a',
+      'js/tank.js?v=20261024a',
+      'js/tank-sprays.js?v=20261012b',
       /* Styles (cosmetics): tank.js calls TankStyles.apply once the model is
          on, so the module has to exist by the tank build — place it with the
          other cosmetic modules, before the menus that show it. */
-      'js/tank-styles.js',
-      'js/projectile.js',
-      'js/bullet-trail.js',
-      'js/input.js',
-      'js/bot-nav.js',
-      'js/bot.js',
+      'js/tank-styles.js?v=20261011a',
+      'js/projectile.js?v=20261024a',
+      'js/bullet-trail.js?v=20260929a',
+      'js/input.js?v=1787330007',
+      'js/bot-nav.js?v=20261008a',
+      'js/bot.js?v=20261024a',
       /* net.js BEFORE matchmaking.js. matchmaking.js binds itself to Net's
          callbacks, and it used to be listed first, so at load time Net did not
          exist and the binding silently never happened. matchmaking.js also
          wires lazily on first use, so this ordering is belt and braces rather
          than the only thing holding it up. */
-      'js/session-guard.js',
-    'js/roster-factory.js',
-    'js/net.js',
-      'js/net-cursors.js',
-      'js/matchmaking.js',
-      'js/nakama-net.js',
-      'js/audio.js',
-      'js/shopdata.js',
-      'js/clan-default-layout.js',
-      'js/menu.js',
-      'js/garage.js',
-      'js/missions.js',
+      'js/session-guard.js?v=20261003b',
+    'js/roster-factory.js?v=20261003a',
+          /* rtc-net BEFORE net.js: net.js's tail block bridges Rtc's hooks at file scope. If it loads after net.js that 	ypeof Rtc !== 'undefined' is false forever and the direct-link layer stays dead — which is exactly how production shipped it. */
+      'js/rtc-net.js?v=20261020a',
+      'js/net.js?v=20261020a',
+      'js/net-cursors.js?v=20261003a',
+      'js/matchmaking.js?v=20261004a',
+      'js/nakama-net.js?v=1787330007',
+      'js/audio.js?v=20261024a',
+      'js/shopdata.js?v=20260929a',
+      'js/clan-default-layout.js?v=1787330007',
+      'js/menu.js?v=20261011f',
+      'js/garage.js?v=20261003a',
+      'js/missions.js?v=20261010b',
       /* PROGRESSION 2.0 — per-tank XP/levels/tree/currencies. Must precede
          tank-menu.js because the reworked tank window reads window.Progression
          at render time. */
-      'js/upgrade-tree.js',
-      'js/tank-menu.js',
-      'js/menu-editor.js',
-      'js/editor123.js',
-      'js/tank-editor.js',
-      'js/map-importer.js',
-      'js/graphics-settings.js',
-      'js/capture-circle.js',
+      'js/upgrade-tree.js?v=20261018c',
+      'js/tank-menu.js?v=20261018d',
+      'js/menu-editor.js?v=1787330007',
+      'js/editor123.js?v=20260926a',
+      'js/tank-editor.js?v=20261010y',
+      'js/map-importer.js?v=20260908a',
+      'js/graphics-settings.js?v=20260915a',
+      'js/capture-circle.js?v=20261024a',
       /* Base Defend. Must load BEFORE game.js: the mode starter calls
          BaseDefend.init(), and every file here is a plain script tag with no
          module resolution, so load order is the only dependency ordering there
          is. Placed next to capture-circle.js because it is that mode's sibling
          and is disposed in the same place. */
-      'js/base-defend.js',
-      'js/map-voting.js',
-      'js/default-map.js',
-      'js/gladiator-map.js',
-      'js/boot-watchdog.js',
-      'js/game.js',
-      'js/results.js',
-      'js/auth.js',
+      'js/base-defend.js?v=20261007a',
+      'js/map-voting.js?v=20261011b',
+      'js/default-map.js?v=1787330007',
+      'js/gladiator-map.js?v=1787330007',
+      'js/boot-watchdog.js?v=20261008a',
+      'js/game.js?v=20261024a',
+      'js/results.js?v=20261018c',
+      'js/auth.js?v=1787330007',
       /* Real-money store. After auth.js because the return trip calls into Auth,
          and before menu.js because the store render asks it for the table. */
-      'js/payments.js',
-      'js/platoon.js',
-      'js/sandbox-room.js',
+      'js/payments.js?v=20261012a',
+      'js/platoon.js?v=1787330007',
+      'js/sandbox-room.js?v=20261007a',
       /* The Tab+P command panel. Loaded LAST on purpose: it registers a capture
          keydown listener and calls into Game (for the skip, the perf overlay and
          the scoreboard), so it needs Game to already exist. Nothing depends on
          it, so a failure here costs the panel and nothing else. */
-      'js/dev-commands.js'
+      'js/dev-commands.js?v=20261011c'
     ];
 
     const loadScript = (src) => new Promise((resolve, reject) => {
@@ -2570,15 +2573,15 @@
 
 
 <!-- Hidden dev console (buffy) -->
-  <div id="dev-console" style="display:none; position:fixed; bottom:0; left:0; right:0; background:#111; color:#0f0; font:12px monospace; padding:8px; z-index:999999; border-top:2px solid #0f0;">
+  <div id="dev-console" style="display:none; position:fixed; bottom:0; left:0; right:0; background:rgba(8,10,14,0.95); color:#0f0; font:13px 'Consolas','Courier New',monospace; padding:10px 12px; z-index:999999; border-top:2px solid #0f0; box-shadow:0 -4px 20px rgba(0,255,0,0.15);">
     <div style="display:flex; gap:4px; align-items:center; margin-bottom:4px;">
       <button id="dev-console-toggle" style="background:#222; color:#0f0; border:1px solid #0f0; padding:2px 8px; cursor:pointer;">Show console</button>
       <button id="dev-console-clear" style="background:#222; color:#0f0; border:1px solid #0f0; padding:2px 8px; cursor:pointer;">Clear</button>
       <span style="color:#0f0; font-size:11px;">hidden dev console — type JS to eval</span>
     </div>
-    <div id="dev-console-log" style="display:none; height:120px; overflow:auto; background:#000; padding:4px; border:1px solid #0f0; margin-bottom:4px;"></div>
+    <div id="dev-console-log" style="height:140px; overflow:auto; background:rgba(0,0,0,0.8); padding:6px 8px; border:1px solid #0a3a0a; margin-bottom:6px; border-radius:3px; line-height:1.5;"></div>
     <div id="dev-console-debug" style="display:none;"></div>
-    <input id="dev-console-input" type="text" disabled placeholder="eval..." style="width:100%; background:#000; color:#0f0; border:1px solid #0f0; padding:4px; font:12px monospace; display:none;">
+    <input id="dev-console-input" type="text" disabled placeholder="type command or JS... (Enter to run)" style="width:100%; background:rgba(0,0,0,0.8); color:#0f0; border:1px solid #0a3a0a; padding:6px 8px; font:13px 'Consolas','Courier New',monospace; border-radius:3px; outline:none; box-sizing:border-box;">
   </div>
 </body>
 

@@ -6,3 +6,11 @@ uploads/
 clan-api-worker/.wrangler/
 
 dist/
+
+# Bundled Node toolchain (81 MB node.exe) — never push to GitHub.
+node-v22/
+# Corrupt repo snapshot kept as evidence only.
+.git-corrupt/
+node-latest.zip
+*.bak*
+verify-build.txt

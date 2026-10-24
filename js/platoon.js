@@ -15,6 +15,15 @@
   var PFX = (window.CONFIG && CONFIG.PEER_PREFIX) || 'tankparty-v1-';
   function voiceId(code){ return PFX + 'platoon-' + code; }
 
+  /* HOW MANY FIT IN A PLATOON.
+     Three, host included: you plus two friends. This is the small, deliberate
+     room. It is NOT the Sandbox, which takes fourteen -- a bigger room than
+     three wants a different lobby, a map picker and no voice, because a voice
+     mesh is three connections here and ninety-one there. The two live in
+     separate panels for that reason, not because they are two flavours of the
+     same screen. */
+  var PLATOON_MAX = 3;
+
   var MODES = {
     gladiator:     { label: 'GLADIATOR',     custom: false },
     sandbox:       { label: 'SANDBOX',       custom: false },
@@ -330,6 +339,18 @@
           }
         }
       }
+    }
+    /* The seat count sits next to the game code because that is where somebody
+       reads "how many of us are in this" before handing the code to a friend.
+       It counts PEOPLE, not team slots -- a platoon is three people who may be
+       spread across two teams, so adding up the team arrays would report a
+       room that is one player short as a room with space in it. */
+    var seatEl = $('pl-seat-count');
+    if(seatEl){
+      var seated = 0;
+      var pool = S.online ? S.members : { [S.youLocal.uid]: S.youLocal };
+      for(var q in pool) seated++;
+      seatEl.textContent = seated + '/' + PLATOON_MAX;
     }
     built = true;
     renderVoicePanel();
@@ -776,6 +797,17 @@
       if(hidden){ toast('Match ended — results in the platoon lobby'); }
       else renderResults();
     }
+    /* The host turned us away because the platoon is full. Without this the
+       socket just closes and the guest is left on "Connecting…" forever,
+       reading it as a network fault rather than the answer it actually is. */
+    else if(msg.t === 'full'){
+      S.online = false;
+      status('That platoon is full — 3 players is the limit');
+      try{ if(S.conn && S.conn.close) S.conn.close(); }catch(e){}
+      if(S.peer && !S.peer.destroyed){ try{ S.peer.destroy(); }catch(e){} }
+      S.peer = null; S.conn = null;
+      render();
+    }
   }
 
   /* ================= room lifecycle ================= */
@@ -812,7 +844,27 @@
       conn.on('open', function(){
         conn.on('data', function(msg){
           if(msg && msg.t === 'hello'){
-            if(!S.members[msg.uid]) S.members[msg.uid] = hostAssign(msg.uid, msg.name);
+            /* A Platoon is you and two friends -- three in the room, counted.
+
+               The cap is enforced HERE, on the host, rather than in the UI. A
+               limit that each browser checks for itself is a limit they can
+               disagree about: two people refreshing at slightly different
+               moments both see "2/3" and both walk in, and the room that
+               advertises three seats quietly holds five. The host is the only
+               place the number can actually be true.
+
+               The host counts as one of the three, so this admits the two
+               friends and no more. */
+            if(!S.members[msg.uid]){
+              var seated = 0;
+              for(var u3 in S.members) seated++;
+              if(seated >= PLATOON_MAX){
+                try{ conn.send({ t: 'full' }); conn.close(); }catch(e){}
+                status('Room is full (' + PLATOON_MAX + ' max) — ' + (msg.name || 'Someone') + ' was turned away');
+                return;
+              }
+              S.members[msg.uid] = hostAssign(msg.uid, msg.name);
+            }
             var m = S.members[msg.uid];
             m.peerId = conn.peer; m.conn = conn;
             conn.send({ t: 'st', room: roomState() });
@@ -1441,10 +1493,18 @@
     }
   };
 
+  let profileTimer = null;
+
   function boot(){
     wire();
     newRoom();
-    setInterval(syncProfile, 10000);
+    /* Handle kept so it can be cleared. Every other timer in this file stores
+       its id (levelTimer at the level countdown, counting at the match
+       countdown) and clears it on cancel; this one did not, so it fired for
+       the entire life of the page whether or not the player was in a platoon.
+       Six background requests a minute forever, each one a chance to overlap a
+       GC pause or a video decode. */
+    profileTimer = setInterval(syncProfile, 10000);
   }
 
   if(document.readyState === 'loading'){

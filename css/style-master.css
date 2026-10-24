@@ -10,7 +10,17 @@
   --accent2:#ff5b3b;
   --ok:#3ad17a;
   --danger:#ff3b3b;
-  --ui-scale:1;
+
+  --hp-enemy:#ff3b3b;
+
+  --hp-ally:#3bbeff;
+
+  /* UI scale follows the viewport instead of being pinned to 1.
+     Everything that sizes itself with calc(var(--ui-scale) * N) now shrinks on
+     a small screen and grows on a large one, with no per-rule editing. The
+     reference is 1440px wide: that is a 1.0, a 4K display is capped at 1.25
+     so it does not become comically large, and a phone still gets 0.7. */
+  --ui-scale: clamp(0.70, calc(100vw / 1440), 1.25);
 }
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--fg);
@@ -171,9 +181,9 @@ input:focus{border-color:var(--accent)}
 #lb-list li .ldmg{color:var(--accent2);font-weight:700}
 
 #hp-wrap{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);
-  width:360px;height:18px;background:#1c1c1c;border:1px solid var(--line);border-radius:8px;
-  overflow:hidden}
-#hp-bar{height:100%;width:100%;background:linear-gradient(90deg,var(--ok),#9be23a);transition:width .15s}
+  width:300px;height:24px;background:#1c1c1c;border:2px solid var(--line);border-radius:10px;
+  overflow:hidden;box-shadow:0 0 14px rgba(0,0,0,.5)}
+#hp-bar{height:100%;width:100%;background:linear-gradient(90deg,#3bbeff,#2a9fd6);transition:width .15s}
 #hp-text{position:absolute;left:50%;bottom:32px;transform:translateX(-50%);
   font-size:12px;color:#fff;text-shadow:0 1px 3px #000;white-space:nowrap;pointer-events:none}
 

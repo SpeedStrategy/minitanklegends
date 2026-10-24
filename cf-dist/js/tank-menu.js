@@ -183,8 +183,8 @@ window.TankMenu = (function(){
     return '<div class="tm-xp-block' + (prog.canLevel ? ' ready' : '') + '" id="tm-xp-block">' +
       '<div class="tm-xp-head">' +
         '<span class="tm-lv-badge" id="tm-lv-badge">' + (prog.maxed ? 'MAX' : 'LV ' + prog.level) + '</span>' +
-        '<span class="tm-cur-chip" title="Upgrade points"><img src="assets/rewards/upgradepoints.png" alt=""><b id="tm-cur-up">' + fmtInt(prog.currencies.up) + '</b></span>' +
-        '<span class="tm-cur-chip tm-gold" title="Golden upgrade points"><img src="assets/rewards/goldupgradepoints.png" alt=""><b id="tm-cur-gup">' + fmtInt(prog.currencies.gup) + '</b></span>' +
+        '<span class="tm-cur-chip" title="Upgrade points"><img src="assets/rewards/upgradepoints.webp" alt=""><b id="tm-cur-up">' + fmtInt(prog.currencies.up) + '</b></span>' +
+        '<span class="tm-cur-chip tm-gold" title="Golden upgrade points"><img src="assets/rewards/goldupgradepoints.webp" alt=""><b id="tm-cur-gup">' + fmtInt(prog.currencies.gup) + '</b></span>' +
       '</div>' +
       '<div class="tm-xp-track" title="' + prog.bank + ' / ' + prog.need + ' XP">' +
         '<div class="tm-xp-fill" id="tm-xp-fill" style="width:' + prog.pct.toFixed(1) + '%"><span class="tm-xp-text" id="tm-xp-text">' + prog.pct.toFixed(0) + '%</span></div>' +
@@ -192,10 +192,10 @@ window.TankMenu = (function(){
       '<div class="tm-xp-foot" id="tm-xp-foot">' +
         '<span class="tm-xp-req" id="tm-xp-req">' + fmtInt(prog.bank) + ' / ' + fmtInt(prog.need) + ' XP</span>' +
         (prog.maxed
-          ? '<span class="tm-xp-cost"><img src="assets/currency/cash.png" alt=""> max level reached</span>'
+          ? '<span class="tm-xp-cost"><img src="assets/currency/cash.webp" alt=""> max level reached</span>'
           : '<span class="tm-xp-cost" title="Cost of the next level">' +
-              '<img src="assets/currency/cash.png" alt=""> ' + fmtInt(prog.price.cash) +
-              '  <img src="assets/rewards/upgradepoints.png" alt=""> ' + fmtInt(prog.price.up) + '</span>' +
+              '<img src="assets/currency/cash.webp" alt=""> ' + fmtInt(prog.price.cash) +
+              '  <img src="assets/rewards/upgradepoints.webp" alt=""> ' + fmtInt(prog.price.up) + '</span>' +
             '<button class="tm-lvlup-btn' + (prog.canLevel ? ' ready' : '') + '" id="tm-lvlup" data-why="' + esc(why) + '"' + (prog.canLevel ? '' : ' disabled') + '>BUY LEVEL</button>') +
       '</div>' +
     '</div>';
@@ -392,8 +392,8 @@ window.TankMenu = (function(){
           '<div class="tr-chips">' +
             '<span class="tr-chip">TANK LEVEL<b>' + prog.level + '</b></span>' +
             '<span class="tr-chip" title="One per bought level — spends on tree nodes">TECH PTS<b>' + prog.tech + '</b></span>' +
-            '<span class="tr-chip" title="Upgrade points — earned from battle XP"><img src="assets/rewards/upgradepoints.png" alt="">UP<b>' + fmtInt(prog.currencies.up) + '</b></span>' +
-            '<span class="tr-chip" title="Golden upgrade points — one per battle win"><img src="assets/rewards/goldupgradepoints.png" alt="">GUP<b>' + fmtInt(prog.currencies.gup) + '</b></span>' +
+            '<span class="tr-chip" title="Upgrade points — earned from battle XP"><img src="assets/rewards/upgradepoints.webp" alt="">UP<b>' + fmtInt(prog.currencies.up) + '</b></span>' +
+            '<span class="tr-chip" title="Golden upgrade points — one per battle win"><img src="assets/rewards/goldupgradepoints.webp" alt="">GUP<b>' + fmtInt(prog.currencies.gup) + '</b></span>' +
           '</div>' +
           superChipHtml(tankId) +
         '</div>' +
@@ -695,7 +695,7 @@ window.TankMenu = (function(){
      SPRAY SYSTEM — click-to-place decals on the tank
      ============================================================ */
   const SPRAY_DEFS = {
-    first_spray: { name: 'First Spray', icon: '🏷️', texture: 'assets/sprays/first_spray.png', free: true },
+    first_spray: { name: 'First Spray', icon: '🏷️', texture: 'assets/sprays/first_spray.webp', free: true },
   };
 
   /* Three little lamps showing how many of the three stamps are used. */

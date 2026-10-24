@@ -26,7 +26,12 @@
    worst case for the whole battle is one 64-quad mesh.
    ============================================================ */
 const SparkLines = (() => {
-  const MAX = 64;
+  /* 144 concurrent sparks. The battle can have a dozen shells finding things
+     in the same second - ricochets, wall hits, tank hits all call spawn() -
+     and the old 64-slot pool recycled live sparks whenever a firefight
+     peaked. 144 absorbs the worst burst a 20-tank free-for-all produces; the
+     per-frame cost of a bigger ring is a handful of array writes. */
+  const MAX = 144;
 
   /* Fixed per-spark records, reused ring-buffer style. Never allocated
      again after startup. */
@@ -132,9 +137,12 @@ const SparkLines = (() => {
         '  /* Cross-section falloff: a soft line of light, not a hard bar. */',
         '  float edge = 1.0 - abs(vSide);',
         '  float lobe = pow(max(0.0, edge), 1.6);',
-        '  /* Along the streak: dim amber tail rising to a white-hot head. */',
+        '  /* Along the streak: dim YELLOW tail rising to a white-hot head.',
+        '     Yellow, not amber-orange: the user asked for yellow sparks and the',
+        '     old gradient read orange under bloom. Tail yellows down, head',
+        '     still goes white so the "hot strike" end of the line stays clear. */',
         '  float head = smoothstep(0.0, 0.22, vT) * (0.30 + 0.70 * vT);',
-        '  vec3 col = mix(vec3(1.0, 0.62, 0.18), vec3(1.0, 0.97, 0.90), vT * vT);',
+        '  vec3 col = mix(vec3(1.0, 0.80, 0.28), vec3(1.0, 0.98, 0.92), vT * vT);',
         '  float i = lobe * head * vAlpha * 3.2;',
         '  gl_FragColor = vec4(col * i, i);',
         '}'
@@ -154,7 +162,7 @@ const SparkLines = (() => {
     spawn(sceneIn, hx, hy, hz, ax, az, opts){
       const o = opts || {};
       if(!build()) return;
-      const n = Math.max(1, Math.min(8, o.count | 0 || (4 + (Math.random() * 4 | 0))));
+      const n = Math.max(1, Math.min(12, o.count | 0 || (4 + (Math.random() * 4 | 0))));
       /* Follow the scene that is asking (rebuilt on new match). */
       if(scene !== sceneIn) scene = sceneIn;
       if(!scene) return;

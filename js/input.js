@@ -213,6 +213,64 @@ class Input {
     this.binds = settings.binds;
     this.wheel = 0;
 
+    /* MODE 1 AIM PITCH: screen-vertical mouse delta, drained by game.js in
+       dynamic mode for every NON-artillery tank (the mortar still owns
+       mouse-Y for its range — see _aimRangeAccum). Reset with the range
+       accumulator whenever pointer lock drops so a stale delta can't fire
+       one enormous pitch jump a second later. */
+    this._aimPitchAccum = 0;
+
+    // Pointer lock state
+    this._pointerLocked = false;
+    this._pointerLockEl = null;
+
+    /* ARTILLERY AIMS THROUGH THE TURRET, LIKE EVERY OTHER TANK.
+
+       This file used to refuse pointer lock for the Mortar and threw the lock
+       back out on the first mouse move, because game.js ray-cast the artillery
+       solution off the raw cursor position -- and pointer lock freezes
+       clientX/clientY, so that ray went dead the instant the cursor was hidden.
+       The result was a tank that fought the mouse: "it stops working then your
+       mouse cursor disappears".
+
+       The mortar is now swung by the turret like any other gun, so it locks
+       normally, the cursor is hidden while you aim, right mouse still freezes
+       the turret, and the camera still follows the turret. Range is the ONE
+       extra axis and it reads mouse-Y, which is free once mouse-X is turning
+       the gun. See consumeAimRange() below. */
+    /* THE GAME OBJECT HAS NO GLOBAL NAME. `Menu.game` is the only reference —
+       there is no `window.game`, so every `typeof game !== 'undefined'` test in
+       this file was always false and the countdown guards below never blocked
+       anything. Resolve it once, correctly, for every site that needs it. */
+    this._game = () => {
+      try{
+        if(typeof Menu !== 'undefined' && Menu && Menu.game) return Menu.game;
+      }catch(e){}
+      try{
+        if(typeof game !== 'undefined' && game) return game;
+      }catch(e){}
+      return null;
+    };
+
+    /* THE ARTILLERY RANGE AXIS.
+
+       Mortar shells are not infinite: the gun has a maximum reach and a dead
+       zone it cannot lob into, so the shot needs a second number. Mouse-X is
+       already turning the turret for every tank, so mouse-Y is the only axis
+       left over, and it is read here exactly the way the turret's mouse-X is --
+       accumulated as a raw delta and drained once per frame by game.js.
+
+       Under pointer lock that has to be movementY, because clientX/clientY stop
+       changing the moment the cursor is hidden. Before the lock engages the
+       screen delta is used instead, so walking up to the tank and aiming gives
+       the same feel either way.
+
+       Only the DYNAMIC camera mode consumes it (game.js asks for it there).
+       In the other modes the cursor is free and is already choosing where the
+       shell lands, so a second axis reading the same motion would make range
+       drift under the player instead of standing still. */
+    this._aimRangeAccum = 0;
+
     // Touch state
     this.isTouchDevice = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
     this._touchInput = { throttle: 0, turn: 0, turretAngle: 0, fire: false };
@@ -227,8 +285,29 @@ class Input {
     window.addEventListener('keydown', e=>{
       this.keys[e.code]=true;
       if(e.code==='Space') e.preventDefault();
+      if(e.code==='ControlLeft' || e.code==='ControlRight'){
+        document.body.classList.add('ctrl-held');
+        if(this._pointerLocked) document.exitPointerLock();
+      }
     });
-    window.addEventListener('keyup',   e=>{ this.keys[e.code]=false; });
+    window.addEventListener('keyup',   e=>{
+      this.keys[e.code]=false;
+      if(e.code==='ControlLeft' || e.code==='ControlRight'){
+        document.body.classList.remove('ctrl-held');
+        if(!this._pointerLocked){
+          const c = canvas();
+          const isDynamic = this._isEffDynamic();
+          // Don't lock during countdown or while tank selector is visible
+          const tsp = document.getElementById('tank-switch-panel');
+          const gm = this._game();
+          const inCountdown = !!(gm && (gm._cinematicPhase || gm._matchStartDelay > 0));
+          const selectorVisible = tsp && !tsp.classList.contains('hidden');
+          if(isDynamic && c && document.body.classList.contains('crosshair-mode') && !inCountdown && !selectorVisible){
+            c.requestPointerLock();
+          }
+        }
+      }
+    });
 
     const canvas = ()=> document.querySelector('#game-root canvas');
     document.addEventListener('mousemove', e=>{
@@ -239,15 +318,52 @@ class Input {
         this.mouse.ndcX =  ((e.clientX-r.left)/r.width )*2-1;
         this.mouse.ndcY = -((e.clientY-r.top )/r.height)*2+1;
       }
+      /* A locked pointer freezes clientX/clientY, so ndcX/ndcY above stop
+         changing. That is correct and expected now: the turret is aimed by
+         mouse DELTA, not by the cursor's position, so ndcX/ndcY is only read
+         by the pointer-aimed camera modes, which never lock. Nothing to undo. */
     });
-    document.addEventListener('mousedown', e=>{ if(e.button===0) this.mouse.down=true; });
-    document.addEventListener('mouseup',   e=>{ if(e.button===0) this.mouse.down=false; });
+    document.addEventListener('mousedown', e=>{ if(e.button===0) this.mouse.down=true; if(e.button===1) this.mouse.midDown=true; if(e.button===2) this.mouse.rightDown=true; });
+    document.addEventListener('mouseup',   e=>{ if(e.button===0) this.mouse.down=false; if(e.button===1) this.mouse.midDown=false; if(e.button===2) this.mouse.rightDown=false; });
+    document.addEventListener('contextmenu', e=>e.preventDefault());
 
     window.addEventListener('wheel', e=>{
       this.wheel += (e.deltaY < 0 ? 1 : -1);
     }, {passive:true});
 
-    window.addEventListener('blur', ()=>{ this.keys={}; this.mouse.down=false; this._camRotateTouch=0; });
+    window.addEventListener('blur', ()=>{ this.keys={}; this.mouse.down=false; this.mouse.midDown=false; this.mouse.rightDown=false; this._camRotateTouch=0; });
+
+    // Pointer lock: capture mouse for infinite 360° rotation in dynamic mode
+    document.addEventListener('pointerlockchange', ()=>{
+      this._pointerLocked = document.pointerLockElement != null;
+      this._pointerLockEl = document.pointerLockElement;
+      // Reset last mouse position to avoid a delta jump when toggling lock
+      if(!this._pointerLocked){
+        this._camSwipeMouseLastX = 0;
+        this._camSwipeMouseLastY = 0;
+      }
+    });
+    // Request pointer lock on canvas click (only during gameplay in dynamic mode)
+    document.addEventListener('mousedown', (e)=>{
+      if(e.button !== 0) return;
+      const c = canvas();
+      if(!c) return;
+      if(e.target !== c) return;
+      // Don't lock pointer while tank selector is visible
+      const tsp = document.getElementById('tank-switch-panel');
+      if(tsp && !tsp.classList.contains('hidden')) return;
+      // Don't lock during cinematic or countdown
+      const gm = this._game();
+      if(gm && (gm._cinematicPhase || gm._matchStartDelay > 0)) return;
+      const isDynamic = this._isEffDynamic();
+      /* Every tank locks now, artillery included. The mortar is aimed through
+         its turret by mouse DELTA, which pointer lock keeps delivering via
+         movementX/movementY, and its range reads movementY -- so hiding the
+         cursor costs the player nothing and buys an unmasked play area. */
+      if(isDynamic && !this._pointerLocked){
+        c.requestPointerLock();
+      }
+    });
 
     // Camera swipe (one-finger drag to rotate camera in swipe mode)
     this._camSwipeId = null;
@@ -320,18 +436,52 @@ class Input {
       this._camSwipeMouseLastY = e.clientY;
     });
     document.addEventListener('mousemove', (e) => {
-      // Track mouse movement for camera rotation without LMB (when enabled in settings)
-      if(this.settings && this.settings.cameraMouseRotate && !this._camSwipeMouseDown){
-        if(this._camSwipeMouseLastX !== 0 || this._camSwipeMouseLastY !== 0){
-          this._camMouseRotateAccum += e.clientX - this._camSwipeMouseLastX;
+      const isDynamic = this._isEffDynamic();
+      // When pointer is locked, use movementX for unlimited 360° rotation
+      /* Range axis: read BEFORE the locked early-return, so aiming with the
+       cursor hidden works. Scroll-down (movementY > 0) walks the shot IN,
+       scroll-up walks it OUT -- the sign is flipped in game.js so that pushing
+       the mouse away from you pushes the target away from you. */
+    if(isDynamic) this._aimRangeAccum += (this._pointerLocked ? e.movementY : 0);
+      /* Pitch axis: the vertical half of the SAME locked mouse feed, for the
+         mode-1 crosshair. Only for tanks that leave mouse-Y free — the mortar
+         spends it on range. Gun-side clamping happens in game.js; this stays
+         a raw delta so the artillery test stays in one place. */
+      if(isDynamic && this._pointerLocked){
+        const gm = this._game();
+        const lt = gm && gm.localTank;
+        if(lt && lt.alive && lt.def && lt.def.shellType !== 'mortar'){
+          this._aimPitchAccum += e.movementY;
         }
-        this._camSwipeMouseLastX = e.clientX;
-        this._camSwipeMouseLastY = e.clientY;
       }
-      // Standard swipe (requires LMB)
+      if(this._pointerLocked){
+        if(isDynamic){
+          this._camMouseRotateAccum += e.movementX;
+        }
+        return;
+      }
+      // Always track last mouse position for delta calculation
+      const isFirstMove = (this._camSwipeMouseLastX === 0 && this._camSwipeMouseLastY === 0);
+      const dx = e.clientX - this._camSwipeMouseLastX;
+      const dy = e.clientY - this._camSwipeMouseLastY;
+      // Capture mouse delta for camera rotation
+      // Dynamic mode: always capture (Tanki Online style - mouse rotates camera)
+      // Other modes: only capture when cameraMouseRotate setting is on and LMB not held
+      if((isDynamic || this.settings.cameraMouseRotate) && !this._camSwipeMouseDown){
+        if(!isFirstMove){
+          this._camMouseRotateAccum += dx;
+        }
+        /* Same delta, same dynamic-mode-only gate, for the artillery range. */
+        if(isDynamic && !isFirstMove) this._aimRangeAccum += dy;
+      }
+      this._camSwipeMouseLastX = e.clientX;
+      this._camSwipeMouseLastY = e.clientY;
+      // Standard swipe (requires LMB) — skip in dynamic mode so firing doesn't rotate camera
       if(!this._camSwipeMouseDown) return;
-      this._camSwipeAccum += e.clientX - this._camSwipeMouseLastX;
-      this._camSwipeAccumY += e.clientY - this._camSwipeMouseLastY;
+      if(!isDynamic){
+        this._camSwipeAccum += dx;
+        this._camSwipeAccumY += dy;
+      }
       this._camSwipeMouseLastX = e.clientX;
       this._camSwipeMouseLastY = e.clientY;
     });
@@ -451,6 +601,9 @@ class Input {
     let val = 0;
     if(this.keys[this.binds.camLeft]) val -= 1;
     if(this.keys[this.binds.camRight]) val += 1;
+    // < and > keys also rotate the camera (common expectation)
+    if(this.keys['Comma']) val -= 1;
+    if(this.keys['Period']) val += 1;
     const touch = this._camRotateTouch || 0;
     return val || touch;
   }
@@ -459,6 +612,36 @@ class Input {
     const a = this._camSwipeAccum || 0;
     this._camSwipeAccum = 0;
     return a;
+  }
+
+  /* Screen-vertical mouse delta since the last frame, for the artillery range
+     axis. Drained by game.js in dynamic camera mode; every other tank simply
+     never asks, and the accumulator is cleared here so a long gap cannot arrive
+     as one enormous jump. */
+  consumeAimRange(){
+    const a = this._aimRangeAccum || 0;
+    this._aimRangeAccum = 0;
+    return a;
+  }
+
+  /* Screen-vertical mouse delta for the CROSSHAIR PITCH axis (mode 1). Only
+     accumulates while the pointer is locked AND the local tank is not the
+     mortar — the artillery owns mouse-Y for range, so the two axes never fight.
+     game.js clamps the resulting pitch to AIM_PITCH_*_DEG. */
+  consumeAimPitch(){
+    const a = this._aimPitchAccum || 0;
+    this._aimPitchAccum = 0;
+    return a;
+  }
+
+  /* EFFECTIVE DYNAMIC MODE, not the stored preference. With the two-mode
+     camera the wheel switches stages and can flip the game in and out of
+     dynamic dipping — dragging, the pointer-lock re-request and the pitch
+     axis must all follow the LIVE mode, not what the settings screen says. */
+  _isEffDynamic(){
+    const gm = this._game();
+    if(gm && gm.cameraMode) return gm.cameraMode === 'dynamic';
+    return !!(this.settings && this.settings.cameraMode === 'dynamic');
   }
 
   // Mouse movement rotation without holding LMB (when cameraMouseRotate setting is enabled)
@@ -494,6 +677,7 @@ class Input {
   resetTouch(){
     if(this._moveJoystick) this._moveJoystick.reset();
     if(this._turretJoystick) this._turretJoystick.reset();
+    if(this._pointerLocked) document.exitPointerLock();
     this._camRotateTouch = 0;
     this._camSwipeAccum = 0;
     this._pinchTouchIds = [];
@@ -516,7 +700,7 @@ class Input {
   static captureBind(){
     return new Promise(resolve=>{
       const kd = (e)=>{ cleanup(); resolve(e.code); };
-      const md = (e)=>{ if(e.button!==0) return; cleanup(); resolve('LMB'); };
+      const md = (e)=>{ if(e.button===0){ cleanup(); resolve('LMB'); } else if(e.button===1){ cleanup(); resolve('MMB'); } else if(e.button===2){ e.preventDefault(); cleanup(); resolve('RMB'); } };
       const wh = (e)=>{ cleanup(); resolve(e.deltaY < 0 ? 'WheelUp' : 'WheelDown'); };
       function cleanup(){
         window.removeEventListener('keydown', kd);
@@ -532,6 +716,8 @@ class Input {
   pressed(action){
     const k = this.binds[action];
     if(k==='LMB') return this.mouse.down;
+    if(k==='RMB') return this.mouse.rightDown;
+    if(k==='MMB') return this.mouse.midDown;
     if(k==='WheelUp' || k==='WheelDown') return false;
     return !!this.keys[k];
   }
