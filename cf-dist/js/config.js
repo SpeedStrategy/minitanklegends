@@ -29,6 +29,16 @@ const TROPHIES = [
     icon: 'assets/trophies/beta-tester.webp',
     hint: 'Played before the game was finished.',
   },
+  { id:'rookie',    name:'Rookie',    icon:'assets/trophies/rookie.webp',    hint:'Your first win. Everyone starts somewhere.', threshold:0 },
+  { id:'scout',     name:'Scout',     icon:'assets/trophies/scout.webp',     hint:'10 wins. You know the ropes now.', threshold:10 },
+  { id:'gunner',    name:'Gunner',    icon:'assets/trophies/gunner.webp',    hint:'25 wins. A reliable shot.', threshold:25 },
+  { id:'sergeant',  name:'Sergeant',  icon:'assets/trophies/sergeant.webp',  hint:'100 wins. Leading from the front.', threshold:100 },
+  { id:'enforcer',  name:'Enforcer',  icon:'assets/trophies/enforcer.webp',  hint:'250 wins. No mercy.', threshold:250 },
+  { id:'commander', name:'Commander', icon:'assets/trophies/Commander.webp', hint:'500 wins. The field is yours.', threshold:500 },
+  { id:'vanguard',  name:'Vanguard',  icon:'assets/trophies/Vanguard.webp',  hint:'1,000 wins. First in, last out.', threshold:1000 },
+  { id:'general',   name:'General',   icon:'assets/trophies/General.webp',   hint:'5,000 wins. A legend in the making.', threshold:5000 },
+  { id:'master',    name:'Master',    icon:'assets/trophies/Master.webp',    hint:'10,000 wins. Untouchable.', threshold:10000 },
+  { id:'legend',    name:'Legend',    icon:'assets/trophies/Legend.webp',    hint:'20,000 wins. Immortal.', threshold:20000 },
 ];
 
 const CONFIG = {
@@ -1277,6 +1287,11 @@ function loadSettings(){
          fallback below, so a corrupt save loses nothing. */
       trophyOwnedIds:   Array.isArray(s.trophyOwnedIds) ? s.trophyOwnedIds.filter(id => typeof id === 'string') : [],
       equippedTrophyId: (typeof s.equippedTrophyId === 'string' && s.equippedTrophyId) ? s.equippedTrophyId : null,
+      /* The running win count behind the trophy ladder. Whitelisted alongside
+         the owned ids above: a key missing from this literal is dropped by
+         every loadSettings() round trip, and the roadmap would show 0 wins
+         forever after the first rebuild. */
+      trophyCount:      typeof s.trophyCount === 'number' ? s.trophyCount : 0,
     };
   }catch(e){
     return {binds:defaults(), selectedTank:'coolbuddy', playerName:generatePlayerName(), playerClan:'', cash:0, coins:0, gold:0,
@@ -1288,7 +1303,7 @@ function loadSettings(){
             clanWeekWins:0, clanWeekWinsBonus:false, clanWeekLoginXP:0, clanLastLoginDay:0, tlPlus:false,
             screenShake:100, muzzleFx:true, showFps:false, invertCamRot:false, cameraMode:'dynamic', cameraMouseRotate:false, cameraSensitivity:100,
             camTwoMode:true, cameraStage:2,
-            trophyOwnedIds:[], equippedTrophyId:null};
+            trophyOwnedIds:[], equippedTrophyId:null, trophyCount:0};
   }
 }
 function saveSettings(s){

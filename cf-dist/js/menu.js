@@ -3837,7 +3837,7 @@ const Menu = {
         '<div class="shop-deal-image" style="background-image:url(\'' + img + '\')"></div>' +
         '<div class="shop-deal-amount">' + offer.amount + '</div>' +
         '<div class="shop-deal-label">' + label + '</div>' +
-        '<div class="shop-deal-price' + (offer.currency === 'coins' ? ' coins' : '') + '"><img class="cur-mini" src="assets/currency/' + curFile + '.png" alt=""><span>' + (offer.price === 0 ? 'FREE' : offer.price) + '</span></div>' +
+        '<div class="shop-deal-price' + (offer.currency === 'coins' ? ' coins' : '') + '"><img class="cur-mini" src="assets/currency/' + curFile + '.webp" alt=""><span>' + (offer.price === 0 ? 'FREE' : offer.price) + '</span></div>' +
         (offer.stock > 0 && offer.stock < 99 ? '<div class="shop-deal-stock">' + offer.stock + ' left</div>' : '') +
         (soldOut ? '<div class="shop-deal-stock">SOLD OUT</div>' : '');
       if(!soldOut){

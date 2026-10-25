@@ -486,3 +486,73 @@ a fresh browser boot to `Ready!` + a two-tab movement test on production.
    on every edited js. Deploy note: cf-dist staging is generated at deploy
    time — the new webp/wav assets and stamp bumps ship through the normal
    build/deploy (no production deploy was run by this pass).
+
+---
+
+## 2026-10-25, eighth pass (OpenCode) - TROPHY ROADMAP + BUTTON PLACEMENT (deployed)
+
+1. **Trophy system**: js/config.js TROPHIES now carries 10 win-threshold
+   trophies (Rookie 0 / Scout 10 / Gunner 25 / Sergeant 100 / Enforcer 250 /
+   Commander 500 / Vanguard 1000 / General 5000 / Master 10000 / Legend
+   20000). Each has a 	hreshold field; eta-tester deliberately has none.
+   ssets/trophies/Rookie.webp is a PLACEHOLDER copy of beta-tester.webp
+   (no Rookie art was provided) - swap it when real art exists.
+   sergeant.webp converted from PNG. Award hook lives in _showResults
+   (outcome==='win' -> s.trophyCount++, threshold checks, wardTrophy)
+   in BOTH js/game.js (root) AND dev/js/game.js (dev); reset flag
+   _trophyAwardedThisMatch sits beside _resultsShown = false in both.
+2. **js/trophy-roadmap.js (NEW, both index files, stamp 20261025a)**:
+   build/roadmap overlay + window.updateTrophyProgressButton. The track
+   filters OUT no-threshold trophies (Beta Tester cluttered position 1).
+   roadmap ID strings: #trophy-progress-btn / -fill / -icon,
+   #trophy-roadmap(-backdrop/-close/-track/-dots/-count).
+3. **Button placement (both index.html files)**: the trophy progress button
+   is now .trophy-menu-btn in the MAIN menu top bar NEXT to
+   #btn-settings-gear (48px rounded square, orange fill sweep). It is NOT
+   in the profile menu any more. Sign-in button stays at the profile-menu
+   bottom as .auth-mini-profile - now styled like settings buttons (hard
+   2px #000 border + 3px offset shadow, gold gradient, press-down anim).
+4. **CSS stamp discipline bug fixed**: previous passes deployed new
+   css/style.css WITHOUT bumping its stamp (was still 20261018d). Now
+   css/style.css?v=20261025a, game 20261025a, trophy-roadmap 20261025a.
+   health-check.cjs css-version gate updated to accept 202610(18[b-z]|2[4-9][a-z]).
+5. **ENCODE WARNING**: writing index.html via PowerShell
+   [IO.File]::WriteAllText(,,[Text.UTF8Encoding]::new(False)) STRIPS
+   the load-bearing BOM (this erased pass-7's restoration and made
+   bump-stamps fail). Root index.html BOM is restored again. Use node
+   s.readFileSync(utf8) + writeFileSync / the edit tool for that file.
+   Non-ASCII baseline is 46 on disk (9x "ï¿½" mojibake sequences are
+   PRE-EXISTING and counted in the baseline - leave them alone).
+6. Verified live: health 15/15, bump-stamps OK, /api/health db:up,
+   roadmap renders 10 alternating milestones in a real browser on /
+   (Rookie top ... Legend bottom, next-dot pulse). Deploy refresh:
+   5a410a06 (production alias).
+
+---
+
+## 2026-10-25, ninth pass (OpenCode) - TROPHY ROADMAP V2 + PERSISTENCE FIX (deployed)
+
+1. **Roadmap cartoon rework** (css/style.css 20261025c, js/trophy-roadmap.js 20261025c):
+   card now 97vw x up to 470px track; carved dark road with a gold progress
+   surface that grows between milestone centres; each milestone is a chunky
+   3px-outlined tile with a pill chip, bobbing when it is the next goal;
+   milestones alternate above/below the road with real breathing room.
+   BETA TESTER rides along as a mint-coloured start-of-road gate (no win
+   requirement); the ten win milestones go Rookie(top) -> Legend(bottom).
+   No clipping (clipped-label probe returned 0) and the road scrolls
+   horizontally under 980px instead of crushing. Rookie now uses the real
+   ssets/trophies/rookie.webp (the placeholder copy was deleted).
+2. **Persistence bug fixed** (js/config.js): 	rophyCount was missing from
+   the loadSettings() whitelist AND its catch fallback, so every
+   loadSettings() round trip dropped the win count - the roadmap would show
+   0 wins after the first rebuild, and wardTrophy()'s own saveSettings()
+   would erase it from storage. Added to both spots. 	rophy-roadmap.js
+   now reads fresh via loadSettings() instead of a stale Menu.settings
+   snapshot.
+3. **Stamp hygiene**: js/config.js had been stuck at ?v=20261011d since
+   before the trophy roster existed - returning visitors never refetched the
+   10 trophies. Bumped to 20261025b. js/game.js 20261025b, trophy-roadmap
+   20261025c, css 20261025c. The dev index.html uses the same stamps.
+4. Verified live: health 15/15, bump-stamps OK, /api/health db:up, both /
+   and /dev/ render 11 milestones + the gate in a real browser, owned/next/
+   fill math works with simulated 27 wins, nothing clipped.

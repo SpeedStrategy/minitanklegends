@@ -22,7 +22,7 @@ const checks = [
   ['voting hill entry',        /id: 'hill',/.test(v)],
   ['html kickers',             (/gm-card-kicker/.test(i))],
   ['html title accent',        /gm-title-accent/.test(i)],
-  ['html css version bump',    /css\/style\.css\?v=20261018[b-z]/.test(i)],
+  ['html css version bump',    /css\/style\.css\?v=202610(18[b-z]|2[4-9][a-z])/.test(i)],
   ['css GM 2.0 block',         /GM 2.0/.test(c)],
   ['css searchlight',          /gmSearchlight/.test(c)]
 ];
