@@ -1530,6 +1530,13 @@ class World {
       lb.getSize(sz);
       const area = sz.x * sz.z;
       if(area < MIN_AREA || area > MAX_AREA) return;
+      /* A cover box is the root's axis-aligned footprint with no height, so a
+       terrain chunk, hill or platform the tanks drive ON became a solid block
+       tens of units wide. Paperland's centre registered a 65x65 "wall" that
+       tanks were standing inside: every line of sight across the middle failed
+       and both teams jammed nose to nose without ever firing. Real cover --
+       buildings, crates, rocks -- is well under 40 units on a side. */
+      if(Math.max(sz.x, sz.z) > 40) return;
       const cx = (lb.min.x + lb.max.x) / 2;
       const cz = (lb.min.z + lb.max.z) / 2;
       const w = sz.x + 2;

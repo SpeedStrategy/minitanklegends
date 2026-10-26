@@ -3,6 +3,26 @@
    with rebindable keybinds.
    ============================================================ */
 
+/* Pointer lock is a mouse feature. Nine call sites ask for it; on a phone (no
+   fine pointer) or in a frame/tab that is not focused, the browser rejects the
+   returned promise and it surfaced as an uncaught WrongDocumentError. One
+   wrapper here: skip it where there is no mouse, swallow a refusal elsewhere. */
+(function(){
+  const proto = window.Element && Element.prototype;
+  if(!proto || !proto.requestPointerLock || proto.requestPointerLock._mtlSafe) return;
+  const orig = proto.requestPointerLock;
+  const safe = function(){
+    if(window.matchMedia && !matchMedia('(any-pointer: fine)').matches) return undefined;
+    try{
+      const r = orig.apply(this, arguments);
+      if(r && typeof r.catch === 'function') r.catch(()=>{});
+      return r;
+    }catch(e){ return undefined; }
+  };
+  safe._mtlSafe = true;
+  proto.requestPointerLock = safe;
+})();
+
 class TouchJoystick {
   constructor(containerId, opts={}){
     this.container = document.getElementById(containerId);

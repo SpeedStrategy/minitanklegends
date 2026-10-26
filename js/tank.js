@@ -3472,6 +3472,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
         }
         this._physBody.setAngvel(this._tmpAngvel, true);
       }
+      this._keepUpright(dt);
       var desiredFriction;
       if(this._allowFall){
         desiredFriction = 0.3;
@@ -3745,7 +3746,9 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
   hasSuper(){ return !!this.def.superType; }
 
   activateSuper(){
-    if(!this.hasSuper() || this.superCdLeft > 0 || this.superState) return false;
+    /* 'done' is a finished super, not a running one. Nothing ever cleared it,
+       so a super could be used ONCE per match and never again. */
+    if(!this.hasSuper() || this.superCdLeft > 0 || (this.superState && this.superState !== 'done')) return false;
     const t = this.def.superType;
     if(t === 'airstrike'){
       this.superState = 'targeting';
@@ -3998,7 +4001,83 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
        Firefox reported it every session as an "unreachable code after return
        statement" warning — so it is gone rather than kept on life support.
        Turn ramming back on by writing the new rules in front of the return. */
+    this._unstack(game);
     return;
+  }
+
+  /* A TANK THAT GOES OVER COMES BACK ONTO ITS TRACKS.
+
+     The hull is a free rigid body: a steep slope, a shove from another tank or
+     a blast could roll it, and nothing ever rolled it back. On The Hill more
+     than half of every match's tanks ended up on their backs, spinning in
+     place (the steering still turns them about the world's vertical), where
+     they could neither drive nor be expected to -- which is what looked like
+     bots "unable to climb". Two layers:
+       * past ~35 degrees of tilt a restoring spin pulls the hull upright, so
+         ordinary slopes are untouched but a tip-over is caught early;
+       * a hull that is on its side or back for 0.4 s is set back upright on
+         the spot, heading kept. */
+  _keepUpright(dt){
+    const b = this._physBody;
+    if(!b || this.netDriven || this.dying) return;
+    let q;
+    try { q = b.rotation(); } catch(e){ return; }
+    const ux = 2 * (q.x * q.y - q.w * q.z);
+    const uy = 1 - 2 * (q.x * q.x + q.z * q.z);
+    const uz = 2 * (q.y * q.z + q.w * q.x);
+    if(uy > 0.82){ this._flipT = 0; return; }
+    if(uy < 0.3){
+      this._flipT = (this._flipT || 0) + dt;
+      if(this._flipT < 0.4) return;
+      this._flipT = 0;
+      const half = this.heading * 0.5;
+      const p = b.translation();
+      b.setRotation({ x: 0, y: Math.sin(half), z: 0, w: Math.cos(half) }, true);
+      b.setTranslation({ x: p.x, y: p.y + 1.5, z: p.z }, true);
+      b.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      const lv = b.linvel();
+      b.setLinvel({ x: lv.x * 0.3, y: 0, z: lv.z * 0.3 }, true);
+      return;
+    }
+    /* Restoring spin about (up x worldUp) = (-uz, 0, ux), stronger the further
+       over the hull is; existing roll/pitch spin is damped so it cannot fight it. */
+    const k = 7 * (1 - uy);
+    const av = b.angvel();
+    b.setAngvel({ x: av.x * 0.6 - uz * k, y: av.y, z: av.z * 0.6 + ux * k }, true);
+  }
+
+  /* ANTI-STACKING. Tank colliders are plain boxes with real friction, so two
+     hulls shoving nose to nose let one ride up onto the other's deck and park
+     there — floating turrets, shells passing under the "hitbox", a tank that
+     cannot drive because its tracks touch nothing. When this hull's centre is
+     over another hull and clearly above it, slide it off sideways and down.
+     Runs after the drive loop wrote its velocity, so it wins this step. */
+  _unstack(game){
+    if(!this._physBody || !this.alive || this.dying || !game || !game.tanks) return;
+    let p, lv;
+    try { p = this._physBody.translation(); lv = this._physBody.linvel(); } catch(e){ return; }
+    /* Only a hull that is RESTING. Tanks drop in from spawn height in tight
+       clusters; treating a falling tank above a neighbour as stacked shoved it
+       sideways for the whole fall and threw most of the field off the map. */
+    if(Math.abs(lv.y) > 1.5) return;
+    const myH = this.colHalfH || 0.5;
+    const myR = Math.max(this.colHalfW || 0, this.colHalfL || 0);
+    for(const o of game.tanks){
+      if(!o || o === this || !o.alive || o.dying || !o._physBody) continue;
+      let op;
+      try { op = o._physBody.translation(); } catch(e){ continue; }
+      const oH = o.colHalfH || 0.5;
+      const dy = p.y - op.y;
+      // On top of it: clearly higher, and close enough vertically to be touching.
+      if(dy < myH + oH * 0.6 || dy > myH + oH + 0.8) continue;
+      const dx = p.x - op.x, dz = p.z - op.z;
+      const d = Math.hypot(dx, dz);
+      if(d >= myR + Math.max(o.colHalfW || 0, o.colHalfL || 0)) continue;
+      const nx = d > 1e-3 ? dx / d : Math.cos(this.heading);
+      const nz = d > 1e-3 ? dz / d : -Math.sin(this.heading);
+      this._physBody.setLinvel({ x: lv.x + nx * 4, y: Math.min(lv.y, -2), z: lv.z + nz * 4 }, true);
+      return;
+    }
   }
 
   /* ════════════════════════════════════════════════════════════════════════

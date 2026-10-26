@@ -108,22 +108,23 @@ const CONFIG = {
   CAM_CHASE_LERP_STOP: 0.15,    // lerp when stopped (catch up fast)
   CAM_TOPDOWN_ANGLE: 35,        // degrees - threshold for top-down mode
 
-  /* TWO-MODE CAMERA: 6 fixed camera points.
+  /* BRAWL-STYLE CAMERA: 6 zoom steps, one layout.
 
-     Stop<sub>0..2 is third person (Dynamic/WoT behaviour — camera rotates with
-     the view, turret chases, crosshair pitch with mouse-Y). Stops 3..5 is the
-     "strategic" layout: camera parked ~60° up, tank near the BOTTOM of the
-     frame (not centered), the mouse cursor is the aim and the turret follows it.
-     The layout switches the moment the scroll crosses stop 2→3 (or back on the way in).
-     The player scrolls BETWEEN stops, not through a continuous distance — the
-     six points are the whole range. */
+     The camera never rotates: it is parked behind the tank at the start of
+     the match (looking toward the arena centre), follows the tank's position
+     only, and the mouse cursor is the aim. The wheel steps between these six
+     distances; every stop is the same angled top-down view, so zooming never
+     flips the controls the way the old third-person/strategic pair did.
+     dist is the horizontal offset; height = dist * tan(pitchDeg). Stop 2 is
+     the default. Six entries are kept because the saved cameraStage and the
+     clamps in game.js assume indices 0..5. */
   CAMERA_STOPS: [
-    { mode:'tp',  dist:14  },   // 0 — behind the hull, close
-    { mode:'tp',  dist:26  },   // 1 — behind the hull, mid
-    { mode:'tp',  dist:46  },   // 2 — behind the hull, far (default)
-    { mode:'strategic', dist:90,  pitchDeg:58 },   // 3 — horizontal top-down, near (tank at bottom)
-    { mode:'strategic', dist:130, pitchDeg:58 },   // 4 — horizontal top-down, mid
-    { mode:'strategic', dist:170, pitchDeg:58 },   // 5 — horizontal top-down, full map
+    { mode:'strategic', dist:18, pitchDeg:60 },   // 0 — close
+    { mode:'strategic', dist:24, pitchDeg:60 },   // 1
+    { mode:'strategic', dist:30, pitchDeg:60 },   // 2 — default
+    { mode:'strategic', dist:38, pitchDeg:60 },   // 3
+    { mode:'strategic', dist:48, pitchDeg:60 },   // 4
+    { mode:'strategic', dist:60, pitchDeg:60 },   // 5 — widest
   ],
 
   // Mode 1 crosshair pitch: mouse-Y moves the CROSSHAIR, not the camera.
@@ -1530,6 +1531,43 @@ function addClanItem(type, meta){
   saveClanStorage(items);
   return items;
 }
+/* WIN BOXES — the only steady source of upgrade points.
+
+   Every win drops one box into Storage, up to WIN_BOX_LIMIT per window. The
+   window opens on the first win after the last one expired and lasts
+   WIN_BOX_WINDOW_MS, so "6 boxes, resets after 12 hours" is literal: six
+   wins fill it, and twelve hours after it opened it is empty again. */
+const WIN_BOX_LIMIT = 6;
+const WIN_BOX_WINDOW_MS = 12 * 60 * 60 * 1000;
+
+function winBoxStatus(){
+  const s = (typeof Menu !== 'undefined' && Menu.settings) || {};
+  const now = Date.now();
+  let w = s.winBoxes;
+  if(!w || !w.start || now - w.start >= WIN_BOX_WINDOW_MS) w = { start: 0, earned: 0 };
+  return {
+    earned: w.earned || 0,
+    limit: WIN_BOX_LIMIT,
+    resetsAt: w.start ? w.start + WIN_BOX_WINDOW_MS : 0,
+  };
+}
+
+function grantWinBox(){
+  const s = (typeof Menu !== 'undefined' && Menu.settings) || null;
+  if(!s) return null;
+  const now = Date.now();
+  let w = s.winBoxes;
+  if(!w || !w.start || now - w.start >= WIN_BOX_WINDOW_MS) w = { start: now, earned: 0 };
+  if(w.earned >= WIN_BOX_LIMIT){
+    return { granted: false, earned: w.earned, limit: WIN_BOX_LIMIT, resetsAt: w.start + WIN_BOX_WINDOW_MS };
+  }
+  w.earned += 1;
+  s.winBoxes = w;
+  addClanItem('box', { source: 'win' });
+  if(typeof saveSettings === 'function') saveSettings(s);
+  return { granted: true, earned: w.earned, limit: WIN_BOX_LIMIT, resetsAt: w.start + WIN_BOX_WINDOW_MS };
+}
+
 function removeClanItem(index){
   var items = loadClanStorage();
   if(index >= 0 && index < items.length) items.splice(index, 1);
@@ -1537,16 +1575,24 @@ function removeClanItem(index){
   return items;
 }
 
+/* THE "ALREADY GIVEN" FLAG LIVES IN ITS OWN KEY. It used to be a field of
+   the settings object, and any save of a settings object that lacked it (the
+   loaded copy did not carry it) wiped it -- so every loadSettings() call handed
+   out ten more starter boxes. With upgrade points in boxes that was an
+   unlimited upgrade-point tap. The old field is still honoured once. */
 function ensureStarterBoxes(){
   try{
+    if(localStorage.getItem('tankparty_starter_boxes') === '1') return;
     var s = JSON.parse(localStorage.getItem('tankparty_settings')||'{}');
-    if(s.starterBoxesGiven) return;
+    if(s.starterBoxesGiven || loadClanStorage().length){
+      localStorage.setItem('tankparty_starter_boxes', '1');
+      return;
+    }
     var items = loadClanStorage();
     for(var i = 0; i < 10; i++){
       items.push({ type:'box', meta:{ source:'starter' }, acquired:Date.now(), week:getWeekKey() });
     }
     saveClanStorage(items);
-    s.starterBoxesGiven = true;
-    localStorage.setItem('tankparty_settings', JSON.stringify(s));
+    localStorage.setItem('tankparty_starter_boxes', '1');
   }catch(e){}
 }

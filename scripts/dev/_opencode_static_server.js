@@ -4,7 +4,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const PORT = 18211;
-const ROOT = __dirname;
+const ROOT = require('path').resolve(__dirname, '..', '..');
 const MIME = {
   '.html':'text/html','.js':'application/javascript','.css':'text/css',
   '.json':'application/json','.png':'image/png','.jpg':'image/jpeg',

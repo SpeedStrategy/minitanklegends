@@ -167,8 +167,31 @@ const Net = {
   },
 
   _open() {
-    if (this.ws && (this.ws.readyState === 0 || this.ws.readyState === 1)) {
+    if (this.ws && this.ws.readyState === 1) {
       return Promise.resolve();
+    }
+    /* A socket still CONNECTING is not a connection. Resolving here made the
+       server probe report "online" whenever the auto-reconnect loop had an
+       attempt in flight -- which is always, after a match on an unreachable
+       server -- so PLAY joined a queue nobody would ever answer and the game
+       looked dead after the first battle. Wait for that attempt's verdict. */
+    if (this.ws && this.ws.readyState === 0) {
+      const pending = this.ws;
+      return new Promise((resolve, reject) => {
+        const done = (fn, arg) => {
+          clearTimeout(to);
+          pending.removeEventListener('open', onOpen);
+          pending.removeEventListener('close', onFail);
+          pending.removeEventListener('error', onFail);
+          fn(arg);
+        };
+        const onOpen = () => done(resolve);
+        const onFail = () => done(reject, new Error('Could not reach the match server.'));
+        const to = setTimeout(onFail, 10000);
+        pending.addEventListener('open', onOpen);
+        pending.addEventListener('close', onFail);
+        pending.addEventListener('error', onFail);
+      });
     }
     this._wantOpen = true;
     return new Promise((resolve, reject) => {

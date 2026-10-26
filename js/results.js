@@ -258,6 +258,17 @@
               '<span class="res-reward-cap">UPGRADE PTS</span>' +
             '</div>'
           : '') +
+        /* A win drops a box (upgrade points live in boxes now); once the
+           12-hour allowance is used up the panel says so instead. */
+        (tpAward.box
+          ? '<div class="res-reward">' +
+              '<img class="res-reward-icon" src="assets/ui/mystery-crate.webp" alt="">' +
+              '<span class="res-reward-val">' + (tpAward.box.granted ? '+1' : '0') + '</span>' +
+              '<span class="res-reward-cap">' + (tpAward.box.granted
+                ? 'BOX ' + tpAward.box.earned + '/' + tpAward.box.limit
+                : 'BOXES ' + tpAward.box.limit + '/' + tpAward.box.limit + ' USED') + '</span>' +
+            '</div>'
+          : '') +
         (showGup
           ? '<div class="res-reward">' +
               '<img class="res-reward-icon" src="assets/rewards/goldupgradepoints.webp" alt="">' +

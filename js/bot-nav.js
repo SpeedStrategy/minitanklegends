@@ -67,6 +67,53 @@ var MAX_EXPANSIONS = 4000;
 
 var SQRT2 = Math.SQRT2;
 
+/* CLIFFS ARE WALLS TOO. The grid was flat: it only knew about cover boxes, so
+   a plateau edge that rises 5 units in one step read as open ground, every
+   route went straight at it, and on The Hill whole teams pressed their noses
+   into the cliff all match. Each cell now also carries the ground height
+   (one downward ray into the physics world -- the trimesh the tanks really
+   drive on), and a step to a neighbour more than MAX_STEP higher or lower is
+   not walkable. 2.5 units across a 4-unit cell is ~32 degrees, about the
+   steepest slope a tank actually climbs. */
+var MAX_STEP = 2.5;
+
+function groundHeightFn(){
+  var g = (typeof Menu !== 'undefined' && Menu.game) || window.game;
+  var pw = g && g.physicsWorld;
+  if(!pw || typeof RAPIER === 'undefined' || !RAPIER.Ray || !pw.intersectionsWithRay) return null;
+  /* THE PLAYABLE BAND. Map meshes can carry a sky dome or backdrop into the
+     physics trimesh, so the first surface under a ray from above is often the
+     dome (~200 units up on The Hill), not the ground. The ground is where the
+     tanks are: the band runs from just under the lowest live tank to a little
+     above the highest, and the highest surface inside it is the floor. */
+  var lo = Infinity, hi = -Infinity;
+  (g.tanks || []).forEach(function(t){
+    if(!t || !t.alive || !t._physBody) return;
+    var y; try { y = t._physBody.translation().y; } catch(e){ return; }
+    if(y < lo) lo = y;
+    if(y > hi) hi = y;
+  });
+  if(!(lo < Infinity)) return null;
+  lo -= 15; hi += 25;
+  var flags = (RAPIER.QueryFilterFlags && RAPIER.QueryFilterFlags.EXCLUDE_DYNAMIC) || undefined;
+  var ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
+  var top = hi + 1;
+  return function(x, z){
+    ray.origin = { x: x, y: top, z: z };
+    var best = NaN;
+    try {
+      pw.intersectionsWithRay(ray, top - lo, true, function(hit){
+        var t = (hit.timeOfImpact != null) ? hit.timeOfImpact : hit.toi;
+        if(t == null) return true;
+        var y = top - t;
+        if(y >= lo && y <= hi && !(y <= best)) best = y;
+        return true;
+      }, flags);
+    } catch(e){ return NaN; }
+    return best;
+  };
+}
+
 /* ============================================================== binary heap
    A* opens nodes in near-sorted order, so the frontier is almost always large.
    Linear scan for the minimum turns a typical search into thousands of
@@ -170,6 +217,8 @@ Grid.prototype.bake = function(world){
 
   var n = this.w * this.h;
   var blocked = new Uint8Array(n);
+  var heightAt = groundHeightFn();
+  var heights = heightAt ? new Float32Array(n) : null;
 
   for(var cz = 0; cz < this.h; cz++){
     var wz = minZ + (cz + 0.5) * CELL;
@@ -180,9 +229,11 @@ Grid.prototype.bake = function(world){
          ends there. */
       if(wx < minX || wx > maxX || wz < minZ || wz > maxZ){ blocked[cz*this.w + cx] = 1; continue; }
       blocked[cz*this.w + cx] = solid(wx, wz, TANK_RADIUS) ? 1 : 0;
+      if(heights) heights[cz*this.w + cx] = heightAt(wx, wz);
     }
   }
   this.blocked = blocked;
+  this.heights = heights;
 
   /* Free-cell count is used to give up early and to size the heap. A map that
      is almost entirely solid is a broken map load, and returning null from
@@ -209,6 +260,23 @@ Grid.prototype.isBlocked = function(cx, cz){
   if(!this.inBounds(cx, cz)) return true;
   return this.blocked[cz * this.w + cx] === 1;
 };
+/* A step between two cells is too steep when both heights are known and differ
+   by more than MAX_STEP. An unknown height (a ray that hit nothing) never
+   blocks -- missing data must not wall off the map. */
+Grid.prototype.tooSteep = function(a, b){
+  var h = this.heights;
+  if(!h) return false;
+  var ha = h[a], hb = h[b];
+  if(ha !== ha || hb !== hb) return false;
+  return Math.abs(ha - hb) > MAX_STEP;
+};
+Grid.prototype.heightAtWorld = function(x, z){
+  if(!this.heights) return NaN;
+  var cx = this.toCellX(x), cz = this.toCellZ(z);
+  if(!this.inBounds(cx, cz)) return NaN;
+  return this.heights[this.idx(cx, cz)];
+};
+
 Grid.prototype.toCellX = function(x){ return Math.floor((x - this.minX) / CELL); };
 Grid.prototype.toCellZ = function(z){ return Math.floor((z - this.minZ) / CELL); };
 /* Clamp a cell index into the grid. See find() for why a goal can be outside
@@ -328,6 +396,7 @@ Grid.prototype.find = function(sx, sz, gx, gz){
       if(!this.inBounds(nx, nz)) continue;
       var nid = this.idx(nx, nz);
       if(this.blocked[nid]) continue;
+      if(this.tooSteep(cur, nid)) continue;
       /* NO CORNER CUTTING. Moving diagonally past the corner between two
          blocked cells would squeeze a tank through a gap its hull cannot fit
          through, and the bot would then be permanently stuck there with no way
@@ -406,9 +475,16 @@ function clearLine(world, x0, z0, x1, z1){
   var dx = x1 - x0, dz = z1 - z0;
   var d = Math.hypot(dx, dz);
   var steps = Math.max(1, Math.ceil(d / 3));
+  var grid = Grid.for(world);
+  var prevH = grid.heightAtWorld(x0, z0);
   for(var i = 1; i <= steps; i++){
     var f = i / steps;
-    if(solid(x0 + dx * f, z0 + dz * f, TANK_RADIUS)) return false;
+    var px = x0 + dx * f, pz = z0 + dz * f;
+    if(solid(px, pz, TANK_RADIUS)) return false;
+    /* Same cliff rule as the grid: samples are under a cell apart. */
+    var hh = grid.heightAtWorld(px, pz);
+    if(hh === hh && prevH === prevH && Math.abs(hh - prevH) > MAX_STEP) return false;
+    if(hh === hh) prevH = hh;
   }
   return true;
 }

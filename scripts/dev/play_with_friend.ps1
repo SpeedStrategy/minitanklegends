@@ -3,7 +3,7 @@ param([switch]$NoBrowser)
 Write-Host "=== Mini Tank Legends - Multiplayer Launcher ===" -ForegroundColor Cyan
 Write-Host ""
 
-$GameDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
+$GameDir = (Resolve-Path (Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Definition) "..\..")).Path
 Set-Location $GameDir
 
 # Kill existing node on port 3120

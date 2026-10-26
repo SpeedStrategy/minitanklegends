@@ -63,7 +63,7 @@
 
 $ErrorActionPreference = 'Stop'
 
-$Root      = $PSScriptRoot
+$Root      = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 $Project   = 'tanklg'
 $Branch    = 'main'
 $MAX_BYTES = 25MB

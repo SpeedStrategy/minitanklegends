@@ -1,5 +1,5 @@
 @echo off
-cd /d "%~dp0"
+cd /d "%~dp0..\.."
 echo === Cloudflare Pages deploy: cf-dist ===
 echo === Need CLOUDFLARE_API_TOKEN env var (get from Cloudflare Dashboard → Profile → API Tokens) ===
 echo === Or use Cloudflare Dashboard: Pages → Deploy Folder → select cf-dist → Deploy ===

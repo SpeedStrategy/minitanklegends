@@ -18,7 +18,7 @@
 
 <title>Mini Tank Legends Cline</title>
 
-<link rel="stylesheet" href="css/style.css?v=20261018d">
+<link rel="stylesheet" href="css/style.css?v=20261026a">
 <link rel="stylesheet" href="css/results.css?v=20261011d">
 
 <!--
@@ -310,7 +310,7 @@
 
         <div id="btn-settings-gear" data-open="settings" title="Settings">
 
-          <img src="gear.webp" alt="Settings">
+          <img src="assets/ui/settings-gear.webp" alt="Settings">
 
         </div>
 
@@ -344,17 +344,7 @@
         </div>
       </div>
 
-      <div class="main-menu-crates" id="main-menu-crates">
-
-        <div class="crate-slot" data-slot="0"><img src="mystery_mtl.webp" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
-
-        <div class="crate-slot" data-slot="1"><img src="mystery_mtl.webp" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
-
-        <div class="crate-slot" data-slot="2"><img src="mystery_mtl.webp" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
-
-        <div class="crate-slot" data-slot="3"><img src="mystery_mtl.webp" alt="Crate" style="width:64%;height:64%;object-fit:contain;opacity:0.9"></div>
-
-      </div>
+      <div class="main-menu-crates" id="main-menu-crates"><!-- filled by Menu._renderWinBoxes --></div>
 
       <div class="menu-card hidden" id="menu-custom-card"></div>
 
@@ -2360,7 +2350,7 @@
     const GAME_SCRIPTS = [
       'js/toon.js?v=20260929b',
       'js/xray.js?v=20261008p',
-      'js/config.js?v=20261011d',
+      'js/config.js?v=20261026c',
       'js/vfx.js?v=1787330007',
       'js/fireball.js?v=20260929m',
       'js/mortar-blast.js?v=20261006a',
@@ -2374,12 +2364,12 @@
       'js/models.js?v=20261010a',
       'js/water-shader.js?v=20260929a',
       'js/water-tsl.js?v=20260926a',
-      'js/world.js?v=20261011c',
+      'js/world.js?v=20261025r',
       /* BEFORE tank.js: Tank._drawHp calls HPBarStyles.draw for the nameplate,
          and falls back to a plain solid bar if the module is not there yet. The
          style preview page loads this same file to render the five options. */
       'js/hpbar-styles.js?v=20261006a',
-      'js/tank.js?v=20261024a',
+      'js/tank.js?v=20261026g',
       'js/tank-sprays.js?v=20261012b',
       /* Styles (cosmetics): tank.js calls TankStyles.apply once the model is
          on, so the module has to exist by the tank build — place it with the
@@ -2387,9 +2377,9 @@
       'js/tank-styles.js?v=20261011a',
       'js/projectile.js?v=20261024a',
       'js/bullet-trail.js?v=20260929a',
-      'js/input.js?v=1787330007',
-      'js/bot-nav.js?v=20261008a',
-      'js/bot.js?v=20261024a',
+      'js/input.js?v=20261025c',
+      'js/bot-nav.js?v=20261026f',
+      'js/bot.js?v=20261026i',
       /* net.js BEFORE matchmaking.js. matchmaking.js binds itself to Net's
          callbacks, and it used to be listed first, so at load time Net did not
          exist and the binding silently never happened. matchmaking.js also
@@ -2399,21 +2389,21 @@
     'js/roster-factory.js?v=20261003a',
           /* rtc-net BEFORE net.js: net.js's tail block bridges Rtc's hooks at file scope. If it loads after net.js that 	ypeof Rtc !== 'undefined' is false forever and the direct-link layer stays dead — which is exactly how production shipped it. */
       'js/rtc-net.js?v=20261020a',
-      'js/net.js?v=20261020a',
+      'js/net.js?v=20261025c',
       'js/net-cursors.js?v=20261003a',
       'js/matchmaking.js?v=20261004a',
       'js/nakama-net.js?v=1787330007',
       'js/audio.js?v=20261024b',
       'js/shopdata.js?v=20260929a',
       'js/clan-default-layout.js?v=1787330007',
-      'js/menu.js?v=20261024a',
+      'js/menu.js?v=20261026b',
       'js/garage.js?v=20261003a',
       'js/missions.js?v=20261010b',
       /* PROGRESSION 2.0 — per-tank XP/levels/tree/currencies. Must precede
          tank-menu.js because the reworked tank window reads window.Progression
          at render time. */
-      'js/upgrade-tree.js?v=20261018c',
-      'js/tank-menu.js?v=20261018d',
+      'js/upgrade-tree.js?v=20261026a',
+      'js/tank-menu.js?v=20261026a',
       'js/menu-editor.js?v=1787330007',
       'js/editor123.js?v=20260926a',
       'js/tank-editor.js?v=20261010y',
@@ -2425,13 +2415,13 @@
          module resolution, so load order is the only dependency ordering there
          is. Placed next to capture-circle.js because it is that mode's sibling
          and is disposed in the same place. */
-      'js/base-defend.js?v=20261007a',
-      'js/map-voting.js?v=20261011b',
+      'js/base-defend.js?v=20261025o',
+      'js/map-voting.js?v=20261025h',
       'js/default-map.js?v=1787330007',
       'js/gladiator-map.js?v=1787330007',
       'js/boot-watchdog.js?v=20261008a',
-      'js/game.js?v=20261024a',
-      'js/results.js?v=20261018c',
+      'js/game.js?v=20261026j',
+      'js/results.js?v=20261026a',
       'js/auth.js?v=1787330007',
       /* Real-money store. After auth.js because the return trip calls into Auth,
          and before menu.js because the store render asks it for the table. */
@@ -2447,6 +2437,12 @@
 
     const loadScript = (src) => new Promise((resolve, reject) => {
       const s = document.createElement('script');
+      /* async = false: still downloaded in parallel, but EXECUTED in insertion
+         order. A script element made by createElement is async by default and
+         runs the moment it arrives, so whenever menu.js or platoon.js landed
+         before config.js the boot died with "CONFIG is not defined" -- an
+         intermittent dead start that depended on network timing. */
+      s.async = false;
       s.src = src;
       s.onload = () => resolve();
       s.onerror = () => reject(new Error('Failed to load ' + src));
@@ -2467,7 +2463,8 @@
        All requests now go out together and we wait for the slowest, so the
        total is one round trip's latency instead of42. The list order is kept
        as the insertion order, which preserves execution order for scripts
-       that do depend on each other. */
+       that do depend on each other -- which holds only because loadScript sets
+       async = false (see above). */
     await Promise.all(GAME_SCRIPTS.map(loadScript));
 
     /* ------------------------------------------------------------------

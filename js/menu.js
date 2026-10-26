@@ -12,11 +12,16 @@
    weight = relative odds (summed automatically), amounts = the
    exact pools the roll picks from.
    ============================================================ */
+/* Boxes are the main source of upgrade points (key 'up' is credited to
+   Progression, not to settings -- see the claim handler in _openBox). */
 const BOX_DROP_TABLE = [
-  { name:'Coins', icon:'assets/currency/coin.webp', key:'coins', weight:60, amounts:[200,350,500,750,1000] },
-  { name:'Cash',  icon:'assets/currency/cash.webp', key:'cash',  weight:30, amounts:[50,100,150,200,300] },
-  { name:'Gold',  icon:'assets/currency/gold.webp', key:'gold',  weight:10, amounts:[500,750,1000,1500,2000,3000] },
+  { name:'Upgrade Points', icon:'assets/rewards/upgradepoints.webp', key:'up', weight:45, amounts:[10,15,20,25,40] },
+  { name:'Coins', icon:'assets/currency/coin.webp', key:'coins', weight:30, amounts:[200,350,500,750,1000] },
+  { name:'Cash',  icon:'assets/currency/cash.webp', key:'cash',  weight:18, amounts:[50,100,150,200,300] },
+  { name:'Gold',  icon:'assets/currency/gold.webp', key:'gold',  weight:7,  amounts:[500,750,1000,1500,2000,3000] },
 ];
+/* Store BANK trade: cash for upgrade points. */
+const BANK_TRADE = { cash: 100, up: 10 };
 const BOX_DROP_TOTAL_WEIGHT = BOX_DROP_TABLE.reduce(function(s, e){ return s + e.weight; }, 0);
 
 /* How long the queue waits for another player before filling the rest with bots.
@@ -89,6 +94,15 @@ const Menu = {
   init(game){
     this.game = game;
     console.log('[MENU] init() starting, game:', !!game);
+    /* The six camera stops were redefined as the brawl camera (config.js).
+       A stage saved under the old meaning -- 0 was a hull-hugging chase cam --
+       is reset once to the new default. */
+    if(this.settings && !this.settings.brawlCamV1){
+      this.settings.brawlCamV1 = true;
+      this.settings.cameraStage = 2;
+      try { saveSettings(this.settings); } catch(e){}
+      try { if(game && game.applySettings) game.applySettings(this.settings); } catch(e){}
+    }
     document.body.classList.add(this._detectPlatform() === 'desktop' ? 'is-desktop' : 'is-mobile');
     try { Audio.init(); } catch(e){ console.warn('Audio.init failed:', e); }
     try { Audio.hookButtons(); } catch(e){ console.warn('Audio.hookButtons failed:', e); }
@@ -112,6 +126,7 @@ const Menu = {
     try { this._renderProfile(); } catch(e){}
     try { this._applyBackgrounds(); } catch(e){}
     try { this._wireEsc(); } catch(e){}
+    try { this._wireMobileBack(); } catch(e){}
     try { this._wirePeerPresence(); } catch(e){}
     try { this._wireMinimapKey(); } catch(e){}
     try { this._updateMapHint(); } catch(e){}
@@ -550,7 +565,7 @@ const Menu = {
 
   _loadMysteryImg(){
     const img = new Image();
-    img.src = 'mystery_mtl.webp';
+    img.src = 'assets/ui/mystery-crate.webp';
     this._mysteryImg = img;
   },
 
@@ -674,8 +689,11 @@ const Menu = {
     }
     // Re-evaluate fullscreen overlay when returning to any menu
     if(this._refreshFullscreenState) this._refreshFullscreenState();
+    // Wait a frame so the new screen has laid out before measuring its back button.
+    requestAnimationFrame(() => { try { this._refreshMobileBack(); } catch(e){} });
     if(id === 'menu-main'){
       try { if(window.__mtlMark) window.__mtlMark('menu:main:preview'); } catch(e){}
+      try { this._renderWinBoxes(); } catch(e){}
       Audio.playMusic('assets/menu.mp3');
       if(!this._customMenuActive()){
         if(!(window.Garage && Garage.active)) this._startMainPreview();
@@ -1158,8 +1176,8 @@ const Menu = {
       i.onerror = ()=>{};
       i.src = url;
     };
-    tryImg('tank party.webp', document.getElementById('menu-main'));
-    tryImg('tank party.webp', document.getElementById('menu-multiplayer'));
+    tryImg('assets/ui/menu-background.webp', document.getElementById('menu-main'));
+    tryImg('assets/ui/menu-background.webp', document.getElementById('menu-multiplayer'));
   },
 
   /* ---------- free roam ---------- */
@@ -1785,10 +1803,23 @@ const Menu = {
             grp.rotation.y += Math.PI;
           }
           
-          const box3 = new THREE.Box3().setFromObject(grp);
+          /* Frame every model the same way. Models are authored with their
+             origin anywhere (often at a track or the barrel root), and
+             modelScale is tuned for the battle camera, so centring only Y left
+             most tanks oversized and pushed off to one side. Fit the larger
+             footprint edge to the cube hull's length, then centre on all axes. */
+          let box3 = new THREE.Box3().setFromObject(grp);
+          const size = box3.getSize(new THREE.Vector3());
+          const footprint = Math.max(size.x, size.z);
+          if(footprint > 0.001){
+            grp.scale.multiplyScalar(4.4 / footprint);
+            box3 = new THREE.Box3().setFromObject(grp);
+          }
           const center = box3.getCenter(new THREE.Vector3());
+          grp.position.x -= center.x;
           grp.position.y -= center.y;
-          
+          grp.position.z -= center.z;
+
           grp.traverse(child => {
             if(child.isMesh){
               child.castShadow = true;
@@ -2074,6 +2105,14 @@ const Menu = {
         if(self.game) self.game.leaveToMenu();
         return;
       }
+      /* The pause menu is itself a `.menu`, so it has to be handled before the
+         generic branch below -- which has no case for it and returned without
+         doing anything: Escape opened the pause menu but could never close it. */
+      var escEl = document.getElementById('esc-menu');
+      if(escEl && !escEl.classList.contains('hidden')){
+        self._resumeGame();
+        return;
+      }
       // Escape: close big map or pop settings menu to main menu
       var visibleMenu = document.querySelector('.menu:not(.hidden)');
       if(visibleMenu){
@@ -2135,6 +2174,85 @@ const Menu = {
     if(document.body.classList.contains('is-mobile')) return;
     const el = document.querySelector('.map-key-hint');
     if(el) el.textContent = this._keyLabel(this.settings.binds.minimap || 'KeyM');
+  },
+  /* ONE "BACK" FOR EVERY MENU.
+
+     Each screen already owns its way out: a [data-back] button, a named back
+     control, or a branch in the Escape handler that also tears down whatever
+     the screen was running (shop holds, sandbox rooms). goBack() picks that
+     same path instead of guessing a destination, so the floating mobile back
+     button and the phone's own back gesture can never skip a cleanup. */
+  _BACK_SELECTOR: '[data-back], #btn-play-back, #shop-back-main, #shop-back-buy, #shop-receive-back, #pl-back, #btn-preview-back, #collections-back',
+  _ESC_OWNED_MENUS: ['menu-store','menu-shop-buy','menu-shop-receive','menu-storage','menu-profile','menu-collections','menu-platoon','menu-sandbox'],
+  _ownBack(menu){
+    return [...menu.querySelectorAll(this._BACK_SELECTOR)]
+      .find(b => b.offsetParent !== null) || null;
+  },
+  _authOpen(){
+    const ov = document.getElementById('auth-overlay');
+    return !!ov && ov.classList.contains('visible');
+  },
+  goBack(){
+    // The account dialog floats over every screen and has no close button of
+    // its own; on a phone its backdrop is a sliver, so back closes it first.
+    if(this._authOpen() && window.Auth && Auth.close){ Auth.close(); return true; }
+    const menu = document.querySelector('.menu:not(.hidden)');
+    if(!menu || menu.id === 'menu-main') return false;
+    // Pause menu: back resumes the match, it must never drop to the main menu.
+    if(menu.id === 'esc-menu'){ this._resumeGame(); return true; }
+    if(this._ESC_OWNED_MENUS.indexOf(menu.id) < 0){
+      if(menu.id === 'menu-settings'){
+        const save = document.getElementById('btn-settings-saveexit');
+        if(save){ save.click(); return true; }
+      }
+      const own = this._ownBack(menu);
+      if(own){ own.click(); return true; }
+    }
+    window.dispatchEvent(new KeyboardEvent('keydown', { code:'Escape', key:'Escape' }));
+    if(!menu.classList.contains('hidden')) this.show('menu-main');
+    return true;
+  },
+  /* Mobile only: a back button that appears when the screen's own back control
+     is scrolled away or missing, and the phone's back gesture mapped to the
+     same action instead of leaving the page mid-match. */
+  _wireMobileBack(){
+    if(!document.body.classList.contains('is-mobile') || this._mobileBackWired) return;
+    this._mobileBackWired = true;
+    const btn = document.createElement('div');
+    btn.id = 'mobile-back-btn';
+    btn.className = 'hidden';
+    btn.setAttribute('role', 'button');
+    btn.setAttribute('aria-label', 'Back');
+    btn.textContent = '←';
+    btn.addEventListener('click', e => { e.stopPropagation(); this.goBack(); });
+    document.body.appendChild(btn);
+    const refresh = () => this._refreshMobileBack();
+    document.addEventListener('scroll', refresh, true);
+    window.addEventListener('resize', refresh);
+    const auth = document.getElementById('auth-overlay');
+    if(auth) new MutationObserver(refresh).observe(auth, { attributes:true, attributeFilter:['class'] });
+    try{
+      history.pushState({ mtl:1 }, '');
+      window.addEventListener('popstate', () => {
+        if(!this.goBack() && this.game && this.game.running) this.toggleEsc();
+        try{ history.pushState({ mtl:1 }, ''); }catch(e){}
+      });
+    }catch(e){}
+  },
+  _refreshMobileBack(){
+    const btn = document.getElementById('mobile-back-btn');
+    if(!btn) return;
+    const menu = document.querySelector('.menu:not(.hidden)');
+    let need = !!menu && menu.id !== 'menu-main' && menu.id !== 'menu-fullscreen-prompt';
+    if(this._authOpen()) need = true;
+    else if(need){
+      const own = this._ownBack(menu);
+      if(own){
+        const r = own.getBoundingClientRect();
+        need = !(r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth);
+      }
+    }
+    btn.classList.toggle('hidden', !need);
   },
   toggleEsc(){
     if(this.escOpen){ this._closeEsc(); }
@@ -2676,9 +2794,7 @@ const Menu = {
     if(isMobile){
       const pz = this.settings.pinchZoom !== false;
       wrap.innerHTML = `
-      <label>Camera Rotation</label>
-      <div class="hint">In game, use the ◀ ▶ buttons at the bottom of the screen to rotate the camera</div>
-      <label style="margin-top:18px">Two-Finger Zoom</label>
+      <label>Two-Finger Zoom</label>
       <div class="seg">
         <div class="seg-opt${pz?' active':''}" data-pinchzoom="1">On</div>
         <div class="seg-opt${pz?'':' active'}" data-pinchzoom="0">Off</div>
@@ -2694,190 +2810,34 @@ const Menu = {
       });
       return;
     }
-    const mode = this.settings.camMode || 'arrows';
-    const seg = (m, label) => `<div class="seg-opt${mode===m?' active':''}" data-cammode="${m}">${label}</div>`;
-    const kL = this.settings.binds && this.settings.binds.camLeft;
-    const kR = this.settings.binds && this.settings.binds.camRight;
-    const rk = (l, r, label) => {
-      const on = (kL === l && kR === r) || ((l === 'ArrowLeft' && !kL && !kR));
-      return `<div class="seg-opt${on?' active':''}" data-camkeys="${l}">${label}</div>`;
-    };
-    let body = '';
-    if(mode === 'arrows'){
-      body = `
-      <div class="cam-rotate-row">
-        <span class="cam-rotate-btn" id="cam-rotate-left">←</span>
-        <span class="cam-rotate-label">rotate left / right</span>
-        <span class="cam-rotate-btn" id="cam-rotate-right">→</span>
-      </div>
-      <div class="hint">Keyboard: ArrowLeft / ArrowRight (rebindable in Controls above)</div>
-      <label style="margin-top:16px">Rotation Keys</label>
-      <div class="seg">
-        ${rk('ArrowLeft', 'ArrowRight', '← →')}
-        ${rk('KeyQ', 'KeyE', 'Q / E')}
-        ${rk('KeyA', 'KeyD', 'A / D')}
-      </div>
-      <div class="hint">Choose which keys rotate the camera (your custom binds are overridden by this preset)</div>
-      <label style="margin-top:16px">Invert Rotation Direction</label>
-      <div class="seg">
-        <div class="seg-opt${this.settings.invertCamRot?' active':''}" data-invcam="1">On</div>
-        <div class="seg-opt${this.settings.invertCamRot?'':' active'}" data-invcam="0">Off</div>
-      </div>
-      <div class="hint">Swap the direction: Left rotates right, Right rotates left</div>`;
-    } else if(mode === 'auto'){
-      body = `<div class="hint">The camera always stays behind your tank hull — it rotates automatically, no input needed</div>`;
-    } else {
-      body = `<div class="hint">Swipe with one finger to rotate the camera (e.g. swipe right → left rotates the camera right) — on desktop: hold the mouse button and drag</div>`;
-    }
-    wrap.innerHTML = `
-      <label>Camera Rotation</label>
-      <div class="seg">
-        ${seg('arrows','Arrows')}
-        ${seg('auto','Auto')}
-        ${seg('swipe','Swipe')}
-      </div>` + body;
-    const wrapAngle = (a) => ((a % (Math.PI*2)) + Math.PI*2) % (Math.PI*2);
-    const btnL = document.getElementById('cam-rotate-left');
-    const btnR = document.getElementById('cam-rotate-right');
-    if(btnL) btnL.onclick = ()=>{
-      this.settings.camRotation = wrapAngle((this.settings.camRotation || 0) - Math.PI/4);
-      saveSettings(this.settings);
-      if(this.game) this.game.applySettings(this.settings);
-    };
-    if(btnR) btnR.onclick = ()=>{
-      this.settings.camRotation = wrapAngle((this.settings.camRotation || 0) + Math.PI/4);
-      saveSettings(this.settings);
-      if(this.game) this.game.applySettings(this.settings);
-    };
-    wrap.querySelectorAll('[data-cammode]').forEach(el=>{
-      el.onclick = ()=>{
-        this.settings.camMode = el.dataset.cammode;
-        saveSettings(this.settings);
-        if(this.game) this.game.applySettings(this.settings);
-        this._renderCamSettings();
-      };
-    });
-    wrap.querySelectorAll('[data-camkeys]').forEach(el=>{
-      el.onclick = ()=>{
-        const map = { 'ArrowLeft':['ArrowLeft','ArrowRight'], 'KeyQ':['KeyQ','KeyE'], 'KeyA':['KeyA','KeyD'] };
-        const pair = map[el.dataset.camkeys];
-        if(!pair) return;
-        this.settings.binds = Object.assign({}, this.settings.binds);
-        this.settings.binds.camLeft = pair[0];
-        this.settings.binds.camRight = pair[1];
-        saveSettings(this.settings);
-        if(this.game) this.game.applySettings(this.settings);
-        this._renderBinds();
-        this._renderCamSettings();
-      };
-    });
-    wrap.querySelectorAll('[data-invcam]').forEach(el=>{
-      el.onclick = ()=>{
-        wrap.querySelectorAll('[data-invcam]').forEach(x=>x.classList.remove('active'));
-        el.classList.add('active');
-        this.settings.invertCamRot = el.dataset.invcam === '1';
-        saveSettings(this.settings);
-        if(this.game) this.game.applySettings(this.settings);
-      };
-    });
+    /* Desktop: the brawl camera never rotates, so the rotation options this
+       section used to hold have nothing to steer. Zoom lives in Camera above. */
+    wrap.innerHTML = '';
   },
 
-  /* ---------- camera behavior (Dynamic / Automatic / Hull Follow / Arrows / Swipe) ---------- */
+  /* The camera is the fixed brawl view (config.js CAMERA_STOPS), so the only
+     choice left is how far out it sits. The old layout/behaviour/rotation
+     options steered cameras that no longer exist and were removed rather than
+     left as switches that do nothing. */
   _renderCameraSettings(){
     const wrap = document.getElementById('camera-settings');
     if(!wrap) return;
-    const camBehavior = this.settings.cameraMode || 'dynamic';
-    const camTwo = this.settings.camTwoMode !== false;
-    const seg = (m, label) => `<div class="seg-opt${camBehavior===m?' active':''}" data-cammode="${m}">${label}</div>`;
+    const stage = (typeof this.settings.cameraStage === 'number') ? this.settings.cameraStage : 2;
+    const names = ['Closest', 'Close', 'Default', 'Far', 'Farther', 'Widest'];
     wrap.innerHTML = `
-      <label>Camera Layout</label>
-      <div class="seg" style="display:grid; grid-template-columns:repeat(2,1fr); gap:4px;">
-        <div class="seg-opt${camTwo?' active':''}" data-camtwo="1">Two-Mode (new)</div>
-        <div class="seg-opt${camTwo?'':' active'}" data-camtwo="0">Classic zoom</div>
-      </div>
-      <div class="hint">Two-Mode: the scroll wheel steps through 6 fixed camera points — 3 third-person (below) + 3 high strategic views (above). Swinging across the 3rd/4th point switches the layout. Classic keeps the old continuous scroll zoom.</div>
-      <label style="margin-top:16px">Camera Behavior</label>
+      <label>Camera Zoom</label>
       <div class="seg" style="display:grid; grid-template-columns:repeat(3,1fr); gap:4px;">
-        ${seg('dynamic','Dynamic')}
-        ${seg('automatic','Auto (Turret)')}
-        ${seg('hull','Auto (Hull)')}
-        ${seg('arrows','Manual (Arrows)')}
-        ${seg('swipe','Swipe')}
+        ${names.map((n, i) => `<div class="seg-opt${stage===i?' active':''}" data-camstage="${i}">${n}</div>`).join('')}
       </div>
-      <div class="hint" id="camera-hint"></div>
-      <label style="margin-top:16px">Invert Rotation Direction</label>
-      <div class="seg">
-        <div class="seg-opt${this.settings.invertCamRot?' active':''}" data-invcam="1">On</div>
-        <div class="seg-opt${this.settings.invertCamRot?'':' active'}" data-invcam="0">Off</div>
-      </div>
-      <div class="hint">Swap the direction: Left rotates right, Right rotates left</div>
-      <label style="margin-top:16px">Mouse Rotate (No LMB)</label>
-      <div class="seg">
-        <div class="seg-opt${this.settings.cameraMouseRotate?' active':''}" data-mouserot="1">On</div>
-        <div class="seg-opt${this.settings.cameraMouseRotate?'':' active'}" data-mouserot="0">Off</div>
-      </div>
-      <div class="hint">Rotate camera by moving mouse cursor without holding LMB</div>`;
-    
-    const hints = {
-      dynamic: 'Tanki Online style: mouse rotates camera, turret aims where crosshair points. Scroll to zoom. >=35 = Top-Down.',
-      automatic: 'When zoomed in (20°–30°), camera smoothly follows turret. Otherwise manual.',
-      hull: 'Camera always stays behind tank hull (follows hull rotation).',
-      arrows: 'Use arrow keys (or rebound keys) to rotate camera manually.',
-      swipe: 'Swipe/drag to rotate camera. On desktop: hold mouse button and drag.'
-    };
-    
-    wrap.querySelectorAll('[data-camtwo]').forEach(el=>{
+      <div class="hint">The scroll wheel (or a two-finger pinch) changes this during a match.</div>`;
+    wrap.querySelectorAll('[data-camstage]').forEach(el=>{
       el.onclick = ()=>{
-        wrap.querySelectorAll('[data-camtwo]').forEach(x=>x.classList.remove('active'));
-        el.classList.add('active');
-        this.settings.camTwoMode = el.dataset.camtwo === '1';
-        saveSettings(this.settings);
-        if(this.game){
-          this.game.applySettings(this.settings);
-          this.game._updateCrosshair();
-        }
-        this._renderCameraSettings();
-      };
-    });
-    
-    wrap.querySelectorAll('[data-cammode]').forEach(el=>{
-      el.onclick = ()=>{
-        this.settings.cameraMode = el.dataset.cammode;
-        // Also update legacy camMode for compatibility
-        if(el.dataset.cammode === 'hull') this.settings.camMode = 'auto';
-        else if(el.dataset.cammode === 'arrows') this.settings.camMode = 'arrows';
-        else if(el.dataset.cammode === 'swipe') this.settings.camMode = 'swipe';
-        else this.settings.camMode = 'arrows';
-        saveSettings(this.settings);
-        if(this.game) this.game.applySettings(this.settings);
-        this._renderCameraSettings();
-        this._renderCamSettings();
-      };
-    });
-    
-    wrap.querySelectorAll('[data-invcam]').forEach(el=>{
-      el.onclick = ()=>{
-        wrap.querySelectorAll('[data-invcam]').forEach(x=>x.classList.remove('active'));
-        el.classList.add('active');
-        this.settings.invertCamRot = el.dataset.invcam === '1';
-        saveSettings(this.settings);
-        if(this.game) this.game.applySettings(this.settings);
-      };
-    });
-    
-    wrap.querySelectorAll('[data-mouserot]').forEach(el=>{
-      el.onclick = ()=>{
-        wrap.querySelectorAll('[data-mouserot]').forEach(x=>x.classList.remove('active'));
-        el.classList.add('active');
-        this.settings.cameraMouseRotate = el.dataset.mouserot === '1';
+        this.settings.cameraStage = +el.dataset.camstage;
         saveSettings(this.settings);
         if(this.game) this.game.applySettings(this.settings);
         this._renderCameraSettings();
       };
     });
-    
-    const hintEl = document.getElementById('camera-hint');
-    if(hintEl) hintEl.textContent = hints[camBehavior] || '';
   },
 
   /* ---------- graphics quality ---------- */
@@ -3581,6 +3541,10 @@ const Menu = {
           self._holdOpen = false;
           self._cleanupBoxOverlay();
           for(var ci = 0; ci < rolls.length; ci++){
+            if(rolls[ci].key === 'up'){
+              if(window.Progression && Progression.addUp) Progression.addUp(rolls[ci].amount);
+              continue;
+            }
             self.settings[rolls[ci].key] = (self.settings[rolls[ci].key] || 0) + rolls[ci].amount;
           }
           saveSettings(self.settings);
@@ -3781,8 +3745,64 @@ const Menu = {
         /* Bundles are fetched live and depend on being logged in, so the page
            is rebuilt on every visit rather than once when the store opened. */
         if(el.dataset.section === 'bundles') this._renderBundles();
+        if(el.dataset.section === 'bank') this._renderBank();
       };
     });
+  },
+
+  /* BANK: the one place to BUY upgrade points -- a flat trade, cash for UP. */
+  _renderBank(){
+    const page = document.getElementById('shop-page-bank');
+    if(!page) return;
+    const cash = this.settings.cash || 0;
+    const up = (window.Progression && Progression.getUp) ? Progression.getUp() : 0;
+    const can = cash >= BANK_TRADE.cash;
+    page.innerHTML =
+      '<h2 class="shop-section-title">BANK</h2>' +
+      '<div class="shop-deals"><div class="shop-deal-card bank-trade' + (can ? '' : ' sold-out') + '" id="bank-trade">' +
+        '<div class="shop-deal-image" style="background-image:url(&quot;assets/rewards/upgradepoints.webp&quot;)"></div>' +
+        '<div class="shop-deal-amount">' + BANK_TRADE.up + '</div>' +
+        '<div class="shop-deal-label">Upgrade points</div>' +
+        '<div class="shop-deal-price"><img class="cur-mini" src="assets/currency/cash.webp" alt=""><span>' + BANK_TRADE.cash + '</span></div>' +
+      '</div></div>' +
+      '<div class="shop-real-note">You have ' + up + ' upgrade points. Upgrade points also drop from boxes.</div>';
+    const card = document.getElementById('bank-trade');
+    if(card) card.onclick = () => {
+      if((this.settings.cash || 0) < BANK_TRADE.cash){ this.toast('Not enough cash'); return; }
+      this.settings.cash -= BANK_TRADE.cash;
+      saveSettings(this.settings);
+      if(window.Progression && Progression.addUp) Progression.addUp(BANK_TRADE.up);
+      try { Audio.click(); } catch(e){}
+      this.toast('+' + BANK_TRADE.up + ' upgrade points');
+      this._updateCurrencies();
+      try { this._renderProfile(); } catch(e){}
+      this._renderBank();
+    };
+  },
+
+  /* MAIN MENU WIN-BOX TRACKER. The crate panel used to be four static
+     pictures with nothing behind them. It now shows this window's six win
+     boxes -- lit when earned -- and when the window resets; a click opens
+     Storage, where the boxes are opened. */
+  _renderWinBoxes(){
+    const wrap = document.getElementById('main-menu-crates');
+    if(!wrap || typeof winBoxStatus !== 'function') return;
+    const st = winBoxStatus();
+    let slots = '';
+    for(let i = 0; i < st.limit; i++){
+      slots += '<div class="crate-slot' + (i < st.earned ? ' earned' : '') + '">' +
+        '<img src="assets/ui/mystery-crate.webp" alt=""></div>';
+    }
+    let note = 'WIN TO EARN A BOX';
+    if(st.resetsAt){
+      const ms = Math.max(0, st.resetsAt - Date.now());
+      const h = Math.floor(ms / 3600000), m = Math.floor(ms % 3600000 / 60000);
+      note = (st.earned >= st.limit ? 'ALL BOXES EARNED · ' : '') + 'RESETS IN ' + h + 'H ' + m + 'M';
+    }
+    wrap.innerHTML = '<div class="crate-head">WIN BOXES ' + st.earned + '/' + st.limit + '</div>' +
+      '<div class="crate-grid">' + slots + '</div><div class="crate-note">' + note + '</div>';
+    wrap.title = 'Each win drops a box into Storage, up to ' + st.limit + ' every 12 hours';
+    wrap.onclick = () => this.show('menu-storage');
   },
 
   _renderDeals(){
@@ -4079,7 +4099,7 @@ const Menu = {
 
     if(!canAfford) return;
 
-    const HOLD_MS = 3000;
+    const HOLD_MS = 500;   /* a short, deliberate press -- 3 s felt like the store was stuck */
     const self = this;
     let start = 0, fired = false;
 
@@ -4088,7 +4108,7 @@ const Menu = {
       if(fill) fill.style.width = (t * 100).toFixed(2) + '%';
       /* Seconds left. HOLD_MS is milliseconds, so this divides by 1000: dividing by
          100 counted tenths of a second and printed "15s" when 1.5s remained. */
-      if(label) label.textContent = t > 0 ? 'Keep holding ' + Math.ceil((1 - t) * HOLD_MS / 1000) + 's' : 'Hold to buy';
+      if(label) label.textContent = t > 0 ? 'Keep holding ' + ((1 - t) * HOLD_MS / 1000).toFixed(1) + 's' : 'Hold to buy';
       if(t >= 1 && !fired){
         fired = true;
         self._cancelShopHold(true);
@@ -6885,6 +6905,12 @@ const Menu = {
          if it were still searching. */
       btn.classList.remove('searching');
       btn.classList.remove('searching-wait');
+      /* Nothing to restore unless a search actually swapped the handler out.
+         leaveToMenu() calls this after every battle; for an offline or local
+         match no search ever ran, _origOnclick was never captured, and the
+         restore below wrote `null` over PLAY's real handler -- PLAY worked
+         once per page load and then did nothing at all. */
+      if(!btn._queued) return;
       btn._queued = false;
       /* Restore from the captured resting text, never from whatever the button
          currently says — that is what let "SEARCHING 5s+" become permanent.

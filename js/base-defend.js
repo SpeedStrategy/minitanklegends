@@ -352,6 +352,9 @@ const BaseDefend = (() => {
           new THREE.Vector3(spot.x, fallback + 400, spot.z),
           new THREE.Vector3(0, -1, 0), 0, 900
         );
+        /* Sprites in the scene need a camera to raycast against; without one
+           three.js logs an error per sprite. They are skipped below anyway. */
+        ray.camera = _game.camera;
         const hits = ray.intersectObject(_game.scene, true);
         for(const h of hits){
           const o = h.object;

@@ -57,7 +57,24 @@ functions/api/          Cloudflare Pages Functions. Same-origin.
 schema.sql              D1 schema. 6 idempotent tables.
 test/                   Run both suites. 184 assertions.
 server/mpserver.js      Node multiplayer server. For Oracle later, not live.
+assets/ui/              Menu images that used to sit loose in the root
+                        (settings-gear, mystery-crate, menu-background).
+dev/                    /dev staging page. Its js/ copies now match js/.
+scripts/dev/            Local helpers: play_with_friend, p2p/build verifiers,
+                        node finders, tunnel. Run from anywhere; they resolve
+                        the repo root themselves.
+scripts/deploy/         deploy-pages.ps1, deploy.bat.
+scripts/legacy-patchers/  One-off apply-*/dedup-* patch scripts. Already
+                        applied; kept for history, do not re-run.
+prototypes/             drift-demo.html, tank-party.html, Water.ts, glb-importer.js.
+docs/                   ACCOUNTS-SETUP.md, TODO.md, garage screenshots.
+archive/                Duplicates; copies of production game/tank/net.js from before the 2026-10-25 merge attempt.
+test/harness/           Aim harness (was out-tests/).
 ```
+
+Local test without Node: `python -m http.server 8765` in the repo root
+(`.claude/launch.json` has it as "game"). Matchmaking/P2P need the Worker,
+so multiplayer cannot be exercised on that server.
 
 ---
 

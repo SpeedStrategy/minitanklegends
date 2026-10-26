@@ -112,6 +112,7 @@ const Menu = {
     try { this._renderProfile(); } catch(e){}
     try { this._applyBackgrounds(); } catch(e){}
     try { this._wireEsc(); } catch(e){}
+    try { this._wireMobileBack(); } catch(e){}
     try { this._wirePeerPresence(); } catch(e){}
     try { this._wireMinimapKey(); } catch(e){}
     try { this._updateMapHint(); } catch(e){}
@@ -550,7 +551,7 @@ const Menu = {
 
   _loadMysteryImg(){
     const img = new Image();
-    img.src = 'mystery_mtl.webp';
+    img.src = 'assets/ui/mystery-crate.webp';
     this._mysteryImg = img;
   },
 
@@ -674,6 +675,8 @@ const Menu = {
     }
     // Re-evaluate fullscreen overlay when returning to any menu
     if(this._refreshFullscreenState) this._refreshFullscreenState();
+    // Wait a frame so the new screen has laid out before measuring its back button.
+    requestAnimationFrame(() => { try { this._refreshMobileBack(); } catch(e){} });
     if(id === 'menu-main'){
       try { if(window.__mtlMark) window.__mtlMark('menu:main:preview'); } catch(e){}
       Audio.playMusic('assets/menu.mp3');
@@ -1158,8 +1161,8 @@ const Menu = {
       i.onerror = ()=>{};
       i.src = url;
     };
-    tryImg('tank party.webp', document.getElementById('menu-main'));
-    tryImg('tank party.webp', document.getElementById('menu-multiplayer'));
+    tryImg('assets/ui/menu-background.webp', document.getElementById('menu-main'));
+    tryImg('assets/ui/menu-background.webp', document.getElementById('menu-multiplayer'));
   },
 
   /* ---------- free roam ---------- */
@@ -1785,10 +1788,23 @@ const Menu = {
             grp.rotation.y += Math.PI;
           }
           
-          const box3 = new THREE.Box3().setFromObject(grp);
+          /* Frame every model the same way. Models are authored with their
+             origin anywhere (often at a track or the barrel root), and
+             modelScale is tuned for the battle camera, so centring only Y left
+             most tanks oversized and pushed off to one side. Fit the larger
+             footprint edge to the cube hull's length, then centre on all axes. */
+          let box3 = new THREE.Box3().setFromObject(grp);
+          const size = box3.getSize(new THREE.Vector3());
+          const footprint = Math.max(size.x, size.z);
+          if(footprint > 0.001){
+            grp.scale.multiplyScalar(4.4 / footprint);
+            box3 = new THREE.Box3().setFromObject(grp);
+          }
           const center = box3.getCenter(new THREE.Vector3());
+          grp.position.x -= center.x;
           grp.position.y -= center.y;
-          
+          grp.position.z -= center.z;
+
           grp.traverse(child => {
             if(child.isMesh){
               child.castShadow = true;
@@ -2135,6 +2151,83 @@ const Menu = {
     if(document.body.classList.contains('is-mobile')) return;
     const el = document.querySelector('.map-key-hint');
     if(el) el.textContent = this._keyLabel(this.settings.binds.minimap || 'KeyM');
+  },
+  /* ONE "BACK" FOR EVERY MENU.
+
+     Each screen already owns its way out: a [data-back] button, a named back
+     control, or a branch in the Escape handler that also tears down whatever
+     the screen was running (shop holds, sandbox rooms). goBack() picks that
+     same path instead of guessing a destination, so the floating mobile back
+     button and the phone's own back gesture can never skip a cleanup. */
+  _BACK_SELECTOR: '[data-back], #btn-play-back, #shop-back-main, #shop-back-buy, #shop-receive-back, #pl-back, #btn-preview-back, #collections-back',
+  _ESC_OWNED_MENUS: ['menu-store','menu-shop-buy','menu-shop-receive','menu-storage','menu-profile','menu-collections','menu-platoon','menu-sandbox'],
+  _ownBack(menu){
+    return [...menu.querySelectorAll(this._BACK_SELECTOR)]
+      .find(b => b.offsetParent !== null) || null;
+  },
+  _authOpen(){
+    const ov = document.getElementById('auth-overlay');
+    return !!ov && ov.classList.contains('visible');
+  },
+  goBack(){
+    // The account dialog floats over every screen and has no close button of
+    // its own; on a phone its backdrop is a sliver, so back closes it first.
+    if(this._authOpen() && window.Auth && Auth.close){ Auth.close(); return true; }
+    const menu = document.querySelector('.menu:not(.hidden)');
+    if(!menu || menu.id === 'menu-main') return false;
+    if(this._ESC_OWNED_MENUS.indexOf(menu.id) < 0){
+      if(menu.id === 'menu-settings'){
+        const save = document.getElementById('btn-settings-saveexit');
+        if(save){ save.click(); return true; }
+      }
+      const own = this._ownBack(menu);
+      if(own){ own.click(); return true; }
+    }
+    window.dispatchEvent(new KeyboardEvent('keydown', { code:'Escape', key:'Escape' }));
+    if(!menu.classList.contains('hidden')) this.show('menu-main');
+    return true;
+  },
+  /* Mobile only: a back button that appears when the screen's own back control
+     is scrolled away or missing, and the phone's back gesture mapped to the
+     same action instead of leaving the page mid-match. */
+  _wireMobileBack(){
+    if(!document.body.classList.contains('is-mobile') || this._mobileBackWired) return;
+    this._mobileBackWired = true;
+    const btn = document.createElement('div');
+    btn.id = 'mobile-back-btn';
+    btn.className = 'hidden';
+    btn.setAttribute('role', 'button');
+    btn.setAttribute('aria-label', 'Back');
+    btn.textContent = '←';
+    btn.addEventListener('click', e => { e.stopPropagation(); this.goBack(); });
+    document.body.appendChild(btn);
+    const refresh = () => this._refreshMobileBack();
+    document.addEventListener('scroll', refresh, true);
+    window.addEventListener('resize', refresh);
+    const auth = document.getElementById('auth-overlay');
+    if(auth) new MutationObserver(refresh).observe(auth, { attributes:true, attributeFilter:['class'] });
+    try{
+      history.pushState({ mtl:1 }, '');
+      window.addEventListener('popstate', () => {
+        if(!this.goBack() && this.game && this.game.running) this.toggleEsc();
+        try{ history.pushState({ mtl:1 }, ''); }catch(e){}
+      });
+    }catch(e){}
+  },
+  _refreshMobileBack(){
+    const btn = document.getElementById('mobile-back-btn');
+    if(!btn) return;
+    const menu = document.querySelector('.menu:not(.hidden)');
+    let need = !!menu && menu.id !== 'menu-main' && menu.id !== 'menu-fullscreen-prompt';
+    if(this._authOpen()) need = true;
+    else if(need){
+      const own = this._ownBack(menu);
+      if(own){
+        const r = own.getBoundingClientRect();
+        need = !(r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth);
+      }
+    }
+    btn.classList.toggle('hidden', !need);
   },
   toggleEsc(){
     if(this.escOpen){ this._closeEsc(); }
@@ -6885,6 +6978,12 @@ const Menu = {
          if it were still searching. */
       btn.classList.remove('searching');
       btn.classList.remove('searching-wait');
+      /* Nothing to restore unless a search actually swapped the handler out.
+         leaveToMenu() calls this after every battle; for an offline or local
+         match no search ever ran, _origOnclick was never captured, and the
+         restore below wrote `null` over PLAY's real handler -- PLAY worked
+         once per page load and then did nothing at all. */
+      if(!btn._queued) return;
       btn._queued = false;
       /* Restore from the captured resting text, never from whatever the button
          currently says — that is what let "SEARCHING 5s+" become permanent.

@@ -550,7 +550,7 @@ const Menu = {
 
   _loadMysteryImg(){
     const img = new Image();
-    img.src = 'mystery_mtl.webp';
+    img.src = 'assets/ui/mystery-crate.webp';
     this._mysteryImg = img;
   },
 
@@ -1158,8 +1158,8 @@ const Menu = {
       i.onerror = ()=>{};
       i.src = url;
     };
-    tryImg('tank party.webp', document.getElementById('menu-main'));
-    tryImg('tank party.webp', document.getElementById('menu-multiplayer'));
+    tryImg('assets/ui/menu-background.webp', document.getElementById('menu-main'));
+    tryImg('assets/ui/menu-background.webp', document.getElementById('menu-multiplayer'));
   },
 
   /* ---------- free roam ---------- */

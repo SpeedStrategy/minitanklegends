@@ -144,7 +144,7 @@ class BotBrain {
        _chooseTarget() then picks with hysteresis so a bot does not thrash. */
     this._perceive(me, game);
     const pick = this._chooseTarget(me, game);
-    const target = pick.target;
+    let target = pick.target;   /* reassigned to the enemy base in Base Defend (below) */
     this._curTarget = target;
 
     let enemyCount = 0;
@@ -378,6 +378,52 @@ const canSeeTarget = target ? !!pick.canSee : false;
       case 'COORDPUSH':    this._doCoordinatedPush(me, target, canSeeTarget, game, out); break;
     }
 
+    /* CAPTURE THE CIRCLE NEEDS THE CIRCLE. Base Defend hands bots the enemy
+       base above; this mode had no objective at all, so a bot with no enemy in
+       sight wandered at random. Both teams drifted around their own halves,
+       nobody ever met, nobody fired, and nobody stood in the zone -- a whole
+       match ended with every scoreboard row at zero. With nothing to shoot, a
+       bot now drives to its own spot inside the circle and holds it; the
+       moment it sees an enemy the normal fight logic above takes over. */
+    /* BASE DEFEND: the enemy base is handed in above as a stand-in target, but
+       the fight states treat it like a tank -- look for cover from it, peek,
+       hold -- and from 200 units away that loop never advanced: bots shuffled
+       between APPROACHING and HOLDING all match and no base ever took damage.
+       A base is a building, so attack it plainly: drive into range, stop, aim,
+       shoot. Any enemy tank the bot sees still replaces it as the target. */
+    if(target && target.isBase){
+      const d = Math.hypot(target.x - me.x, target.z - me.z);
+      const range = Math.min(55, ((me.def && me.def.shellRange) || 65) * 0.8);
+      out.turretAngle = Math.atan2(target.x - me.x, target.z - me.z);
+      if(d > range){
+        this._driveTo(me, out, target.x, target.z, game, 1.6);
+        out.throttle = 0.85;
+        this._wallAvoid(me, out, game);
+        out.fire = false;
+      } else {
+        out.throttle = 0;
+        out.turn = 0;
+        out.fire = Math.abs(this._angleDiff(out.turretAngle, me.turretAngle)) < 0.12;
+      }
+    }
+
+    /* An enemy that is only remembered or radioed in does not outrank the zone:
+       on the bigger maps bots spent whole matches stalking contacts they could
+       not see, 30-60 units short of the circle, with nothing ever captured. */
+    const objective = (!target || !canSeeTarget) && this._circleObjective(me, game);
+    if(objective){
+      const d = Math.hypot(objective.x - me.x, objective.z - me.z);
+      if(d > 3){
+        this._driveTo(me, out, objective.x, objective.z, game, 1.6);
+        out.throttle = d > 20 ? 0.9 : 0.5;
+        this._wallAvoid(me, out, game);
+      } else {
+        out.throttle = 0;
+        out.turn = 0;
+      }
+      out.fire = false;
+    }
+
     this._separateFromAllies(me, out, game);
 
     if(out.throttle !== 0 && this._checkStuck(me, game)){
@@ -386,8 +432,20 @@ const canSeeTarget = target ? !!pick.canSee : false;
       this.state = 'WANDERING';
       out.turn += (Math.random() < 0.5 ? 1 : -1) * 0.8;
       out.throttle = 0.8;
+      /* Pressing forward into the thing that stopped it, which is what the
+         very next decision did whenever an objective (base, circle) pointed
+         the same way, kept a bot pinned to one prop all match. Back off and
+         swing round instead, and replan from the new spot. */
+      this._unstickUntil = (game.time || 0) + 1.3;
+      this._unstickDir = Math.random() < 0.5 ? 1 : -1;
+      this._dropPath();
+    }
+    if(this._unstickUntil && (game.time || 0) < this._unstickUntil){
+      out.throttle = -0.8;
+      out.turn = this._unstickDir;
     }
 
+    try { this._maybeSuper(me, target, canSeeTarget, game); } catch(e){}
     if(out.turretAngle === undefined || out.turretAngle === null) out.turretAngle = me.turretAngle;
     return this._clamp({throttle:out.throttle, turn:out.turn, turretWorldAngle:out.turretAngle, fire:out.fire});
   }
@@ -1578,6 +1636,69 @@ const canSeeTarget = target ? !!pick.canSee : false;
     out.turn = Math.max(-1, Math.min(1, this._angleDiff(a, me.heading) * gain));
   }
 
+  /* SUPERS. Bots never used theirs -- the super logic only ran for the
+     player. Now, once the meter is full, a bot waits a moment (a human does
+     not fire it the instant it charges) and uses it when it fits the ability:
+     damage supers on a visible enemy in range, escape supers when hurt,
+     support supers when a fight is on. Targeted supers hand the game a ground
+     point through tank._botSuperPick (game.js _superPick). */
+  _maybeSuper(me, target, canSee, game){
+    if(!me.hasSuper || !me.hasSuper() || me.superCdLeft > 0) return;
+    if(me.superState && me.superState !== 'done') return;
+    const now = game.time || 0;
+    if(this._superReadyAt === undefined) this._superReadyAt = now + 0.8 + Math.random() * 2;
+    if(now < this._superReadyAt) return;
+    const type = me.def.superType;
+    const seen = target && canSee && !target.isBase;
+    const dist = target ? Math.hypot(target.x - me.x, target.z - me.z) : Infinity;
+    const hurt = me.hp / Math.max(1, me.maxHp) < 0.5;
+    let use = false, pick = null;
+    if(type === 'airstrike' && seen && dist < 70){
+      /* Bombs land ~3 s later: aim where the target is heading. */
+      let vx = 0, vz = 0;
+      try { const v = target._physBody && target._physBody.linvel(); if(v){ vx = v.x; vz = v.z; } } catch(e){}
+      const lead = (me.def.airstrikeDelay || 3) * 0.6;
+      use = true; pick = { x: target.x + vx * lead, z: target.z + vz * lead };
+    } else if(type === 'molotov' && seen && dist < 19){
+      use = true; pick = { x: target.x, z: target.z };
+    } else if(type === 'landfield' && seen && dist < 14){
+      use = true; pick = { x: (me.x + target.x) / 2, z: (me.z + target.z) / 2 };
+    } else if((type === 'cloak' || type === 'bush') && hurt && (seen || this._hitPanicTimer > 0)){
+      use = true;
+    } else if((type === 'panzers' || type === 'reload_boost') && seen && dist < 50){
+      use = true;
+    } else if(type === 'oil' && seen && dist < 14){
+      use = true;
+    }
+    if(!use) return;
+    if(me.activateSuper()){
+      if(me.superState === 'targeting' && pick) me._botSuperPick = pick;
+      this._superReadyAt = undefined;
+    }
+  }
+
+  /* Where this bot stands in Capture the Circle: the nearest zone, at a fixed
+     per-bot offset inside its radius so a team spreads out instead of piling
+     onto the centre. Null outside the mode. */
+  _circleObjective(me, game){
+    if(!game._captureCircleMode || typeof CaptureCircle === 'undefined') return null;
+    const st = CaptureCircle.getState && CaptureCircle.getState();
+    if(!st || !st.zones || !st.zones.length || st.winner) return null;
+    let zone = null, best = Infinity;
+    for(const z of st.zones){
+      const d = Math.hypot(z.cx - me.x, z.cz - me.z);
+      if(d < best){ best = d; zone = z; }
+    }
+    if(!zone) return null;
+    if(this._circleSlot === undefined){
+      let h = 0;
+      for(let i = 0; i < this._botId.length; i++) h = (h * 31 + this._botId.charCodeAt(i)) >>> 0;
+      this._circleSlot = { a: (h % 360) * Math.PI / 180, f: 0.25 + ((h >> 9) % 50) / 100 };
+    }
+    const r = ((GAMEMODES.captureTheCircle && GAMEMODES.captureTheCircle.circleRadius) || 12) * this._circleSlot.f;
+    return { x: zone.cx + Math.sin(this._circleSlot.a) * r, z: zone.cz + Math.cos(this._circleSlot.a) * r };
+  }
+
   /* A path planned for a goal that has since died is worse than no path. */
   _dropPath(){ this._path = null; this._pathGoal = null; }
 
@@ -1626,7 +1747,10 @@ const canSeeTarget = target ? !!pick.canSee : false;
 
     for(const t of game.tanks){
       if(!t.alive) continue;
-      const ally = t === me || (me.team && t.team && me.team === me.team);
+      /* me.team === t.team -- this read `me.team === me.team`, which is always
+         true, so in every team mode each bot saw every tank as an ally, never
+         acquired a target and never fired a shot. */
+      const ally = t === me || (me.team && t.team && me.team === t.team);
       const dx = t.x - me.x, dz = t.z - me.z;
       const d = Math.hypot(dx, dz);
       if(d > RANGE) continue;
@@ -1720,9 +1844,19 @@ const canSeeTarget = target ? !!pick.canSee : false;
        remembered position, else whatever a teammate reported. */
     let best = null, bestD = Infinity, sawIt = false;
     if(this._visible){
+      /* Not simply the nearest: a badly damaged enemy is worth a detour (a
+         kill now removes its damage for a whole respawn), and in Capture the
+         Circle an enemy standing in the zone is the one costing the match. */
+      const zones = (game._captureCircleMode && typeof CaptureCircle !== 'undefined'
+        && CaptureCircle.getState && CaptureCircle.getState()) ? CaptureCircle.getState().zones : null;
+      const zoneR = ((typeof GAMEMODES !== 'undefined' && GAMEMODES.captureTheCircle && GAMEMODES.captureTheCircle.circleRadius) || 12) + 4;
       for(const id in this._visible){
         const v = this._visible[id];
-        if(v.dist < bestD){ bestD = v.dist; best = v.t; sawIt = true; }
+        let score = v.dist;
+        const hpFrac = v.t.maxHp ? v.t.hp / v.t.maxHp : 1;
+        score -= (1 - hpFrac) * 30;
+        if(zones && zones.some(z => Math.hypot(v.t.x - z.cx, v.t.z - z.cz) < zoneR)) score -= 25;
+        if(score < bestD){ bestD = score; best = v.t; sawIt = true; }
       }
     }
     if(!best && this._seen){

@@ -222,7 +222,10 @@ const MapVoting = (() => {
          Second-largest of the four, and a genuinely big one — which is why it is
          worth the download.
 
-         worldHalf = 345, the derived boundary again: 639 / 2 x 1.08 = 345.
+         worldHalf = 520. It used to be 345 (639 / 2 x 1.08), but the arena is
+         NOT centred on the origin and the boundary is: the west spawns sit at
+         x = -415..-453, outside 345, so the void kill took two-thirds of the
+         field on every respawn. 520 clears the furthest spawn by ~65 units.
 
          THE FILENAME KEEPS ITS SPACE. "assets/maps/last frontier.glb" is
          unappealing and looks like a typo, but it is the name the file arrived
@@ -235,7 +238,7 @@ const MapVoting = (() => {
          the team and the spawn list is simply long enough to draw from. */
       glb: 'assets/maps/last frontier.glb',
       scale: 118,
-      worldHalf: 345,
+      worldHalf: 520,
       preview: null
     },
     {

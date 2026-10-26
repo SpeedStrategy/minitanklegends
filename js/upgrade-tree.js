@@ -34,7 +34,6 @@ window.Progression = (function () {
     XP_HEAL: 2,
     XP_PARTICIPATE: 10,
     MAX_LEVEL: 25,
-    UP_PER_XP: 10,          /* XP ÷ this = upgrade points granted */
     GUP_PER_WIN: 1,
     MAX_HP_BONUS: 7,        /* Health node         */
     MAX_DMG_BONUS: 3,       /* Damage node         */
@@ -54,6 +53,14 @@ window.Progression = (function () {
   };
 
   /* ------------------------------------------ upgrade tree (the spec)--
+   * A forking tree, drawn on a 6-lane grid (gx = lane, half steps between
+   * lanes; gy = tier, 0 = start):
+   *   3 starts      Health · Speed · Damage
+   *   each forks    into two parallel upgrades (tier 1)
+   *   merges        Reverse|Turning -> Regen time, Turret|Pen -> Super cool
+   *   two lanes     climb in parallel (tiers 3-4)
+   *   capstone      Fire rate needs BOTH lanes.
+   * Node ids are the save keys -- never rename one.
    * Slot rows keep the three paths readable: each column stacks its
    * chain top-down.  `req` is a list; entries are satisfied if the named
    * node has AT LEAST that many levels bought.  When `orMode` is set the
@@ -63,92 +70,92 @@ window.Progression = (function () {
   var TREE = {
     /* ---- HEALTH PATH (left column) ---- */
     health: {
-      name: 'Health', col: 'health', row: 0,
+      name: 'Health', col: 'health', row: 0, gx: 0.5, gy: 0,
       max: 3, cost: 1, desc: '+ 7 HP',
       req: [], per: { hp: 7 },
     },
     ricoshet: {
-      name: 'Ricochet angle', col: 'health', row: 1,
+      name: 'Ricochet angle', col: 'health', row: 1, gx: 0, gy: 1,
       max: 3, cost: 2, desc: 'Increases ricochet angle by 4 degrees',
       req: [{ id: 'health', lvl: 2 }], per: { rico: 4 },
     },
     reverse: {
-      name: 'Reverse speed', col: 'health', row: 2,
+      name: 'Reverse speed', col: 'health', row: 2, gx: 1, gy: 1,
       max: 1, cost: 2, desc: '+ 3 km/h reverse speed',
       req: [{ id: 'health', lvl: 2 }], per: { reverse: 3 },
     },
 
     /* ---- MOBILITY PATH (middle column) ---- */
     speed: {
-      name: 'Speed', col: 'speed', row: 0,
+      name: 'Speed', col: 'speed', row: 0, gx: 2.5, gy: 0,
       max: 5, cost: 1, desc: '+ 3 km/h speed',
       req: [], per: { speed: 3 },
     },
     turning: {
-      name: 'Turning speed', col: 'speed', row: 1,
-      max: 2, cost: 2, desc: 'Increases tower speed by 10%',
+      name: 'Turning speed', col: 'speed', row: 1, gx: 2, gy: 1,
+      max: 2, cost: 2, desc: 'Increases hull turning speed by 10%',
       req: [{ id: 'speed', lvl: 1 }], per: { turn: 10 },
     },
     towerturn: {
-      name: 'Tower turning speed', col: 'speed', row: 2,
+      name: 'Tower turning speed', col: 'speed', row: 2, gx: 3, gy: 1,
       max: 2, cost: 2, desc: 'Increases tower turning speed by 5%',
       req: [{ id: 'speed', lvl: 1 }], per: { turret: 5 },
     },
     regen: {
-      name: 'Regen time', col: 'speed', row: 3,
+      name: 'Regen time', col: 'speed', row: 3, gx: 1.5, gy: 2,
       max: 2, cost: 3, desc: '- 2.5s wait for regen',
-      req: [{ id: 'speed', lvl: 5 }], per: { regenS: 2.5 }, reserved: true,
+      req: [{ id: 'reverse', lvl: 1 }, { id: 'turning', lvl: 2 }], orMode: true, per: { regenS: 2.5 }, reserved: true,
     },
     towerturn2: {
-      name: 'Tower turning speed 2', col: 'speed', row: 4,
+      name: 'Tower turning speed 2', col: 'speed', row: 4, gx: 1.5, gy: 3,
       max: 2, cost: 2, desc: 'Increases tower turning speed by 5%',
       req: [{ id: 'regen', lvl: 2 }], per: { turret: 5 },
     },
     regenstr: {
-      name: 'Regen strength', col: 'speed', row: 5,
+      name: 'Regen strength', col: 'speed', row: 5, gx: 1.5, gy: 4,
       max: 1, cost: 1, desc: '+ 3% regen strength',
       req: [{ id: 'towerturn2', lvl: 2 }], per: { regenPct: 3 }, reserved: true,
     },
 
     /* ---- DAMAGE PATH (right column) ---- */
     damage: {
-      name: 'Damage', col: 'damage', row: 0,
+      name: 'Damage', col: 'damage', row: 0, gx: 4.5, gy: 0,
       max: 3, cost: 1, desc: '+ 3 dmg',
       req: [], per: { dmg: 3 },
     },
     pen: {
-      name: 'Penetration', col: 'damage', row: 1,
+      name: 'Penetration', col: 'damage', row: 1, gx: 4, gy: 1,
       max: 1, cost: 2, desc: '+ 1% penetration',
       req: [{ id: 'damage', lvl: 3 }], per: { pen: 1 },
     },
     gadgetcool: {
-      name: 'Gadget cool', col: 'damage', row: 2,
+      name: 'Gadget cool', col: 'damage', row: 2, gx: 5, gy: 1,
       max: 2, cost: 2, desc: '- 1.5s gadget cooldown',
-      req: [{ id: 'pen', lvl: 1 }], per: { gadgetS: 1.5 }, reserved: true,
+      req: [{ id: 'damage', lvl: 2 }], per: { gadgetS: 1.5 }, reserved: true,
     },
     supercool: {
-      name: 'Super cool', col: 'damage', row: 3,
+      name: 'Super cool', col: 'damage', row: 3, gx: 3.5, gy: 2,
       max: 5, cost: 1, desc: '- 1s super cool',
-      /* gadget-cool×2 OR ricoshet×3 — the tree links the two paths here */
+      /* towerturn×2 OR pen×1 — Mobility and Firepower merge here */
       req: [
-        { id: 'gadgetcool', lvl: 2 },
-        { id: 'ricoshet', lvl: 3 },
+        { id: 'towerturn', lvl: 2 },
+        { id: 'pen', lvl: 1 },
       ], orMode: true, per: { superS: 1 },
     },
     supercharge: {
-      name: 'Super charge rate', col: 'damage', row: 4,
+      name: 'Super charge rate', col: 'damage', row: 4, gx: 3.5, gy: 3,
       max: 2, cost: 3, desc: '+ 10% super charge rate',
       req: [{ id: 'supercool', lvl: 5 }], per: { chargeMult: 10 },
     },
     passive: {
-      name: 'Passive super charge', col: 'damage', row: 5,
+      name: 'Passive super charge', col: 'damage', row: 5, gx: 3.5, gy: 4,
       max: 2, cost: 2, desc: 'Charges +1% super/s',
       req: [{ id: 'supercharge', lvl: 2 }], per: { passiveRate: 1 },
     },
     firerate: {
-      name: 'Firerate', col: 'damage', row: 6,
+      name: 'Firerate', col: 'damage', row: 6, gx: 2.5, gy: 5,
       max: 1, cost: 1, desc: '- 0.1s fire cooldown',
-      req: [{ id: 'passive', lvl: 2 }], per: { fireS: 0.1 },
+      req: [{ id: 'regenstr', lvl: 1 }, { id: 'passive', lvl: 2 }], per: { fireS: 0.1 },
     },
   };
 
@@ -392,18 +399,37 @@ window.Progression = (function () {
       + minutes * KNOBS.XP_PER_MIN + KNOBS.XP_PARTICIPATE;
     st.xp += xp;
 
-    var up = Math.floor(xp / KNOBS.UP_PER_XP);
+    /* UPGRADE POINTS ARE NOT PAID FOR FIGHTING ANY MORE. They come only from
+       boxes (and the store's BANK trade). What a WIN pays is a box -- six per
+       12-hour window, see grantWinBox() in config.js. */
     var gup = won ? KNOBS.GUP_PER_WIN : 0;
-    t.up = (t.up || 0) + up;
     t.gup = (t.gup || 0) + gup;
     saveState(t);
 
+    var box = null;
+    if (won && typeof grantWinBox === 'function') {
+      try { box = grantWinBox(); } catch (e) { box = null; }
+    }
+
     var leveled = st.xp >= xpNeeded(st.level) && st.level < KNOBS.MAX_LEVEL;
-    lastAward = { tankId: tankId, xp: xp, up: up, gup: gup, level: st.level, leveled: leveled, won: won };
+    lastAward = { tankId: tankId, xp: xp, up: 0, gup: gup, box: box, level: st.level, leveled: leveled, won: won };
     return lastAward;
   }
 
   function getLastAward() { return lastAward; }
+
+  /* Upgrade points arrive from exactly two places: an opened box and the
+     store's BANK trade. Both go through here. */
+  function addUp(n) {
+    n = Math.max(0, Math.round(n || 0));
+    if (!n) return 0;
+    var t = loadState();
+    t.up = (t.up || 0) + n;
+    saveState(t);
+    return t.up;
+  }
+
+  function getUp() { return loadState().up || 0; }
 
   /* ------------------------------------------------ UpgradeTree shim --
      tank.js draws glow bands by ribbon count; game.js calls recordBattle
@@ -438,6 +464,7 @@ window.Progression = (function () {
     nodeState: nodeState, nodeBought: nodeBought, buyNode: buyNode,
     tankStats: tankStats, defWithUpgrades: defWithUpgrades,
     recordBattle: recordBattle, getLastAward: getLastAward,
+    addUp: addUp, getUp: getUp,
     getRibbons: getRibbons,
     LS_KEY: LS_KEY,
   };

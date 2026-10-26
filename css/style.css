@@ -504,13 +504,13 @@ input:focus{border-color:var(--accent)}
 }
 #scoreboard-overlay.hidden{display:none !important}
 
-/* â”€â”€ Panels wrapper: two team lists side by side, centered â”€â”€ */
+/* ── Panels wrapper: two team lists side by side, centered ── */
 .sb-inner{
   display:flex;gap:32px;justify-content:center;align-items:flex-start;
   pointer-events:auto;padding:0 24px;
 }
 
-/* â”€â”€ Team panel â”€â”€ */
+/* ── Team panel ── */
 .sb-team{
   width:420px;max-height:70vh;overflow-y:auto;
   background:rgba(12,16,28,0.92);border-radius:10px;overflow:hidden;
@@ -520,7 +520,7 @@ input:focus{border-color:var(--accent)}
 .sb-team::-webkit-scrollbar{width:4px}
 .sb-team::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:4px}
 
-/* â”€â”€ Team header â”€â”€ */
+/* ── Team header ── */
 .sb-team-header{
   padding:12px 16px;font-size:13px;font-weight:800;letter-spacing:3px;text-transform:uppercase;
   border-bottom:2px solid;text-align:center;
@@ -528,7 +528,7 @@ input:focus{border-color:var(--accent)}
 .sb-team-blue .sb-team-header{color:#5eaaff;border-color:#3377dd;background:rgba(50,120,230,0.08)}
 .sb-team-red .sb-team-header{color:#ff6b6b;border-color:#dd3333;background:rgba(230,60,60,0.08)}
 
-/* â”€â”€ Column labels â”€â”€ */
+/* ── Column labels ── */
 .sb-cols{
   display:flex;padding:6px 12px;font-size:9px;color:rgba(255,255,255,0.3);letter-spacing:1px;
   border-bottom:1px solid rgba(255,255,255,0.05);text-transform:uppercase;font-weight:600;
@@ -536,7 +536,7 @@ input:focus{border-color:var(--accent)}
 }
 .sb-cols span{flex-shrink:0;text-align:center}
 
-/* â”€â”€ Player row â”€â”€ */
+/* ── Player row ── */
 .sb-row{
   display:flex;align-items:center;padding:6px 12px;font-size:12px;color:rgba(255,255,255,0.75);
   border-bottom:1px solid rgba(255,255,255,0.03);gap:8px;
@@ -545,40 +545,40 @@ input:focus{border-color:var(--accent)}
 .sb-row:hover{background:rgba(255,255,255,0.04);color:#fff}
 .sb-row span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-/* â”€â”€ Local player â”€â”€ */
+/* ── Local player ── */
 .sb-row.local{background:rgba(255,184,51,0.1);color:#fff;font-weight:600;border-left:3px solid #ffb833}
 
-/* â”€â”€ Dead â”€â”€ */
+/* ── Dead ── */
 .sb-row.dead{opacity:0.3}
 
-/* â”€â”€ Dot â”€â”€ */
+/* ── Dot ── */
 .sb-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-right:6px;box-shadow:0 0 5px var(--dot-color,rgba(255,255,255,0.3))}
 
-/* â”€â”€ Rank / medals â”€â”€ */
+/* ── Rank / medals ── */
 .sb-c-rank{width:28px;color:rgba(255,255,255,0.35);font-weight:600;text-align:center}
 .sb-medal{font-size:14px;display:inline-block;animation:sb-medal-spin 0.5s ease-out}
 .sb-rank-1 .sb-c-rank{color:#ffd700}
 .sb-rank-2 .sb-c-rank{color:#c0c0c0}
 .sb-rank-3 .sb-c-rank{color:#cd7f32}
 
-/* â”€â”€ Name â”€â”€ */
+/* ── Name ── */
 .sb-name{flex:1;text-align:left !important;padding-left:2px;font-weight:500;min-width:80px}
 
-/* â”€â”€ Vehicle â”€â”€ */
+/* ── Vehicle ── */
 .sb-c-vehicle{width:100px;text-align:left !important;color:rgba(255,255,255,0.4);font-size:11px}
 
-/* â”€â”€ Kills â”€â”€ */
+/* ── Kills ── */
 .sb-c-kills{width:28px;font-weight:800;text-align:center}
 
-/* â”€â”€ Damage â”€â”€ */
+/* ── Damage ── */
 .sb-c-dmg{width:50px;font-weight:700;color:rgba(255,210,110,0.85);text-align:center}
 
-/* â”€â”€ Status â”€â”€ */
+/* ── Status ── */
 .sb-c-status{width:42px;text-align:center}
 .sb-status-alive{display:inline-block;padding:2px 6px;border-radius:3px;font-size:9px;font-weight:700;background:rgba(80,220,120,0.15);color:#55dd77;border:1px solid rgba(80,220,120,0.2)}
 .sb-status-dead{display:inline-block;padding:2px 6px;border-radius:3px;font-size:9px;font-weight:700;background:rgba(255,70,70,0.12);color:#ee5555;border:1px solid rgba(255,70,70,0.15)}
 
-/* â”€â”€ Round info (TDM) â”€â”€ */
+/* ── Round info (TDM) ── */
 .sb-round-info{
   text-align:center;padding:8px 20px;margin-bottom:12px;
   font-size:12px;color:#ffb833;font-weight:800;letter-spacing:2px;
@@ -586,7 +586,7 @@ input:focus{border-color:var(--accent)}
 }
 .sb-round-info.hidden{display:none}
 
-/* â”€â”€ Buttons â”€â”€ */
+/* ── Buttons ── */
 .sb-bottom-bar{display:flex;gap:12px;margin-top:20px;pointer-events:auto;justify-content:center}
 .sb-bottom-btn{
   padding:10px 32px;border:none;border-radius:6px;font-size:12px;font-weight:800;
@@ -619,7 +619,7 @@ input:focus{border-color:var(--accent)}
 
 @media (max-height:400px){#reload-indicator{display:none}}
 
-/* Super ability slot â€” sits further left of the HP bar (mirror of reload indicator) */
+/* Super ability slot — sits further left of the HP bar (mirror of reload indicator) */
 #super-wrap{position:absolute;left:calc(50% - 270px);bottom:18px;width:68px;height:68px;transition:opacity .5s ease}
 
 #super-btn{
@@ -652,7 +652,7 @@ input:focus{border-color:var(--accent)}
 
 
 
-/* Drown timer bar â€” above HP bar */
+/* Drown timer bar — above HP bar */
 
 #drown-bar-wrap{position:absolute;left:50%;bottom:34px;transform:translateX(-50%);
 
@@ -734,7 +734,7 @@ input:focus{border-color:var(--accent)}
    One panel, top centre, two columns: YOUR base on the left, the enemy's on the
    right. The columns are ordered by RELATIONSHIP rather than by team id, which
    is why the labels are fixed words and the bars are coloured by
-   Game._displayColor â€” see _updateHud in base-defend.js.
+   Game._displayColor — see _updateHud in base-defend.js.
 
    It sits BELOW #glad-hud rather than beside it, and #tdm-lb is hidden while it
    is up (see _updateHUD): three scoreboards stacked on one strip of screen is
@@ -742,7 +742,7 @@ input:focus{border-color:var(--accent)}
    that decide the match.
 
    The bars are chunky and the numbers are large on purpose. This is read at a
-   glance, mid-battle, while looking somewhere else entirely â€” it is a
+   glance, mid-battle, while looking somewhere else entirely — it is a
    peripheral-vision readout, not a settings panel. */
 #base-hud{position:absolute;left:50%;top:14px;transform:translateX(-50%);
   z-index:20;pointer-events:none;
@@ -767,8 +767,8 @@ input:focus{border-color:var(--accent)}
 .base-hud-side{font-size:11px;font-weight:800;letter-spacing:.14em;color:#fff}
 
 /* Auto-placed means the MAP shipped no `base` entity, so the mode put the
-   objective somewhere itself. Deliberately quiet â€” a player does not need to
-   know â€” but a designer reading a screenshot can, which is the only audience
+   objective somewhere itself. Deliberately quiet — a player does not need to
+   know — but a designer reading a screenshot can, which is the only audience
    that needs to. */
 .base-hud-src{font-size:8px;font-weight:800;letter-spacing:.12em;
   color:rgba(255,255,255,.30);white-space:nowrap}
@@ -888,7 +888,7 @@ input:focus{border-color:var(--accent)}
 
 
 
-/* Flamethrower heat bar (Helix) â€” vertical, left center */
+/* Flamethrower heat bar (Helix) — vertical, left center */
 
 #heat-wrap{position:absolute;left:22px;top:50%;transform:translateY(-50%);
 
@@ -1052,7 +1052,7 @@ input:focus{border-color:var(--accent)}
 input[type=range]{width:100%;accent-color:var(--accent)}
 input[type=color]{width:100%;height:38px;background:#1c1c1c;border:1px solid var(--line);border-radius:8px;cursor:pointer}
 
-/* Range + color inputs â€” chunky "toon" sliders with a real filled track.
+/* Range + color inputs — chunky "toon" sliders with a real filled track.
    The filled part needs a CSS variable (--pct) because a range input
    cannot paint its own progress; menu.js keeps --pct in sync.          */
 #menu-settings input[type=range]{
@@ -1334,7 +1334,7 @@ input[type=color]{width:100%;height:38px;background:#1c1c1c;border:1px solid var
 
   /* THE BUTTON MUST NOT RESIZE WHEN THE LABEL CHANGES.
 
-     PLAY turns into a timer that counts up, and this box is CONTENT-SIZED â€”
+     PLAY turns into a timer that counts up, and this box is CONTENT-SIZED —
      padding plus whatever the text measures. So the label's length WAS the
      button's width: "PLAY" came out 219px and "3s" came out 161px, and the
      button visibly shrank every time you pressed play. Shortening the label
@@ -1344,7 +1344,7 @@ input[type=color]{width:100%;height:38px;background:#1c1c1c;border:1px solid var
      min-width pins it to the width "PLAY" already produced, so the label can be
      any length and the button stays exactly the size it was. box-sizing keeps
      the 18px/60px padding inside that width rather than adding to it, which is
-     what stops it being 2px wider than it looks. calc(var(--ui-scale) * â€¦) so it
+     what stops it being 2px wider than it looks. calc(var(--ui-scale) * …) so it
      still tracks the UI scale setting like every other dimension here. */
   box-sizing: border-box;
 
@@ -4343,7 +4343,7 @@ html, body {
 
 .rt-checkbox.checked::after {
 
-  content:"âœ“"; color:#1a1a1a; font-size:14px; font-weight:800; line-height:1;
+  content:"✓"; color:#1a1a1a; font-size:14px; font-weight:800; line-height:1;
 
 }
 
@@ -4617,7 +4617,7 @@ html, body {
 
 .btn-back:hover::before {
 
-  content: 'â†';
+  content: '←';
 
   position: absolute;
 
@@ -4944,7 +4944,7 @@ html, body {
 
 /* ===== THE BUY SCREEN: A FLATBED RAILCAR =====
 
-   The image is a side-on flatbed wagon, 1983x793 â€” about 2.5:1 â€” with a big
+   The image is a side-on flatbed wagon, 1983x793 — about 2.5:1 — with a big
    empty wooden deck across the middle third. That empty deck is the reason this
    layout works: the item sits ON it rather than floating in a panel, so the
    screen reads as "here is your parcel on a cart" instead of "here is a dialog".
@@ -4952,7 +4952,7 @@ html, body {
    Cover, not contain: the deck has to reach both edges of the screen whatever
    the aspect ratio, or you get a letterboxed wagon floating on black with the
    buttons hanging in the gaps. The image is centred slightly above middle so the
-   deck â€” not the wheels or the roof â€” lands under the item. */
+   deck — not the wheels or the roof — lands under the item. */
 .shop-buy-wrapper {
   position: absolute; inset: 0; overflow: hidden;
   z-index: 11;
@@ -5002,7 +5002,7 @@ html, body {
   filter: drop-shadow(0 6px 10px rgba(0,0,0,.55));
   user-select: none; -webkit-user-drag: none;
 }
-/* "x500" â€” the count, in the same heavy face as the rest of the shop, sitting
+/* "x500" — the count, in the same heavy face as the rest of the shop, sitting
    BESIDE the icon as requested so the pairing is unambiguous. */
 .shop-buy-count {
   font-family: 'Lilita One', 'Nunito', sans-serif;
@@ -5026,7 +5026,7 @@ html, body {
   margin-top: auto;                 /* pushes the pair to the bottom of the stage */
   display: flex; flex-direction: column; align-items: center; gap: 14px;
 }
-/* Hidden once the purchase is done â€” the user asked for the back button alone
+/* Hidden once the purchase is done — the user asked for the back button alone
    on the finished screen. */
 .shop-buy-wrapper.done .shop-buy-controls,
 .shop-buy-wrapper.done .shop-buy-name,
@@ -5109,8 +5109,8 @@ html, body {
 }
 @keyframes congratsPop { from { opacity:0; transform: scale(.6); } to { opacity:1; transform:none; } }
 /* `both` fill mode means the FROM state applies before the animation starts and
-   if the animation never runs at all â€” a player with reduced motion switched on,
-   or a browser that suppresses it â€” CONGRADITIONS is left permanently at 60%
+   if the animation never runs at all — a player with reduced motion switched on,
+   or a browser that suppresses it — CONGRADITIONS is left permanently at 60%
    scale and 0 opacity, i.e. invisible. This pins it to the finished state in
    exactly that case and costs nothing otherwise. */
 @media (prefers-reduced-motion: reduce){
@@ -5186,8 +5186,8 @@ html, body {
 .shop-receive-wrapper.flash .shop-receive-flash { animation: recvFlash .6s ease-out; }
 @keyframes recvFlash { 0% { opacity:.85; } 100% { opacity:0; } }
 
-/* THE ITEM ITSELF. Starts at 1x and lands at 1.3x â€” the number the user asked
-   for â€” with the count appearing underneath. */
+/* THE ITEM ITSELF. Starts at 1x and lands at 1.3x — the number the user asked
+   for — with the count appearing underneath. */
 .shop-receive-reward {
   position: relative; z-index: 2;
   display: flex; align-items: center; justify-content: center;
@@ -5667,7 +5667,7 @@ html, body {
 }
 
 /* ============================================================
-   ACCOUNTS â€” login/register overlay
+   ACCOUNTS — login/register overlay
    ============================================================ */
 .auth-mini-btn {
   align-self: center;
@@ -6097,7 +6097,7 @@ html, body {
 .auth-ok.hidden { display: none; }
 
 /* ============================================================
-   COMIC STORE-STYLE UI â€” buttons & animations
+   COMIC STORE-STYLE UI — buttons & animations
    ============================================================ */
 
 /* Main menu side buttons (store look) */
@@ -6133,7 +6133,7 @@ html, body {
 .main-menu-side .btn:nth-child(even):active { transform: rotate(1.5deg) translate(2px, 2px); }
 .main-menu-side .btn-subtle { --btn-bg: #eab308; }
 
-/* PLAY button (comic) â€” idle bob + glow live on the WRAPPER so the
+/* PLAY button (comic) — idle bob + glow live on the WRAPPER so the
    button itself has no animations and can transition smoothly on hover */
 .btn-play-wrap {
   display: inline-block;
@@ -6146,7 +6146,7 @@ html, body {
   font-family: 'Lilita One', sans-serif;
   letter-spacing: 4px;
 }
-/* THE QUEUE WORD â€” one word saying what the seconds mean, NEXT TO the timer.
+/* THE QUEUE WORD — one word saying what the seconds mean, NEXT TO the timer.
 
    Pressing PLAY turns the button into a timer, and on its own "5s" is a number
    with no subject: it could be a reload, a round clock or a cooldown. The word
@@ -6154,7 +6154,7 @@ html, body {
 
    An earlier version of this sat ABOVE the button, absolutely positioned so it
    would not widen it. That moved the caption off the control it describes, which
-   is not a caption any more â€” and it was not my decision to make. The button
+   is not a caption any more — and it was not my decision to make. The button
    growing is the honest cost of adding a word to it, and the number it holds is
    short (0s, 5s, 15s) precisely so there is room.
 
@@ -6163,11 +6163,11 @@ html, body {
    which is what makes the two look like one line of type. The previous `middle`
    centred the word on the digits' CENTRE instead, and because "SEARCHING" is all
    capitals with no descenders while "5s" has both an ascender and a descender,
-   those two centres are not the same line â€” the word sat visibly high and read as
+   those two centres are not the same line — the word sat visibly high and read as
    a separate sticker rather than as a label for the number.
 
    SIZED AT 0.62em against the counter's 22px, so the word's cap height lands a
-   little under two thirds of the digits' â€” a label/value ratio that is readable
+   little under two thirds of the digits' — a label/value ratio that is readable
    without the two competing for attention. */
 .btn-play-cap {
   display: none;
@@ -6360,7 +6360,7 @@ html, body {
 }
 .aim-style-card.active .aim-style-name { color: var(--accent); }
 
-/* Shop buy page back button (comic text button â€” replaces missing back.png) */
+/* Shop buy page back button (comic text button — replaces missing back.png) */
 .shop-back-btn {
   display: inline-block;
   cursor: pointer;
@@ -6399,7 +6399,7 @@ html, body {
 }
 
 /* ============================================================
-   MAIN MENU SIDE NAV â€” neutral chunky 3D buttons, white top-corner
+   MAIN MENU SIDE NAV — neutral chunky 3D buttons, white top-corner
    gradient, real SVG icon chips. All sizes scale with --ui-scale
    so the column resizes correctly on mobile/touch devices.
    ============================================================ */
@@ -6484,7 +6484,7 @@ html, body {
 }
 
 /* ============================================================
-   SMOOTH MICROINTERACTIONS â€” hover: lift + scale + white glow
+   SMOOTH MICROINTERACTIONS — hover: lift + scale + white glow
    One easing curve everywhere; PLAY pauses its idle bob so the
    3D lift eases smoothly instead of snapping.
    ============================================================ */
@@ -6586,7 +6586,7 @@ html, body {
 .clan-3d-btn:hover { filter: drop-shadow(0 0 8px rgba(255,255,255,.35)); }
 
 /* ============================================================
-   MOBILE SIDE NAV (AUTHORITATIVE) â€” must sit after the layout
+   MOBILE SIDE NAV (AUTHORITATIVE) — must sit after the layout
    blocks so it wins the cascade: compact + vertically centered
    on short landscape screens (phones/tablets).
    ============================================================ */
@@ -6718,15 +6718,15 @@ html, body {
 }
 /* THE AVATAR IS THE ONLY CONTROL IN THIS ROW, and it is a real 3D button.
 
-   It is the house button â€” a hard offset lip that the press collapses, an
-   inset top light and a shaded bottom edge â€” the same construction as
+   It is the house button — a hard offset lip that the press collapses, an
+   inset top light and a shaded bottom edge — the same construction as
    `.clan-3d-btn` and the CONTINUE key, so it presses like everything else in the
    game instead of merely fading.
 
    DARK GREY, not gold. The gold gradient was there because the old emoji avatar
    needed a bright plate to sit on; with a trophy image inside it, gold competes
    with the trophy and the two yell at each other. Grey is the frame's job: hold
-   the picture, get out of the way. The player's OWN gold is still gold â€” the
+   the picture, get out of the way. The player's OWN gold is still gold — the
    owned-trophy styling in the menu below uses the game's gold, and that is
    where the colour belongs. */
 .profile-card-avatar {
@@ -6755,7 +6755,7 @@ html, body {
 /* NO TROPHIES YET: the ICON dims, not the frame.
 
    This used to desaturate the whole button, and that was to kill a gold gradient
-   that no longer exists â€” with a grey frame there is no colour to drain, and
+   that no longer exists — with a grey frame there is no colour to drain, and
    greying the button out made an ordinary control look broken rather than empty.
    Dimming the picture is the honest version: the slot is there and it is usable,
    there is just nothing in it yet. */
@@ -6848,15 +6848,15 @@ html, body {
    name go" is a much harder thing to trace than "this selector changed". */
 .profile-card-nick { font-size: 20px; color: #fff; }
 /* `.profile-trophy-slot` and `.trophy-slot-plus` are gone. The dashed "add" box
-   was a second control for the avatar's job and could not add anything â€” a
+   was a second control for the avatar's job and could not add anything — a
    trophy is earned in a match. The styles are removed rather than left behind,
    because a rule that matches nothing reads like a setting that is still doing
    something. */
 
 /* THE TROPHY MENU. position:fixed, placed from the click coordinates by
    _renderProfileCard, because it is meant to open next to the cursor. This rule
-   was previously declared TWICE in this file â€” once at 210px to the right of the
-   avatar slot, then again at 300px below it â€” so the second silently won and the
+   was previously declared TWICE in this file — once at 210px to the right of the
+   avatar slot, then again at 300px below it — so the second silently won and the
    first was dead. It is one declaration now. */
 .trophy-pop {
   position: fixed;
@@ -6879,7 +6879,7 @@ html, body {
 
 /* FIVE ACROSS, AS MANY ROWS AS THE CATALOGUE NEEDS.
 
-   Four across was not a layout accident â€” the grid was sized to a 16-cell
+   Four across was not a layout accident — the grid was sized to a 16-cell
    padded square, four by four, which is why it could never grow. The width is
    fixed at five columns and the height is whatever the list turns out to be,
    with the scrollbar taking the overflow. */
@@ -7205,6 +7205,11 @@ html, body {
    crosshair while the world is what is under the pointer — open the settings
    and a real cursor comes back for the panel elements only. */
 body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: none !important; }
+/* The aim reticle belongs to the battlefield: never over a menu, never on touch. */
+body:has(.menu:not(.hidden)) #strategic-reticle,
+body.is-mobile #strategic-reticle{ display: none !important; }
+/* The brawl camera never rotates, so the on-screen rotate buttons have nothing to do. */
+body.strategic-mode .cam-rotate-btns{ display: none !important; }
 .crosshair-mode.ctrl-held #game-root canvas{ cursor: default !important; }
 
   /* THE CURSOR DISAPPEARS ON PURPOSE IN A MATCH, AND USED TO DO IT SILENTLY.
@@ -7242,7 +7247,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
   #crosshair-hint.on{ opacity:1; }
 
 /* ============================================================
-   MISSIONS MENU â€” Tactical Intel Board
+   MISSIONS MENU — Tactical Intel Board
    ============================================================ */
 
 #menu-missions { animation: none !important; }
@@ -7494,7 +7499,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
 
 /* --- Card grid: PORTRAIT cards, not landscape strips ---
    The cards used to be laid out 4-across with `1fr` columns, which let a column
-   grow to 246px on a wide screen â€” wider than the card was tall, so "portrait"
+   grow to 246px on a wide screen — wider than the card was tall, so "portrait"
    was only ever true by accident on a narrow window. The upper bound on the
    track is what actually guarantees the shape: with `1fr` alone, the grid hands
    back every spare pixel to the columns and a portrait card quietly turns back
@@ -7597,7 +7602,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
 }
 /* BOTH faces are absolutely positioned, so they are always exactly the same size
    whichever way up the card is. The front used to be `position: relative` and
-   sat in the flow to give the card its height â€” that no longer works now the
+   sat in the flow to give the card its height — that no longer works now the
    card carries a min-height, because a flowed front cannot fill an auto-height
    parent, and a short front next to a full-height back is exactly the z-order
    fault the scanlines below were once blamed for. The height comes from
@@ -7655,7 +7660,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
 /* READY: it can be flipped, so it is the only card that lifts.
    The glow is orange, not green. Green here would fight the gold band at the top
    of the card and read as a second accent colour rather than as "this one is
-   finished" â€” the lit top edge and the deeper lip already say that. */
+   finished" — the lit top edge and the deeper lip already say that. */
 .ms-mission-card.ready { cursor: pointer; }
 .ms-mission-card.ready .ms-card-front {
   box-shadow:
@@ -7727,7 +7732,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
 
    Retargeted from .ms-mission-card to .ms-card-face. On the OUTER card it was
    drawn once, above both faces, so the moment a card flipped the scanlines sat
-   on top of the CLAIMED back as well â€” a stripe across the receipt, which is
+   on top of the CLAIMED back as well — a stripe across the receipt, which is
    exactly the sort of thing that makes a flip read as a broken z-order instead
    of a card turning over. On the face it is part of the card's surface. */
 .ms-card-face::before {
@@ -7756,8 +7761,8 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
 }
 
 /* The type tag sits ON the gold band, so it is a dark chip. `diffColor()` still
-   supplies the background inline from JS â€” that is what makes an EASY card
-   green and a HARD card red at a glance â€” so the rule below only sets the
+   supplies the background inline from JS — that is what makes an EASY card
+   green and a HARD card red at a glance — so the rule below only sets the
    type's own chrome, not its fill. */
 .ms-mission-type {
   font-size: 8px;
@@ -7809,7 +7814,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
 /* --- Progress bar ---
    The track was rgba(255,255,255,0.08) over a WHITE card, i.e. a barely-there
    hairline. Over graphite it needs real contrast, so the track is a dark inset
-   channel with a hard black lip â€” a groove cut into the plate. */
+   channel with a hard black lip — a groove cut into the plate. */
 .ms-progress-wrap { margin-bottom: 6px; }
 .ms-progress-bar {
   position: relative;
@@ -7861,7 +7866,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
 /* --- Rewards ---
    These were tinted translucent washes sized for a white plate. On graphite a
    translucent wash of a light colour just goes muddy, so each reward is a solid
-   dark chip with a coloured keyline and coloured text â€” the icon keeps its own
+   dark chip with a coloured keyline and coloured text — the icon keeps its own
    colour, the number sits on something solid. */
 .ms-mission-rewards {
   display: flex;
@@ -7909,7 +7914,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
    THE SAME OBJECT AS THE SETTINGS BUTTONS. Hard 2px black border, hard black
    offset with no blur, uppercase 800, and a press-in on :active. It used to be a
    flat translucent wash with a green gradient and a soft blurry shadow, which is
-   the opposite of that vocabulary â€” a soft shadow says "a rectangle of colour",
+   the opposite of that vocabulary — a soft shadow says "a rectangle of colour",
    a hard one says "a thing with depth". */
 .ms-mission-action {
   padding: 0 10px 10px;
@@ -8303,7 +8308,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
 }
 
 /* ============================================================
-   TANK MENU â€” Fullscreen 3D viewer with overlaid UI
+   TANK MENU — Fullscreen 3D viewer with overlaid UI
    ============================================================ */
 
 #menu-tank {
@@ -8571,7 +8576,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
   line-height: 1.5;
 }
 
-/* Stats â€” topic sections */
+/* Stats — topic sections */
 .tm-stats-section {
   margin-bottom: 12px;
   padding-bottom: 10px;
@@ -8978,7 +8983,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
   padding: 20px;
 }
 
-/* â”€â”€ Sprays tab: icons, pips and a bit of movement â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+/* ── Sprays tab: icons, pips and a bit of movement ─────────────────── */
 .tm-spray-empty {
   grid-column: 1 / -1;
   display: flex;
@@ -9008,7 +9013,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
 }
 .tm-spray-btn:active { transform: scale(0.96) !important; }
 
-/* Stamp pips â€” lit for every stamp used. */
+/* Stamp pips — lit for every stamp used. */
 .tm-spray-pips {
   display: inline-flex;
   gap: 4px;
@@ -9090,7 +9095,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
   overflow: hidden;
   /* So the search-lock bar can sit at the bottom of THIS panel. Without it the
      bar resolves against whatever ancestor happens to be positioned, which on
-     the mode screen is the page â€” and it then lands under the main menu's
+     the mode screen is the page — and it then lands under the main menu's
      buttons rather than under the cards it is explaining. */
   position: relative;
 }
@@ -9187,7 +9192,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
    under them saying what is happening and how to get out of it.
 
    THE BAR IS THE IMPORTANT HALF. A picker that simply stops responding is
-   indistinguishable from a broken one. A picker that says "searching â€” cancel to
+   indistinguishable from a broken one. A picker that says "searching — cancel to
    change" is a thing doing its job, and the exit is spelled out on a real
    button rather than left to be inferred from the PLAY button's timer.
    ========================================================================= */
@@ -9719,7 +9724,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
 .match-cd-tank-btn img{width:28px;height:28px;object-fit:contain;mix-blend-mode:screen;pointer-events:none}
 .match-cd-tank-btn .tc-name{font-size:7px;color:#ccc;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:50px}
 
-/* Tank switch panel (bottom, during countdown) â€” WoT-style 2-row full-width */
+/* Tank switch panel (bottom, during countdown) — WoT-style 2-row full-width */
 .tank-switch-panel{position:fixed;bottom:12px;left:12px;right:12px;z-index:210;background:rgba(10,13,20,0.92);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:2px solid rgba(255,255,255,0.12);border-radius:14px;padding:10px 16px;pointer-events:auto}
 .tank-switch-panel.hidden{display:none !important}
 .tank-switch-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
@@ -9818,7 +9823,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
 .gs-reset:hover{background:rgba(255,255,255,0.1);color:#fff}
 
 /* ===========================================================================
-   SECRET COMMANDS â€” the Tab+P panel
+   SECRET COMMANDS — the Tab+P panel
    ===========================================================================
    Styled as the game's own chrome: graphite plate, gold header, hard 2px black
    keyline and a hard un-blurred offset shadow, the same object as the settings
@@ -9826,7 +9831,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
 
    IT IS A PEEK, NOT A MODAL. The scrim is a light dim rather than an opaque
    one, because the usual reason to open this is to change something and then get
-   straight back into the fight â€” you want to see the game through it. */
+   straight back into the fight — you want to see the game through it. */
 .devc-scrim{
   position:fixed;
   inset:0;
@@ -9879,7 +9884,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
   font-size:10px;
   font-weight:800;
   letter-spacing:1px;
-  /* A dark chip on the gold band â€” the same trick the mission card header
+  /* A dark chip on the gold band — the same trick the mission card header
      uses. Plain gold-on-gold would be invisible. */
   background:#14171b;
   color:#ffd257;
@@ -9910,7 +9915,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
 .devc-row:active{transform:translate(2px,4px);box-shadow:0 1px 0 #101216,0 2px 0 #000}
 
 /* UNAVAILABLE: greyed, but still clickable. It is NOT disabled, because a
-   disabled button gives no reason â€” clicking it explains itself with a toast,
+   disabled button gives no reason — clicking it explains itself with a toast,
    which is the difference between "why is this grey" and "not right now". */
 .devc-row.devc-off{opacity:.45;filter:grayscale(.5)}
 .devc-row.devc-off:hover{opacity:.75}
@@ -9957,7 +9962,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
 }
 
 /* ===========================================================================
-   MAP VOTING OVERLAY â€” the COLOR WIPE
+   MAP VOTING OVERLAY — the COLOR WIPE
    ===========================================================================
 
    The vote screen used to fade in over 0.3s. A cross-fade is the least
@@ -9970,7 +9975,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
      opening   the bar sits off the LEFT edge and travels RIGHT, uncovering the
                vote screen as it goes. The screen assembles behind the wipe.
      closing   the bar travels LEFT again, covering the vote screen on its way
-               out â€” so the same gesture that brought the screen in takes it
+               out — so the same gesture that brought the screen in takes it
                away, and the two read as one motion rather than two effects.
 
    WHY A SOLID BLOCK AND NOT A DIAGONAL OR A CIRCLE. It is the game's own
@@ -9986,7 +9991,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
    so the wipe reads as that menu arriving. See .mv-wipe::before.
 
    THE WIPE IS NOT A TRANSITION ON THE OVERLAY. The overlay is toggled with
-   .hidden (display:none), and a transition cannot survive that â€” so the wipe is
+   .hidden (display:none), and a transition cannot survive that — so the wipe is
    driven by a class that map-voting.js adds and removes, and the overlay's own
    opacity is pinned to 1 throughout. */
 .mv-wipe{
@@ -10070,7 +10075,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
 
    This rule is also the CSS backstop for the class bug that broke this screen
    once already: the wipe-in animation is declared `both`, so if `mv-wipe-in` is
-   ever left on, the animation holds its LAST keyframe (translateX(0)) forever â€”
+   ever left on, the animation holds its LAST keyframe (translateX(0)) forever —
    a full-screen gold panel over the entire vote UI, undismissable. Holding the
    class is what puts the bar ON screen, not what parks it, so the class must be
    removed when the wipe ends (map-voting.js _wipeIn does this).
@@ -10086,7 +10091,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
    it, at any point in the animation. */
 .mv-wipe{pointer-events:none !important}
 /* The vote UI sits ABOVE the bar. Normally the bar is off-screen by the time
-   anything is interactive, so this changes nothing in the happy path â€” but if a
+   anything is interactive, so this changes nothing in the happy path — but if a
    wipe is ever mid-flight or a class sticks, the cards stay visible and
    clickable rather than being buried under a full-screen panel. */
 #map-vote-overlay .mv-container{position:relative;z-index:10002}
@@ -10136,7 +10141,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
 .mv-card-info{padding:12px 14px;position:relative}
 .mv-card-name{font-family:'Fredoka',sans-serif;font-size:16px;font-weight:600;color:#fff;margin-bottom:4px}
 .mv-card-desc{font-size:12px;color:rgba(255,255,255,0.5);line-height:1.3}
-/* The tally is a solid chip, not a translucent blur â€” on a dark card a blurred
+/* The tally is a solid chip, not a translucent blur — on a dark card a blurred
    wash reads as smudge rather than as a number. */
 .mv-card-votes{position:absolute;top:12px;right:12px;background:rgba(10,12,15,0.9);border:2px solid #000;box-shadow:0 3px 0 #101216;padding:4px 10px;border-radius:20px;font-family:'Fredoka',sans-serif;font-size:13px;font-weight:700;color:#ffd257;z-index:2}
 .mv-footer{text-align:center;margin-top:24px}
@@ -10152,7 +10157,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
 }
 
 /* ===== MAP VOTE: responsive sizing =====
-   Every dimension in this screen was written in fixed pixels â€” a 72px timer,
+   Every dimension in this screen was written in fixed pixels — a 72px timer,
    cards that never go below 240px, a 130px preview, 900px container. On a
    laptop at a small window, or on a phone, that container overflows and the
    cards overlap the header and footer, which is what "the vote menu is
@@ -10221,7 +10226,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
 }
 
 /* ===== CRATE (BOX) REWARD-CHANCES INFO BUTTON + PANEL ===== */
-/* Glowing â“˜ button, top-left of #box-overlay â€” revealed with the rewards */
+/* Glowing ⓘ button, top-left of #box-overlay — revealed with the rewards */
 .box-info-btn{
   position:absolute;top:18px;left:18px;z-index:6;
   display:flex;align-items:center;gap:9px;
@@ -10252,7 +10257,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
 .box-info-scrim{position:absolute;inset:0;z-index:20;background:rgba(4,6,10,0.35);transition:opacity .25s ease;animation:boxInfoFadeIn .3s ease}
 .box-info-scrim.hide{opacity:0}
 @keyframes boxInfoFadeIn{from{opacity:0}to{opacity:1}}
-/* Panel â€” slides in from the LEFT (left â†’ right), like the reference */
+/* Panel — slides in from the LEFT (left → right), like the reference */
 .box-info-panel{
   position:absolute;top:0;left:0;height:100%;z-index:21;width:min(660px,94vw);
   transform:translateX(-105%);
@@ -10279,7 +10284,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
 .box-info-close:hover{background:#ff3b3b;border-color:#ff3b3b;transform:translateY(-50%) rotate(90deg)}
 .box-info-sub{text-align:center;color:rgba(255,255,255,0.55);font-size:12.5px;letter-spacing:0.6px;margin:4px 0 10px}
 .box-info-sub b{color:#ffb12b}
-/* One row per drop chance â€” dice + % on the LEFT, reward icons right */
+/* One row per drop chance — dice + % on the LEFT, reward icons right */
 .box-info-row{display:flex;align-items:center;gap:18px;padding:16px 4px;border-top:1px solid rgba(255,255,255,0.09)}
 .box-info-chance{display:flex;align-items:center;gap:7px;min-width:88px;color:#fff;font-weight:800;font-size:17px;letter-spacing:0.5px}
 .box-info-dice{color:rgba(255,255,255,0.85);flex:0 0 auto}
@@ -10362,7 +10367,7 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
 }
 
 /* =============================================================================
-   BATTLE HUD â€” BOTTOM PANEL
+   BATTLE HUD — BOTTOM PANEL
    Laid out from the sketch: a vertical centre line runs down the screen; the HP
    bar is centred on it at the bottom; a row of three score readouts sits
    directly above the bar, centred with it; the super slot sits to the LEFT of
@@ -11820,3 +11825,159 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
   .tm-research, .tm-research.closing { animation: none; }
   .tr-back, .tm-research .tp-node { transition: none; }
 }
+
+/* ============================================================
+   MOBILE MENUS — short and narrow screens
+   ============================================================
+   1. `.menu` centres its panel with flexbox and scrolls on overflow. Plain
+      `center` pushes a panel taller than the screen past the TOP edge, where
+      no scroll position can reach it — the title and the top controls were
+      simply gone on a landscape phone. `safe center` falls back to the start
+      edge exactly when the panel would overflow, and is plain centring
+      otherwise.
+   2. --ui-scale only followed width, so an 844x390 landscape phone got the
+      desktop-sized 0.70 floor against 390px of height. On short screens the
+      height decides too.
+   3. The sandbox panel capped its height but never scrolled, so the map
+      arrows sat below the fold out of reach.
+   4. #mobile-back-btn (menu.js _wireMobileBack) — only shown when the
+      screen's own back control is off-screen or absent. */
+@media (max-height: 520px), (max-width: 760px) {
+  :root {
+    --ui-scale: min(clamp(0.70, calc(100vw / 1440), 1.25), clamp(0.58, calc(100vh / 760), 1.25));
+  }
+  .menu {
+    align-items: safe center;
+    justify-content: safe center;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+  .menu-card { max-width: calc(100vw - 16px); }
+  .auth-overlay { align-items: safe center; }
+  #menu-sandbox .sb-room {
+    max-height: calc(100dvh - 16px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+}
+
+#mobile-back-btn {
+  position: fixed;
+  top: max(10px, env(safe-area-inset-top));
+  left: max(10px, env(safe-area-inset-left));
+  z-index: 10001;   /* above #auth-overlay (10000), which it also closes */
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Lilita One', sans-serif;
+  font-size: 24px;
+  line-height: 1;
+  color: #fff;
+  background: #2a2d33;
+  border: 3px solid #000;
+  border-radius: 10px;
+  box-shadow: 0 3px 0 #000;
+  cursor: pointer;
+  user-select: none;
+}
+#mobile-back-btn:active { transform: translateY(3px); box-shadow: 0 0 0 #000; }
+#mobile-back-btn.hidden,
+body:has(#ui-layer.game-active) #mobile-back-btn { display: none; }
+
+/* ---------- forking tree graph (tank-menu.js treeGraphHtml) ------------
+   Cards sit on a lane/tier grid; requirement links are SVG curves drawn
+   beneath them. Amber = that requirement is met, dashed grey = not yet. */
+.tr-rows { overflow: auto; }
+.tr-graph {
+  position: relative;
+  flex: 0 0 auto;
+  margin: 0 auto;
+}
+.tr-links {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.tr-link {
+  fill: none;
+  stroke: #4a4e55;
+  stroke-width: 3;
+  stroke-dasharray: 7 7;
+  stroke-linecap: round;
+}
+.tr-link.on {
+  stroke: var(--tp-amber);
+  stroke-dasharray: none;
+  filter: drop-shadow(0 0 4px rgba(255,177,43,.45));
+}
+.tr-link-end { fill: #4a4e55; }
+.tr-link-end.on { fill: var(--tp-amber); }
+.tr-slot {
+  position: absolute;
+  width: 176px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.tr-graph .tm-research .tp-node,
+.tm-research .tr-graph .tp-node {
+  flex: none;
+  width: 176px;
+  position: relative;
+  z-index: 1;
+}
+.tr-lane-tag {
+  position: absolute;
+  top: 6px;
+  width: 176px;
+  text-align: center;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  color: rgba(255,255,255,.55);
+}
+.tr-merge {
+  position: absolute;
+  top: -11px;
+  z-index: 2;
+  padding: 2px 8px;
+  font-size: 8.5px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  color: #111;
+  background: var(--tp-amber);
+  border: 2px solid #0b0c0e;
+  border-radius: 8px;
+}
+
+/* ---------- main-menu WIN BOXES tracker (menu.js _renderWinBoxes) ---------- */
+.main-menu-crates { display: flex; flex-direction: column; gap: 8px; cursor: pointer; }
+.main-menu-crates .crate-head,
+.main-menu-crates .crate-note {
+  font-family: 'Lilita One', sans-serif;
+  text-align: center;
+  letter-spacing: 1px;
+}
+.main-menu-crates .crate-head { font-size: calc(var(--ui-scale) * 15px); color: #ffd08a; }
+.main-menu-crates .crate-note { font-size: calc(var(--ui-scale) * 10px); color: rgba(255,255,255,.6); }
+.main-menu-crates .crate-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: calc(var(--ui-scale) * 8px);
+}
+.main-menu-crates .crate-slot {
+  width: calc(var(--ui-scale) * 52px);
+  height: calc(var(--ui-scale) * 52px);
+  animation: none;
+}
+.main-menu-crates .crate-slot img { width: 64%; height: 64%; object-fit: contain; opacity: .25; filter: grayscale(1); }
+.main-menu-crates .crate-slot.earned {
+  border: 3px solid #000;
+  border-style: solid;
+  background: #ffd08a;
+  box-shadow: 0 3px 0 #000;
+}
+.main-menu-crates .crate-slot.earned img { opacity: 1; filter: none; }

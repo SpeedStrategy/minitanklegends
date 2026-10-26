@@ -338,11 +338,6 @@ window.TankMenu = (function(){
       '</div>';
   }
 
-  function arrowFor(tankId, nextId){
-    var st = Progression.nodeState(tankId, nextId);
-    return '<div class="tr-arrow' + (st.reqOk ? '' : ' locked') + '" aria-hidden="true"></div>';
-  }
-
   function trNodeHtml(st){
     var node = st.node;
     var cls = 'tp-node' +
@@ -364,22 +359,71 @@ window.TankMenu = (function(){
     '</div>';
   }
 
+  /* THE TREE AS A GRAPH. Each node carries a grid slot (gx lane, gy tier) in
+     upgrade-tree.js; cards are placed on that grid and the requirement links
+     are drawn underneath as curves, so a fork reads as one card feeding two
+     and a merge as two feeding one. Links are measured from the real cards
+     after they are in the DOM (drawTreeLinks), so a taller card can never
+     leave a line pointing at empty space. */
+  var TG = { LANE: 196, TIER: 214, CARD: 176, PADX: 16, PADY: 38 };
+
+  function treeGraphHtml(tankId){
+    var T = Progression.TREE, maxX = 0, maxY = 0, cards = '';
+    Object.keys(T).forEach(function(id){
+      var n = T[id];
+      if(n.gx == null) return;
+      maxX = Math.max(maxX, n.gx); maxY = Math.max(maxY, n.gy);
+      var st = Progression.nodeState(tankId, id);
+      var merge = (n.req && n.req.length > 1)
+        ? '<span class="tr-merge">' + (n.orMode ? 'ANY PATH' : 'BOTH PATHS') + '</span>' : '';
+      cards += '<div class="tr-slot" style="left:' + (TG.PADX + n.gx * TG.LANE) + 'px;top:' + (TG.PADY + n.gy * TG.TIER) + 'px">' +
+        merge + trNodeHtml(st) + '</div>';
+    });
+    var tags = '';
+    Progression.COLS.forEach(function(col){
+      var root = Object.keys(T).filter(function(id){ return T[id].col === col && T[id].gy === 0; })[0];
+      if(!root) return;
+      tags += '<div class="tr-lane-tag" style="left:' + (TG.PADX + T[root].gx * TG.LANE) + 'px">' + Progression.COL_TITLES[col] + '</div>';
+    });
+    var w = TG.PADX * 2 + maxX * TG.LANE + TG.CARD;
+    var h = TG.PADY + maxY * TG.TIER + TG.TIER;
+    return '<div class="tr-graph" style="width:' + w + 'px;height:' + h + 'px">' +
+      '<svg class="tr-links" width="' + w + '" height="' + h + '" aria-hidden="true"></svg>' +
+      tags + cards + '</div>';
+  }
+
+  function drawTreeLinks(scr, tankId){
+    var graph = scr.querySelector('.tr-graph');
+    var svg = graph && graph.querySelector('.tr-links');
+    if(!svg) return;
+    var T = Progression.TREE, out = '';
+    var box = function(id){
+      var el = graph.querySelector('.tp-node[data-node="' + id + '"]');
+      var slot = el && el.parentNode;
+      if(!el || !slot) return null;
+      return { x: slot.offsetLeft + el.offsetLeft + el.offsetWidth / 2,
+               top: slot.offsetTop + el.offsetTop,
+               bottom: slot.offsetTop + el.offsetTop + el.offsetHeight };
+    };
+    Object.keys(T).forEach(function(id){
+      var n = T[id];
+      (n.req || []).forEach(function(r){
+        var a = box(r.id), b = box(id);
+        if(!a || !b) return;
+        var on = Progression.nodeBought(tankId, r.id) >= r.lvl;
+        var y1 = a.bottom + 2, y2 = b.top - 4, dy = Math.max(24, (y2 - y1) * 0.5);
+        out += '<path class="tr-link' + (on ? ' on' : '') + '" d="M' + a.x + ' ' + y1 +
+          ' C' + a.x + ' ' + (y1 + dy) + ' ' + b.x + ' ' + (y2 - dy) + ' ' + b.x + ' ' + y2 + '"/>';
+        out += '<circle class="tr-link-end' + (on ? ' on' : '') + '" cx="' + b.x + '" cy="' + y2 + '" r="4"/>';
+      });
+    });
+    svg.innerHTML = out;
+  }
+
   function researchHtml(tankId){
     var def = TANKS[tankId];
     var prog = Progression.xpProgress(tankId);
-    var rows = '';
-    Progression.COLS.forEach(function(col){
-      rows += '<div class="tr-row"><div class="tr-row-tag">' + Progression.COL_TITLES[col] + '</div><div class="tr-row-cards">';
-      var first = true;
-      Object.keys(Progression.TREE).forEach(function(id){
-        var n = Progression.TREE[id];
-        if(n.col !== col) return;
-        if(!first) rows += arrowFor(tankId, id);
-        rows += trNodeHtml(Progression.nodeState(tankId, id));
-        first = false;
-      });
-      rows += '</div></div>';
-    });
+    var rows = treeGraphHtml(tankId);
     return '<div class="tm-research" id="tm-research">' +
       '<div class="tr-ribbon" aria-hidden="true"></div><div class="tr-ribbon soft" aria-hidden="true"></div>' +
       '<div class="tr-head">' +
@@ -392,7 +436,7 @@ window.TankMenu = (function(){
           '<div class="tr-chips">' +
             '<span class="tr-chip">TANK LEVEL<b>' + prog.level + '</b></span>' +
             '<span class="tr-chip" title="One per bought level — spends on tree nodes">TECH PTS<b>' + prog.tech + '</b></span>' +
-            '<span class="tr-chip" title="Upgrade points — earned from battle XP"><img src="assets/rewards/upgradepoints.webp" alt="">UP<b>' + fmtInt(prog.currencies.up) + '</b></span>' +
+            '<span class="tr-chip" title="Upgrade points — from boxes and the store BANK"><img src="assets/rewards/upgradepoints.webp" alt="">UP<b>' + fmtInt(prog.currencies.up) + '</b></span>' +
             '<span class="tr-chip" title="Golden upgrade points — one per battle win"><img src="assets/rewards/goldupgradepoints.webp" alt="">GUP<b>' + fmtInt(prog.currencies.gup) + '</b></span>' +
           '</div>' +
           superChipHtml(tankId) +
@@ -417,11 +461,13 @@ window.TankMenu = (function(){
     if(old){ keepScroll = old.querySelector('.tr-rows').scrollTop; old.remove(); }
     wrap.insertAdjacentHTML('beforeend', researchHtml(tankId));
     var scr = document.getElementById('tm-research');
+    drawTreeLinks(scr, tankId);
     /* reveal twice-guarded: rAF animates when the tab is visible, the
        timeout guarantees the screen opens even in a background tab */
     var reveal = function(){
       if(scr.classList.contains('open')) return;
       scr.classList.add('open');
+      drawTreeLinks(scr, tankId);
       var rowsEl = scr.querySelector('.tr-rows');
       if(rowsEl && keepScroll) rowsEl.scrollTop = keepScroll;
     };

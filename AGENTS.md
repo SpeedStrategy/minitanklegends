@@ -486,3 +486,138 @@ a fresh browser boot to `Ready!` + a two-tab movement test on production.
    on every edited js. Deploy note: cf-dist staging is generated at deploy
    time — the new webp/wav assets and stamp bumps ship through the normal
    build/deploy (no production deploy was run by this pass).
+
+---
+
+## 2026-10-25, eighth pass (Claude Code) — CLEANUP, MOBILE MENUS, NETCODE PROMOTED
+
+1. **Root cleanup (moved, nothing deleted).** One-off scripts → `scripts/{dev,deploy,legacy-patchers}/`,
+   docs → `docs/`, demos → `prototypes/`, `out-tests/` → `test/harness/`, duplicate
+   `collections.webp` → `archive/duplicates/`. Root images renamed into `assets/ui/`:
+   `gear.webp`→`settings-gear.webp`, `mystery_mtl.webp`→`mystery-crate.webp`,
+   `tank party.webp`→`menu-background.webp` (refs updated in index.html, js/menu.js,
+   dev/, and cf-dist/ so deploy-gap-check stays a superset). Moved scripts that
+   assumed root-relative paths now resolve `..\..` from their own folder.
+2. **Netcode promotion REVERTED (same day).** Copying the /dev game/tank/net.js
+   into js/ broke aiming, turrets, physics and the Mortar for the user. js/ is back
+   on the committed production files plus small targeted fixes (item 8); the
+   owner-authoritative netcode still lives only in dev/js/ and still needs a
+   two-device test there. Production copies from before the attempt:
+   `archive/pre-merge-20261025/`.
+3. **Encoding.** game.js (both trees), login-gate.js and style.css carried
+   double-encoded UTF-8 (`Ã¢â‚¬â€` for `—`), including player-visible toasts
+   ("Team Deathmatch Ã¢â‚¬â€ Round 1"). Repaired byte-exactly; zero `Ã`/`â€` left.
+4. **Mobile menus** (css/style.css "MOBILE MENUS" block at the end + menu.js):
+   `.menu` uses `safe center` so tall panels no longer lose their top past the
+   unscrollable edge; --ui-scale also follows height on short screens; sandbox
+   panel scrolls; auth dialog safe-centred. `Menu.goBack()` reuses each screen's
+   own back path (Escape branch / [data-back] / save&exit). On `is-mobile` a
+   `#mobile-back-btn` appears only when the screen's own back control is
+   off-screen or absent (and over the auth dialog, which it closes), and the
+   phone back gesture calls goBack (or the pause menu in a match).
+5. input.js wraps `Element.prototype.requestPointerLock`: no-op without a fine
+   pointer, rejection swallowed (was an uncaught WrongDocumentError on phones).
+6. game.js model probe skips tank ids whose def names a model (18 boot 404s gone).
+7. Stamps → `20261025a` for game/tank/net/menu/input.js and style.css;
+   health-check's style.css stamp regex widened to accept 202610[19-39][a-z].
+   Multiplayer was NOT exercised end-to-end (no Node/Worker locally) — run a
+   two-device test on /dev before production deploy.
+8. Bugs fixed after the user's test (all pre-existing in production):
+   - **Mouse aim dead** (game.js): the mouse delta was consumed twice per frame;
+     the second read was always 0 and a stale `_crosshairAngle` (0) overwrote
+     `_dynTurretTarget`, pinning the turret to world angle 0.
+   - **Camera swinging the long way** (game.js, 3 sites): `(a+PI)%2PI-PI` is wrong
+     for negative `a` in JS; replaced with atan2(sin,cos).
+   - **PLAY dead after the first match** (menu.js `_hidePlayCountdown`): it ran on
+     every leaveToMenu and restored `onclick = _origOnclick || null` even when no
+     search had captured it, nulling PLAY. Now returns unless a search ran.
+   - **Endless 'SEARCHING'** (net.js `_open`): a CONNECTING socket counted as
+     connected, so the offline probe said online while auto-reconnect was mid-try.
+   - **Tanks stacking on each other** (tank.js `_unstack`, from `_ramCheck`): a
+     resting hull on top of another slides off. Gated on |vy|<1.5 and touching
+     range -- an ungated first version shoved spawning tanks off the map.
+   - **Main-menu tank off-centre / oversized** (menu.js preview): models are now
+     fitted to a 4.4-unit footprint and centred on X/Y/Z, not just Y.
+   Stamps are now 20261025c/d. A stamp must change whenever its file changes, or
+   a browser that loaded an earlier build keeps it.
+
+---
+
+## 2026-10-25, ninth pass (Claude Code) — BRAWL CAMERA, WORKING MATCHES, FORKING TREE
+
+Verified by playing matches on every map in a local browser (CTC on all six
+maps, Base Defend on Paperland), full PLAY -> vote -> match -> win -> results ->
+CONTINUE -> PLAY loop, zero uncaught errors and zero FREEZE-GUARD reports.
+
+1. **Brawl Stars camera.** config.js CAMERA_STOPS are six 'strategic' zoom
+   steps (60 deg, 18..60 units back); game.js forces the staged camera, parks
+   the angle once per match behind the tank looking at the arena centre
+   (`_strategicCamAngle`, now reset per match -- it never was), looks slightly
+   past the tank, and fades map meshes between camera and tank
+   (`_updateOccluders`, 10 Hz, skips >60-unit meshes and InstancedMesh). No
+   pointer lock: the cursor/reticle is the aim. Old saved stages are reset once
+   (`settings.brawlCamV1`). Settings > Camera is now a zoom picker; the dead
+   layout/behaviour/rotation options and the in-match rotate buttons are gone.
+2. **Bots never fired in any team mode** -- bot.js `_sweep` compared
+   `me.team === me.team`. Fixed to `t.team`.
+3. **Bots had no Capture-the-Circle objective** -- `_circleObjective()`: with no
+   VISIBLE enemy a bot drives to its own slot inside the nearest zone.
+4. **Base Defend bots froze** -- `const target` was reassigned to the base and
+   threw every think (swallowed by the update loop). Now `let`; bases are
+   attacked directly (drive into range, stop, aim, fire).
+5. **Stuck bots** reverse-and-turn for 1.3 s and replan instead of re-ramming.
+6. **world.js cover**: footprints wider than 40 units (hills, platforms) are no
+   longer walls -- Paperland's 65x65 "Cube" blocked every LOS across the middle.
+7. **Spawns outside the kill boundary** (Last Frontier: worldHalf 345 vs spawns
+   at x=-450; Core II too): `_fitWorldToMap` measures from the origin and
+   `_clampSpawnsToMap` widens world.half to cover every spawn + 25.
+   lastfrontier worldHalf -> 520.
+8. Escape could open but never close the pause menu (#esc-menu is a `.menu`);
+   mobile back on the pause menu resumes instead of dropping to the main menu.
+9. Unique bot names; base-defend ground raycast sets `ray.camera` (sprite errors).
+10. **Skill tree** (upgrade-tree.js gx/gy + tank-menu.js treeGraphHtml /
+    drawTreeLinks): 3 roots, each forks in two, Reverse|Turning -> Regen time
+    and Turret|Pen -> Super cool merge (ANY PATH), two lanes climb in parallel,
+    Fire rate capstone needs BOTH. Node ids unchanged, so saves carry over.
+
+Known limits: on The Hill bots struggle to climb to the hill-top zone (2D nav has
+no slope data); multiplayer still untested (no Worker locally).
+
+---
+
+## 2026-10-26, tenth pass (Claude Code) — ECONOMY REWORK, PHYSICS, BOT SUPERS
+
+Full list of every bug found so far, with status: **`bugs.md`** (repo root).
+
+1. **Upgrade points come from boxes only.** `recordBattle` no longer converts
+   XP to UP. Sources now: boxes (`BOX_DROP_TABLE` has an Upgrade Points row,
+   credited via `Progression.addUp`) and the store BANK page (`_renderBank`,
+   100 cash -> 10 UP, `BANK_TRADE` in menu.js). A WIN drops one box into
+   Storage, max 6 per 12-hour window (`grantWinBox` / `winBoxStatus` in
+   config.js, `settings.winBoxes`). The main-menu crate panel is the live
+   tracker (`Menu._renderWinBoxes`); results show "+1 BOX n/6".
+2. **One battle record, real outcome**: `Game._recordBattle(won)` runs from
+   `_showResults` (and as a loss from `leaveToMenu` if the battle was quit),
+   guarded by `_battleRecorded` (reset in `_resetArena`).
+3. **Starter boxes** flag moved to its own key `tankparty_starter_boxes` —
+   the settings-field version re-granted 10 boxes on every loadSettings().
+4. Shop hold-to-buy is 0.5 s (`HOLD_MS` in menu.js).
+5. **Physics**: equal sub-steps <= 1/60 s (max 4) per frame; `Tank._keepUpright`
+   rights tilted/flipped hulls (more than half the tanks on The Hill were
+   upside down).
+6. **Bot nav knows terrain**: bot-nav.js samples ground height per cell
+   (Rapier `intersectionsWithRay`, highest hit inside the live tanks' height
+   band — maps carry sky domes in the trimesh) and treats >2.5-unit steps as
+   walls, in A* and in `clearLine`.
+7. **Supers for everyone**: `_updateSupers` ticks every tank via
+   `_tickSuper(t)`; targeted picks come from `_superPick(t)` (mouse for the
+   player, `t._botSuperPick` for bots, set by `BotBrain._maybeSuper`). Fixed:
+   supers usable once per match ('done' blocked reuse), minefield/molotov
+   falling into the airstrike branch, minefield without cooldown.
+8. Bots prefer damaged enemies and enemies inside the capture zone.
+9. **index.html loader**: `s.async = false` — scripts executed in arrival
+   order and intermittently booted without CONFIG.
+
+No Node on this machine: syntax was checked in the browser
+(`new Function(source)` over each edited file) and every change exercised in
+local matches.

@@ -1,5 +1,5 @@
 ﻿/* ============================================================================
-   login-gate.js â€” the wall in front of the game.
+   login-gate.js — the wall in front of the game.
 
    WHAT THIS IS
    ------------
@@ -15,7 +15,7 @@
    when, the server says who the player is.
 
    The obvious weakness is that it is all client-side: anyone with a developer
-   console can delete the class. That is not an oversight to be patched here â€”
+   console can delete the class. That is not an oversight to be patched here —
    it is a property of shipping a game in a browser, and the fix for it is not
    code but the reason this gate exists, which is that an account is how
    progress is identified. A player who bypasses the gate gets a local profile
@@ -25,7 +25,7 @@
    WHY THE GAME LOADS BEHIND THE GATE
    -----------------------------------
    It could be made to wait. The gate is up before anything else is requested,
-   so blocking boot would be easy â€” but 187 MB of models is a long time to stare
+   so blocking boot would be easy — but 187 MB of models is a long time to stare
    at a login form with nothing happening. The game loads normally underneath,
    so by the time someone has typed a username and a password the menu is
    genuinely ready. The gate covers it rather than delaying it.
@@ -44,7 +44,7 @@
    screen while the game was still loading behind it and the two looked like a
    mistake. It now waits. `lg-ready` is added to <html> when game.js clears its
    own `booting` class, which is the only moment that actually means "the game
-   is loaded" â€” nothing here can fake it, and nothing here has to guess at it.
+   is loaded" — nothing here can fake it, and nothing here has to guess at it.
    ========================================================================== */
 
 'use strict';
@@ -58,7 +58,7 @@
 
   /* Set on the very first line, before anything else can fail, because
      auth.js uses it to decide whether it owns the session check or should
-     stand aside. It has to be true before this file does any work â€” if a
+     stand aside. It has to be true before this file does any work — if a
      syntax error below killed the script, the flag would never be set and
      auth.js would correctly take over on its watchdog instead. */
   window.__gatePresent = true;
@@ -67,7 +67,7 @@
 
      Twice now a bug report turned out to be a browser running an older build,
      and both times the only way to find that out was to ask which code was
-     live â€” after guessing wrong several times first. This puts the answer on
+     live — after guessing wrong several times first. This puts the answer on
      screen.
 
      BUMP IT on every deploy that changes the gate. It is deliberately a
@@ -115,7 +115,7 @@
      THREE OPTIONS, AND THE TEXT UNDER EACH.
 
      Kept as one table rather than three sets of markup so the three
-     explanations cannot drift apart from the three cards â€” the guest text
+     explanations cannot drift apart from the three cards — the guest text
      saying "nothing is saved" next to a button styled as saving is exactly the
      kind of contradiction that makes players stop trusting a game's UI.
 
@@ -126,7 +126,7 @@
 
   const CHOICES = {
     guest: {
-      body: 'Play right away. Battles, clans, the shop, chat â€” everything works. ' +
+      body: 'Play right away. Battles, clans, the shop, chat — everything works. ' +
             'Your progress will <strong>not be saved</strong>; it stays on this ' +
             'device and is gone when you close the tab.',
       note: 'You can make an account at any time, and your guest progress moves across with it.',
@@ -141,7 +141,7 @@
       body: 'A username, an email and a password. Your progress is saved to your ' +
             'account from then on, so it follows you to any device and survives ' +
             'clearing your browser.',
-      note: 'You can change your mind and play as a guest instead â€” this is not a one-way door.',
+      note: 'You can change your mind and play as a guest instead — this is not a one-way door.',
     },
   };
 
@@ -214,7 +214,7 @@
 
      What a guest is NOT: a second-class player. Nothing below disables clans,
      chat, the shop or matchmaking. The whole difference is that saveSettings()
-     finds no session token and so never uploads anything â€” which is already
+     finds no session token and so never uploads anything — which is already
      true of the existing code (config.js calls Auth.onSettingsSaved, and that
      returns immediately when there is no token). So a guest needs no separate
      code path through the game at all, which is why this is a short function
@@ -306,7 +306,7 @@
    instant the class changes, and cannot drift into a loop by measuring time.
 
    A timeout sits underneath it purely as a backstop. If the game's own bootstrap
-   dies before clearing the flag â€” a failed asset, a thrown script â€” the gate
+   dies before clearing the flag — a failed asset, a thrown script — the gate
    still has to appear, because a player who cannot log in is worse than one who
    did not have to. The timeout is generous on purpose: it is a failure path,
    not the normal one.
@@ -343,7 +343,7 @@ function waitForBoot(onReady) {
        boot, with no native pointer behind it. */
     setGateOpen(true);
     if (why === 'timeout') {
-      console.warn('[gate] boot never reported ready â€” showing the gate anyway');
+      console.warn('[gate] boot never reported ready — showing the gate anyway');
     }
     onReady();
   };
@@ -373,7 +373,7 @@ function waitForBoot(onReady) {
 /* ============================================================================
    CUSTOM CURSOR
 
-   Four white bars in a crosshair with the centre cut out â€” the shape of a
+   Four white bars in a crosshair with the centre cut out — the shape of a
    sight, which is what the rest of this game is about. It trails the pointer
    slightly; the lag is what gives it mass and stops it reading as a div glued
    to a mouse.
@@ -510,7 +510,7 @@ function initCursor() {
 
    Shards thrown from the OK button when a choice is confirmed. Cheap: they are
    plain divs, animated by the compositor, and every one removes itself when its
-   animation ends â€” nothing is left in the DOM and nothing has to be cleaned up
+   animation ends — nothing is left in the DOM and nothing has to be cleaned up
    on the next visit.
    ============================================================================ */
 function burst(x, y, colors) {
@@ -544,10 +544,10 @@ function burst(x, y, colors) {
    Four buckets and one sentence each. Not a checklist.
 
    What it measures, in order of how much it actually matters:
-     * length      â€” the single biggest factor, and the one people forget
-     * variety     â€” more than one character class, not all of them
-     * repetition  â€” "aaaaaa", "123456" and friends are the first things tried
-     * sequences   â€” "abcdef", "qwerty"
+     * length      — the single biggest factor, and the one people forget
+     * variety     — more than one character class, not all of them
+     * repetition  — "aaaaaa", "123456" and friends are the first things tried
+     * sequences   — "abcdef", "qwerty"
 
    Deliberately NOT a score out of 100 with a fake percentage. A number invites
    people to argue with the number instead of choosing a better password, and a
@@ -555,8 +555,8 @@ function burst(x, y, colors) {
    ============================================================================ */
 const STRENGTH = [
   { verdict: 'Use 8 or more characters', hint: '' },
-  { verdict: 'Weak â€” too short or too simple', hint: '' },
-  { verdict: 'Fair â€” could be stronger', hint: '' },
+  { verdict: 'Weak — too short or too simple', hint: '' },
+  { verdict: 'Fair — could be stronger', hint: '' },
   { verdict: 'Good password', hint: '' },
   { verdict: 'Strong password', hint: '' },
 ];
@@ -564,7 +564,7 @@ const STRENGTH = [
 function scorePassword(pw) {
   if (!pw) return 0;
 
-  /* Anything that cannot be a password at all â€” the server rejects it below
+  /* Anything that cannot be a password at all — the server rejects it below
      eight characters, so scoring it as anything but "weak" would be telling
      the player a lie about something that will not be accepted. */
   if (pw.length < 8) return 1;
@@ -657,13 +657,13 @@ function updateStrength() {
 
     /* HAND THE POINTER BACK. The custom crosshair belongs to the gate; leaving
        `cursor: none` on <html> after the gate closes means no pointer anywhere
-       in the game â€” menus, shop, garage, everything. This is the difference
+       in the game — menus, shop, garage, everything. This is the difference
        between a cosmetic feature and a broken product.
 
        Removing the class here is necessary and not sufficient, which is exactly
        how the cursor stayed missing for so long. The document-level mousemove
        listener is still attached, so removing the class only holds until the
-       player moves the mouse again â€” at which point the takeover ran a second
+       player moves the mouse again — at which point the takeover ran a second
        time against a crosshair that was inside a hidden gate, and `cursor:none`
        came back with nothing in its place.
 
@@ -682,7 +682,7 @@ function updateStrength() {
     /* The critical <style> is deliberately LEFT IN PLACE now. Removing it was
        tidy, and then had to be undone on every reopen. Every rule in it is
        scoped to `.auth-locked`, so with that class gone the style is inert
-       either way â€” keeping it makes reopening the gate a two-line operation
+       either way — keeping it makes reopening the gate a two-line operation
        instead of re-synthesising a stylesheet at runtime.
 
        The boot sequence removes `booting` once the menu is genuinely up. That
@@ -705,7 +705,7 @@ function updateStrength() {
     if (!el) return false;
     const html = document.documentElement;
     html.classList.add('auth-locked');
-    /* lg-ready is never cleared on unlock precisely so this is instant â€” the
+    /* lg-ready is never cleared on unlock precisely so this is instant — the
        gate is already allowed to display, boot finished long ago. */
     html.classList.add('lg-ready');
     el.hidden = false;
@@ -803,7 +803,7 @@ function updateStrength() {
           localStorage.setItem('mtl_token', data.token);
           localStorage.setItem('mtl_user', JSON.stringify(data.user));
         } catch (e) { /* private mode */ }
-        message('login', 'Welcome back. Loading your tanksâ€¦', 'good');
+        message('login', 'Welcome back. Loading your tanks…', 'good');
         /* A beat to read the confirmation before the screen changes. Without
            it the button flips to a tick and is instantly covered. */
         setTimeout(function () { Gate.unlock(); }, 420);
@@ -842,7 +842,7 @@ function updateStrength() {
       .then(function (data) {
         /* Every step here is guarded. A player holding a CACHED older auth.js
            from before the rewrite does not have _setSession, and one missing
-           method here used to throw inside .then() â€” which skipped the guest
+           method here used to throw inside .then() — which skipped the guest
            progress upload, left the guest flag set, and left the gate locked
            with the account already created and no way in. A half-finished
            registration is the worst possible outcome, so each piece is allowed
@@ -889,7 +889,7 @@ function updateStrength() {
           } catch (e) { /* malformed local state is not worth blocking on */ }
         }
 
-        message('register', 'Account created. Loading your garageâ€¦', 'good');
+        message('register', 'Account created. Loading your garage…', 'good');
         setTimeout(function () { Gate.unlock(); }, 520);
       })
       .catch(function (e) {
@@ -904,7 +904,7 @@ function updateStrength() {
      two screens makes the player press Back for no reason.
 
      Step 1 asks for the address and sends the mail. Step 2 appears once the
-     link is followed. The token lives in memory only â€” never in the URL after
+     link is followed. The token lives in memory only — never in the URL after
      the first read, and never in localStorage. */
   function resetStepTwo(token) {
     Gate._resetToken = token;
@@ -920,7 +920,7 @@ function updateStrength() {
     if (btn) btn.textContent = 'Set New Password';
     message('reset', '');
     /* The panel switch belongs HERE and not only at the call sites. It was
-       missing from this function and the URL path â€” arriving from a reset link
+       missing from this function and the URL path — arriving from a reset link
        swapped the fields but left the LOGIN panel on screen, so somebody who
        clicked the emailed link was told to log in with a password they had just
        forgotten. Two call sites to remember is one too many. */
@@ -1095,7 +1095,7 @@ function updateStrength() {
     bindEnter('gate-reset-pass2', submitReset);
 
     /* Escape must NOT close the gate. There is no close button and Escape
-       deliberately does nothing â€” the screen has exactly one exit and it is
+       deliberately does nothing — the screen has exactly one exit and it is
        through the server. This is here as a comment more than as code: if you
        add an Escape handler to this dialog later, this is the line to not add. */
     document.addEventListener('keydown', function (e) {
@@ -1170,7 +1170,7 @@ function updateStrength() {
       /* No gate in the document. That should never happen, but releasing the
          lock is the right failure: a player who cannot log in is worse than a
          player who did not have to. */
-      console.warn('[gate] #login-gate missing â€” releasing the lock');
+      console.warn('[gate] #login-gate missing — releasing the lock');
       Gate.unlock();
       return;
     }
@@ -1183,7 +1183,7 @@ function updateStrength() {
     bind();
     initCursor();
 
-    /* Show the spinner, but only over the gate â€” the gate itself stays hidden
+    /* Show the spinner, but only over the gate — the gate itself stays hidden
        until boot finishes, so during loading the player sees the game's own
        loading screen and nothing else. */
     setChecking(true);
@@ -1195,7 +1195,7 @@ function updateStrength() {
   };
 
   /* Everything that decides which panel the player sees. Split out of start()
-     so it runs after boot rather than during it â€” the session check is a
+     so it runs after boot rather than during it — the session check is a
      network round trip and must not be sitting on the critical path of a
      loading screen it cannot be seen behind. */
   function decide() {
@@ -1209,7 +1209,7 @@ function updateStrength() {
         if (ok && auth && auth.loggedIn()) { Gate.unlock(); return; }
 
         /* No session. A reset or verification link in the URL takes precedence
-           over everything â€” somebody who clicked an emailed link has already
+           over everything — somebody who clicked an emailed link has already
            told us what they want and should not be asked again. */
         setChecking(false);
         if (handleUrlTokens()) return;
@@ -1219,7 +1219,7 @@ function updateStrength() {
            having signed in once.
 
            UNLESS ?login=1 is on the URL, which overrides the stored answer
-           entirely â€” that is the escape hatch, and it also forgets the answer
+           entirely — that is the escape hatch, and it also forgets the answer
            so the next plain visit behaves normally. */
         if (hasDecided() && !forcedByUrl()) { Gate.unlock(); return; }
         if (forcedByUrl()) clearChoice();
