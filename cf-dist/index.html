@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 
 <html lang="en">
 
@@ -12,13 +12,13 @@
 
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
-<link rel="icon" type="image/png" href="assets/icons/favicon.png">
+<link rel="icon" type="image/webp" href="assets/icons/favicon.webp">
 
-<link rel="apple-touch-icon" href="assets/icons/favicon.png">
+<link rel="apple-touch-icon" href="assets/icons/favicon.webp">
 
 <title>Mini Tank Legends Cline</title>
 
-<link rel="stylesheet" href="css/style.css?v=20261018d">
+<link rel="stylesheet" href="css/style.css?v=20261025m">
 <link rel="stylesheet" href="css/results.css?v=20261011d">
 
 <!--
@@ -308,13 +308,19 @@
 
         </div>
 
+        <button class="trophy-menu-btn" id="trophy-progress-btn" type="button" title="Trophy Roadmap">
+
+          <div class="trophy-progress-fill" id="trophy-progress-fill"></div>
+
+          <img class="trophy-progress-icon" id="trophy-progress-icon" src="assets/trophies/rookie.webp" alt="">
+
+        </button>
+
         <div id="btn-settings-gear" data-open="settings" title="Settings">
 
           <img src="assets/ui/settings-gear.webp" alt="Settings">
 
         </div>
-
-        <div class="auth-mini-btn" id="auth-mini" title="Account">Log In</div>
 
       </div>
 
@@ -1014,6 +1020,8 @@
 
           <div class="profile-card-grid" id="pcard-grid"></div>
 
+          <div class="auth-mini-btn auth-mini-profile" id="auth-mini" title="Account" onclick="if(window.Auth)Auth.open('choose');">Log In</div>
+
           <div class="btn btn-back" data-back="menu-main">&lt;- Back</div>
 
         </div>
@@ -1033,6 +1041,28 @@
 
       <div class="trophy-pop hidden" id="pcard-trophy-pop"></div>
 
+    </div>
+
+    <!-- TROPHY ROADMAP - full-screen overlay opened from the profile card's
+         progress button. A single horizontal track with ten milestone dots;
+         odd milestones sit above the line, even ones below, so the icons never
+         overlap. Each dot shows the trophy icon and its win threshold. -->
+    <div class="trophy-roadmap hidden" id="trophy-roadmap">
+      <div class="trophy-roadmap-backdrop" id="trophy-roadmap-backdrop"></div>
+      <div class="trophy-roadmap-card">
+        <div class="trophy-roadmap-head">
+          <h2 class="trophy-roadmap-title">Trophy Roadmap</h2>
+          <button class="trophy-roadmap-close" id="trophy-roadmap-close" type="button" aria-label="Close">&#10005;</button>
+        </div>
+        <div class="trophy-roadmap-track" id="trophy-roadmap-track">
+          <div class="trophy-roadmap-line"><div class="trophy-roadmap-line-fill" id="trophy-roadmap-fill"></div></div>
+          <div class="trophy-roadmap-dots" id="trophy-roadmap-dots"></div>
+        </div>
+        <div class="trophy-roadmap-foot">
+          <span id="trophy-roadmap-count">0 wins</span>
+          <span class="trophy-roadmap-hint">Earn 1 trophy per win</span>
+        </div>
+      </div>
     </div>
 
 
@@ -2360,7 +2390,7 @@
     const GAME_SCRIPTS = [
       'js/toon.js?v=20260929b',
       'js/xray.js?v=20261008p',
-      'js/config.js?v=20261011d',
+      'js/config.js?v=20261025b',
       'js/vfx.js?v=1787330007',
       'js/fireball.js?v=20260929m',
       'js/mortar-blast.js?v=20261006a',
@@ -2403,10 +2433,11 @@
       'js/net-cursors.js?v=20261003a',
       'js/matchmaking.js?v=20261004a',
       'js/nakama-net.js?v=1787330007',
-      'js/audio.js?v=20261024a',
+      'js/audio.js?v=20261024b',
       'js/shopdata.js?v=20260929a',
       'js/clan-default-layout.js?v=1787330007',
-      'js/menu.js?v=20261011f',
+      'js/menu.js?v=20261024a',
+      'js/trophy-roadmap.js?v=20261025j',
       'js/garage.js?v=20261003a',
       'js/missions.js?v=20261010b',
       /* PROGRESSION 2.0 — per-tank XP/levels/tree/currencies. Must precede
@@ -2430,7 +2461,7 @@
       'js/default-map.js?v=1787330007',
       'js/gladiator-map.js?v=1787330007',
       'js/boot-watchdog.js?v=20261008a',
-      'js/game.js?v=20261024a',
+      'js/game.js?v=20261025l',
       'js/results.js?v=20261018c',
       'js/auth.js?v=1787330007',
       /* Real-money store. After auth.js because the return trip calls into Auth,

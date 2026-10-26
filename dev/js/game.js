@@ -6439,6 +6439,7 @@ Net.sendJoinInfo(
     /* Cleared per battle so the watchdog in _showResults can fire for THIS
        match only, and so a second result screen cannot stack on the first. */
     this._resultsShown = false;
+    this._trophyAwardedThisMatch = false;
     this._skipPending = false;
     /* No closing shot left over from the last battle. The one that matters is
        in leaveToMenu, which is where a shot actually gets interrupted; this is
@@ -10991,7 +10992,7 @@ _initMortarMarker(){
       const tgt = this._mouseWorldAngle();
       if(tgt != null && t.turretAngle != null){
         const lag = Math.abs(((tgt - t.turretAngle) % (Math.PI*2) + Math.PI*3) % (Math.PI*2) - Math.PI);
-        glow = Math.min(1, lag / 0.5);
+        glow = 0;   /* gun-lag bright flash disabled: it read as a separate white line on fire */
       }
     }
     this._strategicGlow = glow;
@@ -13084,6 +13085,31 @@ _initMortarMarker(){
 
   _showResults(opts){
     opts = opts || {};
+    /* TROPHY AWARDING - one trophy per win (see the same block in the root
+       js/game.js for the full rationale). Every victory path funnels through
+       _showResults, so the award happens once regardless of how the match
+       ended; the flag mirrors _resultsShown's per-battle reset. */
+    if(opts.outcome === 'win' && !this._trophyAwardedThisMatch){
+      this._trophyAwardedThisMatch = true;
+      try {
+        /* Same shared-loader read as the root game.js award block. */
+        const s = (typeof loadSettings === 'function') ? loadSettings() : this.settings;
+        if(s){
+          s.trophyCount = (s.trophyCount || 0) + 1;
+          const owned = Array.isArray(s.trophyOwnedIds) ? s.trophyOwnedIds : (s.trophyOwnedIds = []);
+          const cat = (typeof getTrophyCatalog === 'function') ? getTrophyCatalog() : [];
+          for(const t of cat){
+            if(typeof t.threshold === 'number' && s.trophyCount >= t.threshold && owned.indexOf(t.id) < 0){
+              owned.push(t.id);
+              if(typeof awardTrophy === 'function') awardTrophy(t.id);
+            }
+          }
+          if(typeof saveSettings === 'function') saveSettings(s);
+          if(typeof Menu !== 'undefined' && Menu.refreshProfile) Menu.refreshProfile();
+          if(typeof window !== 'undefined' && typeof window.updateTrophyProgressButton === 'function') window.updateTrophyProgressButton();
+        }
+      } catch(e){}
+    }
     if(typeof Results === 'undefined') return;
 
     const me = this.localTank;
@@ -13392,6 +13418,15 @@ _initMortarMarker(){
      if(tank === this.localTank && this._aimPitch && this.cameraMode === 'dynamic' &&
         tank.def.shellType !== 'mortar' && tank.def.shellType !== 'flame'){
        dir = this._pitchDir(muz.dir, this._aimPitch);
+     }
+     /* Guard: a NaN/zero direction would make the shell tracer render as a
+        giant white line to map centre and hide the real bullet. Fall back to
+        the tank's heading so the shot always flies. */
+     if(!isFinite(dir.x) || !isFinite(dir.y) || !isFinite(dir.z) || dir.lengthSq() < 1e-8){
+       dir = new THREE.Vector3(Math.sin(tank.turretAngle || 0), 0, Math.cos(tank.turretAngle || 0));
+       if(!isFinite(dir.x) || !isFinite(dir.y) || !isFinite(dir.z) || dir.lengthSq() < 1e-8){
+         dir = new THREE.Vector3(0, 0, 1);
+       }
      }
      if(window.Audio && Audio.click){
        const vol = tank === this.localTank ? 1 : 0.45;

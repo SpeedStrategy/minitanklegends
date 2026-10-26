@@ -11820,3 +11820,947 @@ body.strategic-mode:not(:has(.menu:not(.hidden))) #game-root canvas{ cursor: non
   .tm-research, .tm-research.closing { animation: none; }
   .tr-back, .tm-research .tp-node { transition: none; }
 }
+
+/* ============================================================
+   TROPHY ROADMAP — progress button + full-screen roadmap overlay
+   ============================================================ */
+
+/* The dynamic progress button at the bottom of the profile menu.
+   Orange, game-styled, fills left-to-right with the player's progress
+   toward the next trophy. The icon is the NEXT trophy they are working
+   toward, so the button itself tells them what is coming. */
+.trophy-progress-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 12px 0 6px;
+  padding: 10px 14px;
+  border: 2px solid #ff9a3c;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #3a2410 0%, #1f1308 100%);
+  color: #ffe6c8;
+  font-family: inherit;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: 0 4px 0 #1a0e04, 0 6px 14px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,200,120,0.15);
+  transition: transform 0.08s ease, box-shadow 0.08s ease;
+}
+.trophy-progress-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 0 #1a0e04, 0 8px 18px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,200,120,0.25);
+}
+.trophy-progress-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 #1a0e04, 0 4px 10px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,200,120,0.1);
+}
+.trophy-progress-fill {
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: 0%;
+  background: linear-gradient(90deg, rgba(255,140,40,0.55) 0%, rgba(255,180,80,0.35) 100%);
+  transition: width 0.4s ease;
+  z-index: 0;
+  pointer-events: none;
+}
+.trophy-progress-icon {
+  position: relative;
+  z-index: 1;
+  width: 28px; height: 28px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 3px rgba(0,0,0,0.6));
+}
+.trophy-progress-label {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  text-align: left;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.trophy-progress-count {
+  position: relative;
+  z-index: 1;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+  font-size: 12px;
+}
+
+/* The roadmap overlay.
+
+   Cartoon rework: the card now eats most of the window, the road is a carved
+   dark track with a gold progress surface that grows between milestone dots,
+   and each milestone is a chunky rounded TILE (3px outline, hard offset
+   shadow, bobbing when it is the next goal) instead of a bare floating icon.
+   Milestone groups sit alternately above and below the road with real
+   breathing room - nothing touches card edges, labels never overlap. */
+.trophy-roadmap {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Track height variable shared by the row so groups can reserve the gap
+     around the road without percentage padding games. */
+  --tr-h: clamp(340px, 46vh, 470px);
+}
+.trophy-roadmap.hidden { display: none; }
+.trophy-roadmap-backdrop {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(1100px 640px at 50% 40%, rgba(64, 38, 10, 0.5), transparent 72%),
+    rgba(9, 12, 18, 0.82);
+  backdrop-filter: blur(7px);
+}
+.trophy-roadmap-card {
+  position: relative;
+  z-index: 1;
+  width: min(97vw, 1500px);
+  padding: 30px 38px 26px;
+  border-radius: 34px;
+  background:
+    repeating-linear-gradient(-45deg, rgba(255, 255, 255, 0.02) 0 26px, rgba(255, 255, 255, 0) 26px 52px),
+    radial-gradient(130% 140% at 50% 0%, #26334a 0%, #182233 55%, #111a29 100%);
+  border: 4px solid #f6e7cd;
+  box-shadow:
+    0 0 0 6px #0b0f16,
+    0 28px 64px rgba(0, 0, 0, 0.62);
+  color: #f4ead9;
+}
+.trophy-roadmap-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.trophy-roadmap-title {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 900;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: #ffd24a;
+  text-shadow:
+    0 3px 0 #6b3a05,
+    0 7px 12px rgba(0, 0, 0, 0.4);
+}
+.trophy-roadmap-close {
+  width: 44px;
+  height: 44px;
+  border: 3px solid #000;
+  border-radius: 13px;
+  background: linear-gradient(135deg, #ffb547, #ff7a1a);
+  color: #221406;
+  cursor: pointer;
+  font-size: 19px;
+  font-weight: 900;
+  line-height: 1;
+  box-shadow: 3px 3px 0 #000;
+  transition: transform .1s, box-shadow .1s, background .1s;
+}
+.trophy-roadmap-close:hover {
+  background: linear-gradient(135deg, #ffcf6b, #ff9333);
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 #000;
+}
+.trophy-roadmap-close:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 #000;
+}
+
+/* The road itself: carved dark bed + gold progress surface. */
+.trophy-roadmap-track {
+  position: relative;
+  height: var(--tr-h);
+  margin: 26px 6px 22px;
+}
+.trophy-roadmap-line {
+  position: absolute;
+  top: 50%;
+  left: 30px;
+  right: 30px;
+  height: 13px;
+  transform: translateY(-50%);
+  border-radius: 7px;
+  background: linear-gradient(180deg, #0f141d 0%, #1d2534 100%);
+  box-shadow:
+    inset 0 2px 7px rgba(0, 0, 0, 0.85),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.07),
+    0 3px 0 rgba(0, 0, 0, 0.35);
+}
+.trophy-roadmap-line-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 0%;
+  border-radius: 7px;
+  background: linear-gradient(90deg, #ffdf6e 0%, #ffb12b 55%, #ff7a1a 100%);
+  box-shadow:
+    0 0 16px rgba(255, 170, 60, 0.5),
+    inset 0 2px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -3px 0 rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+  transition: width 0.5s ease;
+}
+.trophy-roadmap-line-fill::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.5) 46%, rgba(255, 255, 255, 0.42) 54%, transparent 80%);
+  animation: trophy-road-sheen 2.8s ease-in-out infinite;
+}
+@keyframes trophy-road-sheen {
+  0% { transform: translateX(-120%); }
+  55%, 100% { transform: translateX(120%); }
+}
+
+/* Milestone row: real-width groups, evenly spread, alternating above and
+   below the road. No zero-width centering hacks - labels get their own room
+   so nothing is ever clipped. */
+.trophy-roadmap-dots {
+  position: absolute;
+  top: 0;
+  left: 30px;
+  right: 30px;
+  bottom: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  z-index: 2;
+  pointer-events: none;
+}
+.trophy-roadmap-dot {
+  position: relative;
+  flex: 0 0 auto;
+  width: clamp(98px, 8.6vw, 122px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  pointer-events: auto;
+}
+.trophy-roadmap-dot.top {
+  justify-content: flex-end;
+  padding-bottom: calc(var(--tr-h) / 2 + 26px);
+}
+.trophy-roadmap-dot.bottom {
+  justify-content: flex-start;
+  padding-top: calc(var(--tr-h) / 2 + 26px);
+}
+/* BETA gate: its tile straddles the start of the road; label tucks below. */
+.trophy-roadmap-dot.gate {
+  justify-content: flex-start;
+  padding-top: 0;
+}
+.trophy-roadmap-dot.gate .trophy-roadmap-icon-wrap {
+  width: 100%;
+  padding-top: calc(var(--tr-h) / 2);
+}
+.trophy-roadmap-dot.gate .trophy-roadmap-tile {
+  width: 78px;
+  margin-top: -39px;
+  flex: 0 0 auto;
+}
+.trophy-roadmap-dot.gate .trophy-roadmap-icon {
+  width: 64%;
+  height: 64%;
+}
+.trophy-roadmap-dot.gate::before { display: none; }
+
+/* Marker dot sitting on the road. */
+.trophy-roadmap-dot::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 21px;
+  height: 21px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #5b6878 0%, #33404f 60%, #232c3a 100%);
+  border: 3px solid #141a24;
+  box-shadow:
+    inset 0 2px 3px rgba(255, 255, 255, 0.25),
+    0 2px 0 rgba(0, 0, 0, 0.4);
+  z-index: 3;
+}
+.trophy-roadmap-dot.owned::before {
+  background: radial-gradient(circle at 35% 30%, #ffe08a 0%, #ffb12b 60%, #ff8c1a 100%);
+  border-color: #5a3208;
+  box-shadow:
+    inset 0 2px 3px rgba(255, 255, 255, 0.5),
+    0 0 12px rgba(255, 170, 60, 0.55),
+    0 2px 0 rgba(0, 0, 0, 0.4);
+}
+.trophy-roadmap-dot.next::before {
+  background: radial-gradient(circle at 35% 30%, #ffbe4d 0%, #ff7a1a 100%);
+  border-color: #6b3a05;
+  animation: trophy-dot-pulse 1.5s ease-in-out infinite;
+}
+@keyframes trophy-dot-pulse {
+  0%, 100% { box-shadow: inset 0 2px 3px rgba(255,255,255,.4), 0 0 0 0 rgba(255, 150, 40, 0.65), 0 2px 0 rgba(0,0,0,.4); }
+  60% { box-shadow: inset 0 2px 3px rgba(255,255,255,.4), 0 0 0 11px rgba(255, 150, 40, 0), 0 2px 0 rgba(0,0,0,.4); }
+}
+
+/* Icon tile + chip + name: the chunky cartoon stack. */
+.trophy-roadmap-icon-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+}
+/* Same group on both sides: tile hugs the road, number in the middle,
+   name on the outside. On top groups the column runs name-upward. */
+.trophy-roadmap-dot.top .trophy-roadmap-name { order: 1; }
+.trophy-roadmap-dot.top .trophy-roadmap-chip { order: 2; }
+.trophy-roadmap-dot.top .trophy-roadmap-icon-wrap .trophy-roadmap-tile { order: 3; }
+.trophy-roadmap-tile {
+  width: clamp(72px, 6.6vw, 92px);
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 24px;
+  border: 3px solid #1b2330;
+  background: linear-gradient(180deg, #3d4a5c 0%, #2a3444 100%);
+  box-shadow:
+    inset 0 3px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -4px 0 rgba(0, 0, 0, 0.3),
+    0 5px 0 rgba(0, 0, 0, 0.38);
+  transition: transform .15s ease, box-shadow .15s ease;
+  will-change: transform;
+}
+.trophy-roadmap-dot.owned .trophy-roadmap-tile {
+  background: linear-gradient(180deg, #ffdf6e 0%, #ffa92b 100%);
+  border-color: #6b3a05;
+  box-shadow:
+    inset 0 3px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -4px 0 rgba(0, 0, 0, 0.22),
+    0 5px 0 rgba(90, 50, 8, 0.9),
+    0 0 20px rgba(255, 170, 60, 0.4);
+}
+.trophy-roadmap-dot.owned.beta .trophy-roadmap-tile {
+  background: linear-gradient(180deg, #6fe3c2 0%, #2fc4a0 100%);
+  border-color: #0c4c3c;
+  box-shadow:
+    inset 0 3px 0 rgba(255, 255, 255, 0.55),
+    inset 0 -4px 0 rgba(0, 0, 0, 0.22),
+    0 5px 0 rgba(12, 76, 60, 0.9),
+    0 0 20px rgba(64, 220, 180, 0.35);
+}
+.trophy-roadmap-dot.next .trophy-roadmap-tile {
+  border-color: #6b3a05;
+  animation: trophy-tile-bob 1.6s ease-in-out infinite;
+}
+@keyframes trophy-tile-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-7px); }
+}
+.trophy-roadmap-icon {
+  width: 62%;
+  height: 62%;
+  object-fit: contain;
+  filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.45));
+}
+.trophy-roadmap-dot:not(.owned) .trophy-roadmap-icon {
+  filter: grayscale(0.85) brightness(0.5) drop-shadow(0 3px 4px rgba(0, 0, 0, 0.45));
+}
+.trophy-roadmap-dot:hover .trophy-roadmap-tile {
+  transform: scale(1.07) translateY(-1px);
+}
+.trophy-roadmap-chip {
+  padding: 3px 12px;
+  border-radius: 999px;
+  border: 2px solid #141a24;
+  background: linear-gradient(180deg, #46566b 0%, #333f50 100%);
+  color: #f4ead9;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  font-variant-numeric: tabular-nums;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.14), 0 2px 0 rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+}
+.trophy-roadmap-dot.owned .trophy-roadmap-chip {
+  background: linear-gradient(180deg, #ffdf6e 0%, #ffb12b 100%);
+  color: #221406;
+  border-color: #6b3a05;
+}
+.trophy-roadmap-dot.owned.beta .trophy-roadmap-chip {
+  background: linear-gradient(180deg, #6fe3c2 0%, #2fc4a0 100%);
+  color: #07352a;
+  border-color: #0c4c3c;
+}
+.trophy-roadmap-name {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.7px;
+  text-transform: uppercase;
+  text-align: center;
+  color: #f4ead9;
+  text-shadow: 0 2px 3px rgba(0, 0, 0, 0.55);
+  max-width: 116px;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+.trophy-roadmap-dot:not(.owned) .trophy-roadmap-name { color: #93a1b4; }
+.trophy-roadmap-dot.owned .trophy-roadmap-name { color: #ffd979; }
+.trophy-roadmap-dot.owned.beta .trophy-roadmap-name { color: #7be8c8; }
+
+.trophy-roadmap-foot {
+  margin-top: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  font-size: 14px;
+  color: #b9c4d2;
+}
+.trophy-roadmap-count {
+  padding: 5px 16px;
+  border-radius: 999px;
+  border: 2px solid #6b3a05;
+  background: linear-gradient(180deg, #ffdf6e 0%, #ffb12b 100%);
+  color: #221406;
+  font-weight: 800;
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.45), 0 2px 0 rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
+}
+.trophy-roadmap-hint { font-style: italic; opacity: 0.85; text-shadow: 0 2px 3px rgba(0, 0, 0, 0.4); }
+
+/* Narrow windows: the whole road scrolls horizontally instead of crushing. */
+@media (max-width: 980px) {
+  .trophy-roadmap-card { overflow-x: auto; }
+  .trophy-roadmap-track,
+  .trophy-roadmap-head { min-width: 940px; }
+}
+/* Sign-in button relocated to the bottom of the profile menu. Styled like the
+   settings-menu buttons: hard 2px black outline, chunky offset shadow that the
+   button "sits on", uppercase 800-weight label, and the press animation that
+   pushes the button INTO its shadow (1px 1px) on click. Gold gradient while
+   signed out (primary action), dark red for Log Out. */
+.auth-mini-profile {
+  width: 100%;
+  margin: 10px 0 6px;
+  padding: 11px 14px;
+  border: 2px solid #000;
+  border-radius: 10px;
+  box-shadow: 3px 3px 0 #000;
+  background: linear-gradient(135deg, #ffd700, #ffb12b);
+  color: #1a1a1a;
+  font-family: inherit;
+  font-weight: 800;
+  font-size: 13px;
+  text-align: center;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform .1s, box-shadow .1s, background .1s;
+}
+.auth-mini-profile:hover {
+  background: linear-gradient(135deg, #ffe14d, #ffc24b);
+  border-color: #000;
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 #000;
+}
+.auth-mini-profile:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 #000;
+}
+.auth-mini-profile.logged-in {
+  background: linear-gradient(135deg, #b23c3c, #87262a);
+  color: #ffe3e3;
+  box-shadow: 3px 3px 0 #000;
+}
+.auth-mini-profile.logged-in:hover {
+  background: linear-gradient(135deg, #c74747, #9a2f33);
+}
+.auth-mini-profile.logged-in:active {
+  transform: translate(2px, 2px);
+  box-shadow: 1px 1px 0 #000;
+}
+
+/* The trophy progress button lives in the MAIN menu top bar, next to the
+   settings gear. Rounded-square icon chip that mirrors the gear's geometry
+   (48px, 18px radius, dark glass), with the orange progress fill sweeping
+   left-to-right across it toward the next trophy. Hover glows orange and the
+   tooltip carries the exact "next trophy / count" readout. */
+.trophy-menu-btn {
+  position: relative;
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  margin: 0 10px 0 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 18px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 2px solid rgba(255, 154, 60, 0.65);
+  cursor: pointer;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+.trophy-menu-btn:hover {
+  background: rgba(255, 154, 60, 0.18);
+  border-color: #ff9a3c;
+  transform: translateY(-2px);
+  box-shadow: 0 0 14px rgba(255, 154, 60, 0.35);
+}
+.trophy-menu-btn:active {
+  transform: translateY(0);
+}
+.trophy-menu-btn .trophy-progress-fill {
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: 0%;
+  background: linear-gradient(90deg, rgba(255, 140, 40, 0.55) 0%, rgba(255, 180, 80, 0.35) 100%);
+  transition: width 0.4s ease;
+  z-index: 0;
+  pointer-events: none;
+}
+.trophy-menu-btn .trophy-progress-icon {
+  position: relative;
+  z-index: 1;
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.6));
+  pointer-events: none;
+}
+
+/* ============================================================
+   ADDITIVE CARTOON OUTLINES (pass 10) — appended only, nothing above
+   was changed. Pure `outline` (drawn outside the border, does not touch
+   the box model or replace any existing border/box-shadow) so the roadmap
+   keeps its current look and only gains a hard black edge.
+   ============================================================ */
+.trophy-roadmap-card {
+  outline: 4px solid #000;
+  outline-offset: 0;
+}
+.trophy-roadmap-tile {
+  outline: 3px solid #000;
+  outline-offset: 0;
+}
+.trophy-roadmap-chip {
+  outline: 2px solid #000;
+  outline-offset: 0;
+}
+.trophy-roadmap-dot::before {
+  outline: 2px solid #000;
+  outline-offset: 0;
+}
+.trophy-roadmap-close {
+  outline: 2px solid #000;
+  outline-offset: 0;
+}
+.trophy-roadmap-count {
+  outline: 2px solid #000;
+  outline-offset: 0;
+}
+.trophy-roadmap-icon {
+  outline: 1.5px solid #000;
+  outline-offset: 0;
+  border-radius: 6px;
+}
+.trophy-menu-btn {
+  outline: 2px solid #000;
+  outline-offset: 0;
+}
+
+/* ============================================================
+   "YOU ARE HERE" white ribbon (pass 11) - floats above the milestone
+   the player has most recently earned, with a tail pointing down at it.
+   ============================================================ */
+.trophy-roadmap-here {
+  position: absolute;
+  top: calc(var(--tr-h) / 2 - 96px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  padding: 9px 20px 11px;
+  background: linear-gradient(180deg, #ffffff 0%, #f0f0f0 100%);
+  color: #1a1a1a;
+  font-weight: 900;
+  font-size: 12px;
+  letter-spacing: 1.3px;
+  text-transform: uppercase;
+  text-align: center;
+  line-height: 1.05;
+  white-space: nowrap;
+  clip-path: polygon(10% 0, 90% 0, 100% 24%, 100% 76%, 90% 100%, 10% 100%, 0 76%, 0 24%);
+  box-shadow: 0 6px 0 rgba(0, 0, 0, 0.32), 0 10px 16px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  transition: left 0.45s ease;
+}
+.trophy-roadmap-here::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -11px;
+  transform: translateX(-50%);
+  border-left: 10px solid transparent;
+  border-right: 10px solid transparent;
+  border-top: 11px solid #f0f0f0;
+  filter: drop-shadow(0 3px 2px rgba(0, 0, 0, 0.25));
+}
+.trophy-roadmap-here .here-kicker {
+  display: block;
+  font-size: 10px;
+  letter-spacing: 1.6px;
+  color: #5a5a5a;
+  margin-bottom: 2px;
+}
+.trophy-roadmap-here .here-name {
+  display: block;
+  font-size: 15px;
+  color: #1a1a1a;
+  letter-spacing: 1px;
+}
+.trophy-roadmap-here .here-sub {
+  display: block;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  color: #5a5a5a;
+  margin-top: 3px;
+}
+
+/* Banner outline, additive (pass 11). */
+.trophy-roadmap-here {
+  outline: 2px solid #000;
+  outline-offset: 0;
+}
+
+/* ============================================================
+   PASS 12 - banner compacted and relocated to the card head so it
+   never overlaps the milestone tiles. Overrides the pass-11 floating
+   placement above (later rule wins; outline stays black).
+   ============================================================ */
+.trophy-roadmap-here {
+  position: absolute;
+  top: 20px;
+  left: auto;
+  right: 96px;
+  transform: none;
+  z-index: 5;
+  padding: 5px 14px 6px;
+  font-size: 10px;
+  line-height: 1.05;
+  white-space: nowrap;
+  clip-path: polygon(10% 0, 90% 0, 100% 26%, 100% 74%, 90% 100%, 10% 100%, 0 74%, 0 26%);
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.28), 0 6px 12px rgba(0, 0, 0, 0.28);
+  transition: none;
+}
+.trophy-roadmap-here::after { display: none; }
+.trophy-roadmap-here .here-kicker { font-size: 8px; letter-spacing: 1.4px; margin-bottom: 1px; }
+.trophy-roadmap-here .here-name { font-size: 12px; letter-spacing: 0.8px; }
+.trophy-roadmap-here .here-sub { font-size: 8px; margin-top: 2px; }
+
+/* ============================================================
+   PASS 13 - banner pinned to the tip of the road (where progress ends),
+   on the side opposite the milestone at that spot, so it never covers a
+   trophy tile. Overrides pass 12 placement.
+   ============================================================ */
+.trophy-roadmap-here {
+  position: absolute;
+  top: calc(var(--tr-h) / 2 - 58px);
+  left: 0%;
+  right: auto !important;
+  transform: translateX(-50%);
+  z-index: 5;
+  padding: 5px 12px 6px;
+  font-size: 10px;
+  line-height: 1.05;
+  white-space: nowrap;
+  clip-path: polygon(10% 0, 90% 0, 100% 26%, 100% 74%, 90% 100%, 10% 100%, 0 74%, 0 26%);
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.28), 0 6px 12px rgba(0, 0, 0, 0.28);
+  transition: left 0.45s ease;
+}
+.trophy-roadmap-here.below {
+  top: calc(var(--tr-h) / 2 + 14px);
+}
+.trophy-roadmap-here::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.25));
+}
+.trophy-roadmap-here.above::after {
+  bottom: -9px;
+  border-top: 10px solid #f0f0f0;
+}
+.trophy-roadmap-here.below::after {
+  top: -9px;
+  border-bottom: 10px solid #f0f0f0;
+}
+.trophy-roadmap-here .here-kicker { font-size: 8px; letter-spacing: 1.4px; margin-bottom: 1px; }
+.trophy-roadmap-here .here-name { font-size: 12px; letter-spacing: 0.8px; }
+.trophy-roadmap-here .here-sub { display: none; }
+
+/* ============================================================
+   PASS 14 - banner left is now set in pixels (exact tip of the road),
+   so the CSS % transition no longer applies.
+   ============================================================ */
+.trophy-roadmap-here { transition: none; }
+
+/* ============================================================
+   PASS 15 - banner becomes a compact down-arrow (\/) with the trophy
+   count sitting above it, pinned at the tip of the road. Overrides the
+   earlier banner placements.
+   ============================================================ */
+.trophy-roadmap-here {
+  position: absolute;
+  top: calc(var(--tr-h) / 2 - 128px);
+  left: 0px;
+  right: auto !important;
+  transform: translateX(-50%);
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  background: none;
+  box-shadow: none;
+  clip-path: none;
+  pointer-events: none;
+  transition: none;
+}
+.trophy-roadmap-here::after { display: none; }
+.trophy-roadmap-here .here-num {
+  min-width: 26px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #ffffff 0%, #e8e8e8 100%);
+  color: #1a1a1a;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.4px;
+  text-align: center;
+  line-height: 1;
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35), 0 4px 8px rgba(0, 0, 0, 0.3);
+  outline: 2px solid #000;
+  outline-offset: 0;
+}
+.trophy-roadmap-here .here-arrow {
+  width: 0;
+  height: 0;
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-top: 12px solid #ffffff;
+  filter: drop-shadow(0 3px 2px rgba(0, 0, 0, 0.35));
+}
+.trophy-roadmap-here .here-kicker,
+.trophy-roadmap-here .here-name,
+.trophy-roadmap-here .here-sub {
+  display: none;
+}
+
+/* ============================================================
+   PASS 16 - arrow points toward the road: down (\/) when the marker
+   sits above the road, up (/\) when it sits below. Side is chosen per
+   milestone so the marker never overlaps a trophy tile.
+   ============================================================ */
+.trophy-roadmap-here.above {
+  top: calc(var(--tr-h) / 2 - 128px);
+}
+.trophy-roadmap-here.below {
+  top: calc(var(--tr-h) / 2 + 14px);
+}
+.trophy-roadmap-here.above .here-arrow {
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-top: 12px solid #ffffff;
+  border-bottom: none;
+}
+.trophy-roadmap-here.below .here-arrow {
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-bottom: 12px solid #ffffff;
+  border-top: none;
+}
+
+/* ============================================================
+   PASS 17 - GAMEMODE SELECTOR CARTOON REWORK (additive overrides)
+   Background matches the standard .menu (striped), chunky black
+   outlines on every card, bold uppercase text. Nothing above changed.
+   ============================================================ */
+.gm-fullscreen {
+  background-color: #121212;
+  background-image: linear-gradient(135deg, #121212 25%, #1a1a1a 25%, #1a1a1a 50%, #121212 50%, #121212 75%, #1a1a1a 75%, #1a1a1a);
+  background-size: 40px 40px;
+  animation: stripeMove 4s linear infinite;
+  font-family: 'Fredoka', 'Lilita One', system-ui, sans-serif;
+}
+.gm-fullscreen .gm-header {
+  background: transparent;
+}
+.gm-fullscreen .gm-title {
+  font-weight: 900;
+  letter-spacing: 3px;
+  color: #ffd24a;
+  text-shadow:
+    0 3px 0 #6b3a05,
+    0 7px 12px rgba(0, 0, 0, 0.45);
+  -webkit-text-stroke: 1.5px #2a1a05;
+}
+.gm-fullscreen .gm-title-accent {
+  color: #ff7a1a;
+  -webkit-text-stroke: 1.5px #2a1a05;
+}
+.gm-fullscreen .gm-back {
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: #ffd24a;
+  text-shadow: 0 2px 0 #6b3a05;
+  -webkit-text-stroke: 1px #2a1a05;
+}
+.gm-fullscreen .gm-back:hover { color: #ffe08a; }
+.gm-fullscreen .gm-header::after {
+  background: linear-gradient(90deg, transparent, #ffd24a, transparent);
+  height: 3px;
+}
+
+.gm-fullscreen .gm-card {
+  border: 4px solid #000;
+  border-radius: 22px;
+  box-shadow:
+    0 0 0 2px #ffd24a,
+    0 8px 0 #000,
+    0 14px 28px rgba(0, 0, 0, 0.5);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease;
+}
+.gm-fullscreen .gm-card:hover {
+  border-color: #000;
+  transform: translateY(-4px);
+  box-shadow:
+    0 0 0 2px #ffe08a,
+    0 10px 0 #000,
+    0 18px 34px rgba(0, 0, 0, 0.55);
+}
+.gm-fullscreen .gm-card:active {
+  transform: translateY(2px);
+  box-shadow:
+    0 0 0 2px #ffd24a,
+    0 4px 0 #000,
+    0 8px 18px rgba(0, 0, 0, 0.45);
+}
+.gm-fullscreen .gm-card.selected {
+  border-color: #000;
+  box-shadow:
+    0 0 0 3px #ffd24a,
+    0 0 0 6px #000,
+    0 8px 0 #000,
+    0 14px 28px rgba(255, 170, 60, 0.35);
+}
+.gm-fullscreen .gm-card.mode-locked {
+  border-color: #000;
+  box-shadow: 0 6px 0 #000, 0 12px 24px rgba(0, 0, 0, 0.45);
+}
+
+.gm-fullscreen .gm-card-overlay {
+  background: linear-gradient(180deg, rgba(8, 12, 24, 0.18) 0%, rgba(8, 12, 24, 0.82) 100%);
+}
+.gm-fullscreen .gm-card:hover .gm-card-overlay {
+  background: linear-gradient(180deg, rgba(8, 12, 24, 0.08) 0%, rgba(8, 12, 24, 0.72) 100%);
+}
+
+.gm-fullscreen .gm-card-kicker {
+  font-weight: 900;
+  letter-spacing: 1.6px;
+  color: #ffd24a;
+  text-shadow: 0 2px 0 #2a1a05;
+  -webkit-text-stroke: 0.6px #2a1a05;
+}
+.gm-fullscreen .gm-card-name {
+  font-weight: 900;
+  letter-spacing: 2.4px;
+  color: #fff;
+  text-shadow: 0 3px 0 #2a1a05, 0 6px 10px rgba(0, 0, 0, 0.5);
+  -webkit-text-stroke: 1.5px #2a1a05;
+}
+.gm-fullscreen .gm-card-desc {
+  font-weight: 700;
+  color: #e8e0d0;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.55);
+}
+.gm-fullscreen .gm-card-icon {
+  filter: drop-shadow(0 3px 0 #2a1a05) drop-shadow(0 6px 10px rgba(0, 0, 0, 0.5));
+}
+.gm-fullscreen .gm-card-icon svg {
+  stroke: #fff;
+  stroke-width: 2.4;
+  filter: drop-shadow(0 3px 0 #2a1a05);
+}
+.gm-fullscreen .gm-card-cta {
+  font-weight: 900;
+  letter-spacing: 1.4px;
+  color: #2a1a05;
+  background: linear-gradient(180deg, #ffd24a 0%, #ff9a1a 100%);
+  border: 3px solid #000;
+  border-radius: 12px;
+  padding: 6px 14px;
+  box-shadow: 0 4px 0 #000, inset 0 2px 0 rgba(255, 255, 255, 0.45);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+.gm-fullscreen .gm-card:hover .gm-card-cta {
+  background: linear-gradient(180deg, #ffe08a 0%, #ffb13a 100%);
+}
+.gm-fullscreen .gm-card-sheen {
+  background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, 0.18) 46%, rgba(255, 255, 255, 0.14) 54%, transparent 70%);
+}
+
+/* Black outlines on the gamemode cards (outline = additive, no layout shift). */
+.gm-fullscreen .gm-card {
+  outline: 3px solid #000;
+  outline-offset: 0;
+}
+.gm-fullscreen .gm-card-icon svg {
+  outline: none;
+}
+
+/* ============================================================
+   PASS 18 - force the cartoon look past the ID-based selectors
+   (#menu-gamemode-select .gm-card.selected etc.) using !important.
+   Additive only; original rules stay intact.
+   ============================================================ */
+.gm-fullscreen {
+  background-color: #121212 !important;
+  background-image: linear-gradient(135deg, #121212 25%, #1a1a1a 25%, #1a1a1a 50%, #121212 50%, #121212 75%, #1a1a1a 75%, #1a1a1a) !important;
+  background-size: 40px 40px !important;
+}
+.gm-fullscreen .gm-card,
+#menu-gamemode-select .gm-card {
+  border: 4px solid #000 !important;
+  border-radius: 22px !important;
+  box-shadow: 0 0 0 2px #ffd24a, 0 8px 0 #000, 0 14px 28px rgba(0, 0, 0, 0.5) !important;
+  outline: 3px solid #000 !important;
+  outline-offset: 0 !important;
+}
+#menu-gamemode-select .gm-card.selected {
+  border-color: #000 !important;
+  box-shadow: 0 0 0 3px #ffd24a, 0 0 0 6px #000, 0 8px 0 #000, 0 14px 28px rgba(255, 170, 60, 0.35) !important;
+  animation: none !important;
+}
+.gm-fullscreen .gm-card:hover {
+  transform: translateY(-4px) !important;
+  box-shadow: 0 0 0 2px #ffe08a, 0 10px 0 #000, 0 18px 34px rgba(0, 0, 0, 0.55) !important;
+}
+.gm-fullscreen .gm-card:active {
+  transform: translateY(2px) !important;
+  box-shadow: 0 0 0 2px #ffd24a, 0 4px 0 #000, 0 8px 18px rgba(0, 0, 0, 0.45) !important;
+}
+.gm-fullscreen .gm-card.mode-locked {
+  box-shadow: 0 6px 0 #000, 0 12px 24px rgba(0, 0, 0, 0.45) !important;
+}
