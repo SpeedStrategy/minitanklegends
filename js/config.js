@@ -129,12 +129,12 @@ const CONFIG = {
      the default. Six entries are kept because the saved cameraStage and the
      clamps in game.js assume indices 0..5. */
   CAMERA_STOPS: [
-    { mode:'strategic', dist:18, pitchDeg:60 },   // 0 — close
-    { mode:'strategic', dist:24, pitchDeg:60 },   // 1
-    { mode:'strategic', dist:30, pitchDeg:60 },   // 2 — default
-    { mode:'strategic', dist:38, pitchDeg:60 },   // 3
-    { mode:'strategic', dist:48, pitchDeg:60 },   // 4
-    { mode:'strategic', dist:60, pitchDeg:60 },   // 5 — widest
+    { mode:'strategic', dist:22, pitchDeg:60 },   // 0 — close
+    { mode:'strategic', dist:30, pitchDeg:60 },   // 1
+    { mode:'strategic', dist:38, pitchDeg:60 },   // 2 — default
+    { mode:'strategic', dist:48, pitchDeg:60 },   // 3
+    { mode:'strategic', dist:60, pitchDeg:60 },   // 4
+    { mode:'strategic', dist:75, pitchDeg:60 },   // 5 — widest
   ],
 
   /* The only camera view: top-down like Brawl Stars. Degrees above the
