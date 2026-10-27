@@ -3806,7 +3806,37 @@ class Game {
   _sandboxBuildTrimesh(grp){
     if(!this.physicsWorld || typeof RAPIER === 'undefined') return;
     try {
+      /* Clean up the previous map's trimesh body + box colliders so they
+         don't leak across map loads. */
+      if(this._sandboxTrimeshBody){ try { this.physicsWorld.removeRigidBody(this._sandboxTrimeshBody); } catch(e){} this._sandboxTrimeshBody = null; }
+      if(this._sandboxColliders){ for(const b of this._sandboxColliders){ try { this.physicsWorld.removeRigidBody(b); } catch(e){} } this._sandboxColliders = []; }
+      else { this._sandboxColliders = []; }
       this.scene.updateMatrixWorld(true);
+      /* Register SIMPLE BOX COLLIDERS for meshes named collider/hitbox/collision
+         (or carrying the Blender custom property collider/isCollider/hitbox).
+         These are authored as plain cubes; their bounding box becomes a cuboid
+         collider, then the mesh is hidden (no draw call, no shadow) by
+         world.js. This is how a 10,000-triangle wall gets a cheap box hitbox,
+         or how 100 merged props get one shared hidden box. */
+      grp.updateMatrixWorld(true);
+      grp.traverse(o => {
+        if(!o.isMesh) return;
+        if(!(o.userData && o.userData.isCollider)) return;
+        const box = new THREE.Box3().setFromObject(o);
+        const cx = (box.min.x + box.max.x) / 2;
+        const cy = (box.min.y + box.max.y) / 2;
+        const cz = (box.min.z + box.max.z) / 2;
+        const hx = Math.max(0.01, (box.max.x - box.min.x) / 2);
+        const hy = Math.max(0.01, (box.max.y - box.min.y) / 2);
+        const hz = Math.max(0.01, (box.max.z - box.min.z) / 2);
+        try {
+          const bDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(cx, cy, cz);
+          const body = this.physicsWorld.createRigidBody(bDesc);
+          const cDesc = RAPIER.ColliderDesc.cuboid(hx, hy, hz);
+          this.physicsWorld.createCollider(cDesc, body);
+          this._sandboxColliders.push(body);
+        } catch(e){}
+      });
       const mergedVerts = [];
       const mergedIdx = [];
       let vertCount = 0;

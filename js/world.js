@@ -942,6 +942,7 @@ class World {
             if(!o.isMesh) return;
             o.castShadow = true;
             o.receiveShadow = true;
+            if(o.userData && o.userData.noShadow){ o.castShadow = false; }
             // Object3D.clone() only copies the node tree — geometry and
             // material stay SHARED with Models._cache. _clearCustom() disposes
             // them, which used to free the hull geometry every tank using this
@@ -1521,6 +1522,7 @@ class World {
       if(!o.isMesh) return;
       const nameLower = (o.name || '').toLowerCase();
       if(nameLower.includes('bush') || nameLower.includes('pine') || nameLower.includes('tree')) return;
+      if(o.userData && o.userData.isCollider) return;
       let root = o;
       while(root.parent && root.parent !== grp) root = root.parent;
       if(visited.has(root)) return;
@@ -1638,6 +1640,39 @@ class World {
         grp.traverse(o => {
           if(!o.name) return;
           const lower = o.name.toLowerCase();
+          /* COLLIDER / HITBOX (opt-in simple collision).
+             A mesh named `collider`, `collider_*`, `hitbox` or `hitbox_*`
+             (or carrying the Blender custom property `collider`/`isCollider`)
+             becomes a SIMPLE BOX COLLIDER instead of being merged into the
+             map's physics trimesh:
+
+               * its bounding box becomes a cuboid collider in Rapier,
+               * the mesh itself is HIDDEN (no draw call, no shadow),
+               * it is flagged noPhysics so it never enters the trimesh.
+
+             Author the collider as a plain cube in Blender at the volume you
+             want; its position/rotation/scale become the box. */
+          const isCollider = (o.isMesh || o.isGroup) && (
+            /^collider[.\d_]*$/.test(lower) ||
+            lower.startsWith('collider_') || lower.startsWith('collider.') ||
+            /^hitbox[.\d_]*$/.test(lower) ||
+            lower.startsWith('hitbox_') || lower.startsWith('hitbox.') ||
+            /^collision[.\d_]*$/.test(lower) ||
+            (o.userData && (o.userData.collider === true || o.userData.isCollider === true || o.userData.hitbox === true))
+          );
+          if(isCollider){
+            o.userData = o.userData || {};
+            o.userData.noPhysics = true;
+            o.userData.isCollider = true;
+            if(o.isMesh){ o.visible = false; o.castShadow = false; o.receiveShadow = false; }
+            o.traverse(c => {
+              if(!c.isMesh) return;
+              c.visible = false; c.castShadow = false; c.receiveShadow = false;
+              c.userData = c.userData || {};
+              c.userData.noPhysics = true;
+              c.userData.isCollider = true;
+            });
+          }
           /* MAP ENTITY NAMING CONVENTION (the level designer's vocabulary).
            pine    a TREE.     taiga  a BUSH.      tree  a tree.   bush  a bush.
            flag    where Capture the Circle puts its flag.
