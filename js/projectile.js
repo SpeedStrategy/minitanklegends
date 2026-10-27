@@ -2080,6 +2080,12 @@ class FlameCone {
       t.takeDamage(this._damageAtDist(dist) * dt * 10, this.owner, game, true);
     }
 
+    /* Bases (Base Defend) -- the flame used to pass straight through them. */
+    if(!coneBlocked && typeof BaseDefend !== 'undefined' && BaseDefend.getState() && BaseDefend.coneAt){
+      BaseDefend.coneAt(this.x, this.z, this.dir.x, this.dir.z, this.range, tanHalf,
+        (d) => this._damageAtDist(d) * dt * 10, this.owner);
+    }
+
     if(game && game._gladBoxes){
       for(const b of game._gladBoxes){
         if(!b.alive) continue;

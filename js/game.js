@@ -9607,8 +9607,15 @@ Net.sendJoinInfo(
         const D = stop.dist;
         this.camDist = D;
         const stratPitchDeg = stop.pitchDeg || 58;
-        // At 58°, the height is less than at 60° - more horizontal view
-        const stratH = D * Math.tan(stratPitchDeg * Math.PI / 180);
+        /* TOP-DOWN VIEW (Settings > Camera > View). Same viewing distance as
+           the angled stop, so a zoom step frames the same amount of arena,
+           but tilted to 85 deg -- almost straight down (a true 90 deg would
+           make lookAt's up-vector degenerate) -- with the tank centred. */
+        const topDown = !!(this.settings && this.settings.camView === 'topdown');
+        const viewDist = D / Math.cos(stratPitchDeg * Math.PI / 180);
+        const pitchRad = (topDown ? 85 : stratPitchDeg) * Math.PI / 180;
+        const horiz = viewDist * Math.cos(pitchRad);
+        const stratH = viewDist * Math.sin(pitchRad);
         // Use the FIXED strategic camera angle for both position and look-at
         // This ensures the camera doesn't rotate when the tank turns
         const angle = this._strategicCamAngle;
@@ -9616,18 +9623,18 @@ Net.sendJoinInfo(
         // Camera looks at: the tank's position (or slightly ahead in fixed direction)
         // This keeps the camera completely stable - tank moves but camera angle doesn't change
         this._camTarget.set(
-          t.x + Math.sin(angle) * D,
+          t.x + Math.sin(angle) * horiz,
           tankY + stratH,
-          t.z + Math.cos(angle) * D);
+          t.z + Math.cos(angle) * horiz);
         // Look at the tank itself (or a point ahead in the FIXED camera angle direction)
         // This keeps the view stable - tank at bottom of screen, camera doesn't shift
         // Look a little PAST the tank (away from the camera): the tank sits
         // just below centre and more of the field ahead is visible.
         this._stratLookTarget = this._stratLookTarget || new THREE.Vector3();
         const lookTarget = this._stratLookTarget.set(
-          t.x - Math.sin(angle) * D * 0.18,
+          t.x - Math.sin(angle) * (topDown ? 0 : D * 0.18),
           tankY + 0.5,
-          t.z - Math.cos(angle) * D * 0.18);
+          t.z - Math.cos(angle) * (topDown ? 0 : D * 0.18));
         this._stratLookTarget = lookTarget;
         camTarget = this._camTarget;
       } else {
@@ -11104,6 +11111,19 @@ _initMortarMarker(){
         /* Above the wall crest: carries on, keep sampling. */
       }
     }
+    /* THE LINE ENDS AT THE CURSOR (strategic/top-down camera, mouse aim).
+       It used to run the gun's full range along the turret, so its end sat in
+       the same place wherever the cursor went -- it read as a line stuck to
+       the tank. Now it stops where you point, never past the gun's range and
+       never through a wall (a wall still ends it first). Touch has no cursor. */
+    if(this.cameraMode === 'strategic' && !this.spectate && !isCone && H_SPEED > 0 &&
+       !document.body.classList.contains('is-mobile')){
+      const cp = this._cursorGroundPoint(pos.y);
+      if(cp){
+        const cT = Math.max(T_STEP * 3, Math.hypot(cp.x - pos.x, cp.z - pos.z) / H_SPEED);
+        if(cT < endT){ endT = cT; blocked = false; }
+      }
+    }
     const endDist = H_SPEED * endT;
     const endY = pos.y + V_SPEED * endT - 0.5 * grav * endT * endT;
     const pts = [];                 // polyline the ribbon is drawn along
@@ -11746,6 +11766,18 @@ _initMortarMarker(){
     let i = 2;
     while(used.has(base + ' ' + i)) i++;
     return base + ' ' + i;
+  }
+
+  /* Where the mouse cursor meets the horizontal plane at height y, or null. */
+  _cursorGroundPoint(y){
+    this._cgpRay = this._cgpRay || new THREE.Raycaster();
+    this._cgpVec = this._cgpVec || new THREE.Vector2();
+    this._cgpPlane = this._cgpPlane || new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    this._cgpHit = this._cgpHit || new THREE.Vector3();
+    this._cgpVec.set(this.input.mouse.ndcX || 0, this.input.mouse.ndcY || 0);
+    this._cgpRay.setFromCamera(this._cgpVec, this.camera);
+    this._cgpPlane.constant = -(y || 0);
+    return this._cgpRay.ray.intersectPlane(this._cgpPlane, this._cgpHit);
   }
 
   _mouseWorldAngle(){

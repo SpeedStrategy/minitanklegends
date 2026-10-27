@@ -386,6 +386,7 @@ const BaseDefend = (() => {
 
   function _kill(b){
     if(!b || !_game || !_game.scene) return;
+    if(!b.grp) return;
     _game.scene.remove(b.grp);
     const seen = new Set();
     b.grp.traverse(o => {
@@ -396,7 +397,18 @@ const BaseDefend = (() => {
     if(b.tex) b.tex.dispose();
     if(b.glowTex) b.glowTex.dispose();
     if(b.glow && b.glow.material) b.glow.material.dispose();
-    if(b._smoke){ _kill(b._smoke); b._smoke = null; }
+    /* The wreck smoke is a plain THREE.Group, not a base -- passing it to
+       _kill() read `.grp` off it and threw, so after any match where a base
+       was destroyed, the NEXT match's start crashed in dispose() and dropped
+       the player back to the main menu right after the map vote. */
+    if(b._smoke){
+      _game.scene.remove(b._smoke);
+      b._smoke.traverse(o => {
+        if(o.geometry) o.geometry.dispose();
+        if(o.material) o.material.dispose();
+      });
+      b._smoke = null;
+    }
   }
 
   function dispose(){
@@ -593,6 +605,40 @@ const BaseDefend = (() => {
     return any;
   }
 
+  /* Flamethrower. Inferno has no shell, so neither hook above ever saw it and
+     an Inferno could not hurt a base at all. Same cone test the flame uses
+     for tanks (along the barrel, within its half-angle), widened by the base's
+     own radius because a base is big; damage per call, the caller scales by dt. */
+  function coneAt(x, z, dirX, dirZ, range, tanHalf, dmgAtDist, owner){
+    if(!_state || _state.winner) return false;
+    /* One flame per tank per frame. A flamethrower keeps several overlapping
+       cones alive at once, and each used to burn the base on its own -- an
+       Inferno took a 1000 HP base to 148 in three seconds. */
+    const frame = (_game && _game._frameNo) || 0;
+    if(owner){
+      if(owner._baseFlameFrame === frame) return false;
+      owner._baseFlameFrame = frame;
+    }
+    const r = HIT_R();
+    let any = false;
+    for(const b of _state.bases){
+      if(!b.alive) continue;
+      if(owner && owner.team && b.team === owner.team) continue;
+      const dx = b.x - x, dz = b.z - z;
+      const dist = Math.hypot(dx, dz);
+      if(dist - r > range) continue;
+      const along = dx * dirX + dz * dirZ;
+      if(along <= 0) continue;
+      const perp = Math.sqrt(Math.max(0, dist * dist - along * along));
+      if(perp > along * tanHalf + r) continue;
+      /* x0.3: the flame's point-blank rate is tuned for 200 HP tanks; on a
+         base that comes to ~50 HP/s, in line with the shell tanks. */
+      damage(b, dmgAtDist(Math.max(0, dist - r)) * 0.3, owner);
+      any = true;
+    }
+    return any;
+  }
+
   /* ── the frame ───────────────────────────────────────────────────────── */
 
   function update(dt){
@@ -781,7 +827,7 @@ const BaseDefend = (() => {
   }
 
   return {
-    init, update, dispose, getState, damage, hitByShell, splashAt,
+    init, update, dispose, getState, damage, hitByShell, splashAt, coneAt,
     snapshot, applyHostSnapshot, setClient, botTargetFor,
     HIT_R,
   };

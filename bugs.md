@@ -83,6 +83,17 @@ myself are marked *(mine)*.
 | 45 | *(mine)* Copying the `dev/` netcode into the live game broke aiming, turrets, physics and the Mortar. | `js/` | Reverted |
 | 46 | The `dev/` version of `spawnShot` used an undeclared variable — every shot would throw. | `dev/js/game.js` | Open in `dev/` only |
 
+## Found Oct 27
+
+| # | Bug | Where | Status |
+|---|-----|-------|--------|
+| 47 | After a Base Defend match where a base was destroyed, the **next** match crashed while starting and dropped you to the main menu right after the map vote (the wreck smoke was disposed as if it were a base). | `js/base-defend.js` `_kill` | Fixed |
+| 48 | Inferno could not damage enemy bases at all — the flamethrower only checked tanks. | `js/projectile.js`, `js/base-defend.js` | Fixed |
+| 49 | *(mine, caught in testing)* First version of the Inferno base fix stacked every overlapping flame cone — a base melted in 3 seconds. Now one cone per tank per frame, scaled to ~50 HP/s. | `js/base-defend.js` | Fixed |
+| 50 | The aim line always ran the full gun range, so its end never followed the cursor. It now ends at the cursor (mouse aim). | `js/game.js` `_updateAimLine` | Fixed |
+| 51 | Settings fields `winBoxes`, `brawlCamV1` (and the new `camView`) were dropped by `loadSettings()`'s field list — reloading reset the 6-boxes-per-12-hours limit. | `js/config.js` | Fixed |
+| 52 | Searching for a match always took the server's full 15 s even with nobody else queued. Now 3 s when alone (the server's window still applies when other players are waiting). | `js/menu.js` | Fixed (client side) |
+
 ## Known limits (not bugs, but worth knowing)
 
 - On The Hill, only one team's spawn sits near a ramp, so captures there are lopsided.

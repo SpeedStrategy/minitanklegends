@@ -1293,6 +1293,12 @@ function loadSettings(){
          every loadSettings() round trip, and the roadmap would show 0 wins
          forever after the first rebuild. */
       trophyCount:      typeof s.trophyCount === 'number' ? s.trophyCount : 0,
+      /* Win-box window, camera migration flag and camera view. Missing from
+         this list they were dropped by every round trip: reloading the page
+         reset the 6-boxes-per-12-hours limit and re-ran the camera reset. */
+      winBoxes:         (s.winBoxes && typeof s.winBoxes.start === 'number') ? { start: s.winBoxes.start, earned: s.winBoxes.earned || 0 } : null,
+      brawlCamV1:       !!s.brawlCamV1,
+      camView:          s.camView === 'topdown' ? 'topdown' : 'angled',
     };
   }catch(e){
     return {binds:defaults(), selectedTank:'coolbuddy', playerName:generatePlayerName(), playerClan:'', cash:0, coins:0, gold:0,
@@ -1304,7 +1310,7 @@ function loadSettings(){
             clanWeekWins:0, clanWeekWinsBonus:false, clanWeekLoginXP:0, clanLastLoginDay:0, tlPlus:false,
             screenShake:100, muzzleFx:true, showFps:false, invertCamRot:false, cameraMode:'dynamic', cameraMouseRotate:false, cameraSensitivity:100,
             camTwoMode:true, cameraStage:2,
-            trophyOwnedIds:[], equippedTrophyId:null, trophyCount:0};
+            trophyOwnedIds:[], equippedTrophyId:null, trophyCount:0, winBoxes:null, brawlCamV1:false, camView:'angled'};
   }
 }
 function saveSettings(s){

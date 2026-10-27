@@ -344,7 +344,7 @@ const MapVoting = (() => {
      whether or not everyone has voted. It is the single thing that ends the
      round, so nobody is ever locked out of a vote by clicking faster than
      somebody else. */
-  const VOTE_DURATION = 10;
+  const VOTE_DURATION = 15;   /* was 10 -- too little time to read six maps */
 
   let _overlay = null;
   let _cardsEl = null;

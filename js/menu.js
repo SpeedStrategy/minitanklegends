@@ -20,6 +20,8 @@ const BOX_DROP_TABLE = [
   { name:'Cash',  icon:'assets/currency/cash.webp', key:'cash',  weight:18, amounts:[50,100,150,200,300] },
   { name:'Gold',  icon:'assets/currency/gold.webp', key:'gold',  weight:7,  amounts:[500,750,1000,1500,2000,3000] },
 ];
+/* How long PLAY searches for other players when the queue is empty. */
+const QUICK_SEARCH_MS = 3000;
 /* Store BANK trade: cash for upgrade points. */
 const BANK_TRADE = { cash: 100, up: 10 };
 const BOX_DROP_TOTAL_WEIGHT = BOX_DROP_TABLE.reduce(function(s, e){ return s + e.weight; }, 0);
@@ -2824,12 +2826,27 @@ const Menu = {
     if(!wrap) return;
     const stage = (typeof this.settings.cameraStage === 'number') ? this.settings.cameraStage : 2;
     const names = ['Closest', 'Close', 'Default', 'Far', 'Farther', 'Widest'];
+    const view = this.settings.camView === 'topdown' ? 'topdown' : 'angled';
     wrap.innerHTML = `
-      <label>Camera Zoom</label>
+      <label>Camera View</label>
+      <div class="seg" style="display:grid; grid-template-columns:repeat(2,1fr); gap:4px;">
+        <div class="seg-opt${view==='angled'?' active':''}" data-camview="angled">Angled</div>
+        <div class="seg-opt${view==='topdown'?' active':''}" data-camview="topdown">Top-down</div>
+      </div>
+      <div class="hint">Angled looks over the tank like Brawl Stars; Top-down looks straight down on it.</div>
+      <label style="margin-top:16px">Camera Zoom</label>
       <div class="seg" style="display:grid; grid-template-columns:repeat(3,1fr); gap:4px;">
         ${names.map((n, i) => `<div class="seg-opt${stage===i?' active':''}" data-camstage="${i}">${n}</div>`).join('')}
       </div>
       <div class="hint">The scroll wheel (or a two-finger pinch) changes this during a match.</div>`;
+    wrap.querySelectorAll('[data-camview]').forEach(el=>{
+      el.onclick = ()=>{
+        this.settings.camView = el.dataset.camview;
+        saveSettings(this.settings);
+        if(this.game) this.game.applySettings(this.settings);
+        this._renderCameraSettings();
+      };
+    });
     wrap.querySelectorAll('[data-camstage]').forEach(el=>{
       el.onclick = ()=>{
         this.settings.cameraStage = +el.dataset.camstage;
@@ -6316,6 +6333,23 @@ const Menu = {
       }
       self._queued = true;
       self._showPlayCountdown(afterQueue);
+      /* SEARCH FOR 3 SECONDS WHEN NOBODY ELSE IS QUEUED. The server always
+         waits its full 15 s window before filling with bots. If the queue held
+         only us when we joined and no match has formed after 3 s, leave the
+         queue and go straight to the map vote with bots. If another player
+         was already waiting, the server's own window decides, so real
+         players can still meet. */
+      clearTimeout(self._quickSearchTimer);
+      self._quickSearchTimer = setTimeout(function(){
+        if(!self._queued || self._searchGotRoom) return;
+        if((TDMMatchmaker.lastQueueSize || 1) > 1) return;
+        TDMMatchmaker.onMatchStart = null;
+        try { TDMMatchmaker.leaveQueue(); } catch(e){}
+        self._hidePlayCountdown();
+        self._matchHumans = 1;
+        setRoster(null);
+        afterQueue();
+      }, QUICK_SEARCH_MS);
     });
   },
 

@@ -49,6 +49,7 @@ const TDMMatchmaker = {
     }
     this._queueing = true;
     this._joinedAt = Date.now();
+    this.lastQueueSize = 0;   /* filled by the 'queued' reply for THIS search */
     this.mode = mode || 'random-battle';
 
     try {
@@ -183,6 +184,7 @@ TDMMatchmaker._ensureWired = function () {
   Net.onQueueState = function (q) {
     TDMMatchmaker.queueDelayMs = (q && q.botFillDelayMs) || TDMMatchmaker.queueDelayMs;
     TDMMatchmaker.queueFillMs = (q && q.botFillInMs) || TDMMatchmaker.queueFillMs;
+    if (q && typeof q.queueSize === 'number') TDMMatchmaker.lastQueueSize = q.queueSize;
     if (TDMMatchmaker.onQueueUpdate) TDMMatchmaker.onQueueUpdate(q);
   };
   return true;
