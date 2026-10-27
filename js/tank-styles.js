@@ -54,9 +54,77 @@ var STYLE_DEFS = {
     desc: 'Loud orange paint job with black stripes.',
     repeat: 2.2,
   },
+  /* Born from a rendering bug: a tank half under a building, the x-ray pass
+     striping it white while the occluder fade tore the picture. The texture is
+     painted in code (glitchTextureUrl below) and jumps around while it is worn
+     (startGlitchJitter), so it never needs a file. */
+  glitch: {
+    id: 'glitch',
+    name: 'Glitch',
+    texture: null,
+    price: 2500,
+    currency: 'gold',
+    desc: 'A rendering bug, kept on purpose: white x-ray stripes and a torn signal.',
+    repeat: 1.6,
+    /* The models' own UV layouts chop the bands into blotches; projected
+       straight onto each part they stay bands. */
+    boxUv: true,
+  },
 };
 
-var STYLE_LIST = ['woodland_camo', 'desert_camo', 'tiger_stripes'];
+var STYLE_LIST = ['woodland_camo', 'desert_camo', 'tiger_stripes', 'glitch'];
+
+/* Neon green with white diagonal x-ray bands, then a few horizontal slices
+   shifted sideways and tinted -- the "torn signal" part. Fixed seed, so every
+   tank (and the shop card) shows the same pattern. Tiles seamlessly: the bands
+   run at 45 deg with a period that divides the canvas, and the slices wrap. */
+function glitchTextureUrl(){
+  try{
+    var S = 256, c = document.createElement('canvas');
+    c.width = S; c.height = S;
+    var g = c.getContext('2d');
+    g.fillStyle = '#3f9e26'; g.fillRect(0, 0, S, S);
+    g.fillStyle = '#2b7419';
+    for(var y = 0; y < S; y += 8) g.fillRect(0, y, S, 2);
+    /* Each band is a dark edge with a white core, the doubled-outline look
+       the original glitch had. */
+    for(var pass = 0; pass < 2; pass++){
+      g.strokeStyle = pass ? '#ffffff' : '#0b0c0e';
+      g.lineWidth = pass ? 8 : 14;
+      for(var k = -S; k <= 2 * S; k += 32){
+        g.beginPath(); g.moveTo(k, 0); g.lineTo(k - S, S); g.stroke();
+      }
+    }
+    var seed = 7;
+    function rnd(){ seed = (seed * 16807) % 2147483647; return seed / 2147483647; }
+    var tints = ['rgba(0,0,0,0.55)', 'rgba(255,0,180,0.35)', 'rgba(0,255,255,0.35)', 'rgba(255,255,255,0.5)'];
+    for(var i = 0; i < 9; i++){
+      var sy = Math.floor(rnd() * S), sh = 3 + Math.floor(rnd() * 12), dx = Math.floor((rnd() - 0.5) * 90);
+      var slice = g.getImageData(0, sy, S, Math.min(sh, S - sy));
+      g.putImageData(slice, dx, sy);
+      g.putImageData(slice, dx + (dx < 0 ? S : -S), sy);
+      g.fillStyle = tints[i % tints.length];
+      g.fillRect(0, sy, S, Math.min(sh, S - sy));
+    }
+    return c.toDataURL('image/png');
+  }catch(e){ return ''; }
+}
+STYLE_DEFS.glitch.texture = glitchTextureUrl();
+
+/* While a glitch texture exists it twitches: mostly still, then every so often
+   a jump of the whole pattern for a frame or two, like a dropped signal. One
+   shared texture, so every glitch tank twitches together. */
+var _glitchTimer = null;
+function startGlitchJitter(tex){
+  if(_glitchTimer) return;
+  _glitchTimer = setInterval(function(){
+    if(Math.random() < 0.18){
+      tex.offset.set(Math.random(), (Math.random() - 0.5) * 0.08);
+    } else if(Math.random() < 0.5){
+      tex.offset.set(0, 0);
+    }
+  }, 90);
+}
 
 /* ---- save / load ------------------------------------------------------ */
 
@@ -153,6 +221,10 @@ function getTexture(styleId){
              the WebP maps hit. Tag it here. */
           tex.colorSpace = THREE.SRGBColorSpace;
           tex.anisotropy = 4;
+          if(styleId === 'glitch'){
+            tex.magFilter = THREE.NearestFilter;
+            startGlitchJitter(tex);
+          }
           res(tex);
         },
         undefined,
@@ -234,18 +306,19 @@ function applyToModel(grp, styleId){
         /* The style texture needs UVs. Whatever the model shipped, a clone
            keeps the master untouched for the next clone (geometries are
            shared across clones — see Models._clone). */
-        if(!hasUv(m)){
+        /* Already wearing THIS style from an earlier apply? Leave it —
+           re-painting would stack another material clone every call. */
+        if(m.userData._styleApplied === styleId){ painted++; return; }
+        var hadUv = hasUv(m);
+        if(!hadUv || def.boxUv){
           m.geometry = m.geometry.clone();
           boxProjectUv(m.geometry, def.repeat || 2);
         }
         var mats = Array.isArray(m.material) ? m.material : [m.material];
-        /* Already wearing THIS style from an earlier apply? Leave it —
-           re-painting would stack another material clone every call. */
-        if(m.userData._styleApplied === styleId){ painted++; return; }
         m.userData._styleBackup = {
           mats: mats,
           wasArray: Array.isArray(m.material),
-          geoWasCloned: !hasUv(m),
+          geoWasCloned: !hadUv || !!def.boxUv,
         };
         var src = mats[0] || {};
         var mat = Toon.mat({
@@ -299,6 +372,7 @@ var SWATCH = {
   woodland_camo: '#4a5334',
   desert_camo:   '#bc9e6a',
   tiger_stripes: '#ce6c18',
+  glitch:        '#3f9e26',
 };
 function swatchOf(styleId){ return SWATCH[styleId] || '#888888'; }
 

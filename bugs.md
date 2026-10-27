@@ -94,6 +94,16 @@ myself are marked *(mine)*.
 | 51 | Settings fields `winBoxes`, `brawlCamV1` (and the new `camView`) were dropped by `loadSettings()`'s field list — reloading reset the 6-boxes-per-12-hours limit. | `js/config.js` | Fixed |
 | 52 | Searching for a match always took the server's full 15 s even with nobody else queued. Now 3 s when alone (the server's window still applies when other players are waiting). | `js/menu.js` | Fixed (client side) |
 
+| 53 | Tank hitboxes were about **twice the size** of the tanks (Cool Buddy: 18 x 22 box around an 8 x 10 hull) and offset from them — the "invisible spot" that pushed other tanks away. The editor's hitbox sizes are already in world units and were doubled again. Now measured from the loaded model (hull footprint, hull bottom to turret top) and offset to it. | `js/tank.js` `_fitHitboxToModel` | Fixed |
+| 54 | Hitboxes reached only 1–3 units above the hull centre while guns fire from 4–8 units up, so shells flew over them and only a 2D fallback check caught hits. | `js/tank.js` | Fixed |
+| 55 | Shells left from the barrel tip, which on animated gun parts measured anywhere from 4.8 units below the hull (shell born inside the ground, dies at once) to 8.5 above it (flies over every tank). Direct-fire shells now leave at the middle of the shooter's hitbox. | `js/game.js` `spawnShot` | Fixed |
+| 56 | With the taller hitbox the muzzle sits inside the firing tank's own box, which knocked its shell off course; shells now ignore their own tank while leaving the barrel (Rapier contact hook). | `js/game.js` `_physHooks`, `js/projectile.js` | Fixed |
+| 57 | Mortar shells never hit map geometry: the terrain/wall check called `game._shellSegmentHit`, which did not exist, so they fell through roofs and walls and burst at world height 0. | `js/game.js` `_shellSegmentHit` | Fixed |
+| 58 | Mortar's tank check compared the shell's height with a fixed ~5 units from world zero, so on maps whose floor is higher up shells passed through tanks and burst on the ground under them. | `js/projectile.js` `_updateArtillery` | Fixed |
+| 59 | Blast damage was measured from the tank's centre, so a shell landing on the nose of a long tank could miss it. Now measured from the hitbox edge. | `js/projectile.js` `_detonate`, `js/tank.js` `distTo2D` | Fixed |
+| 60 | A tank under a roof showed only as white x-ray stripes: the roof fade only checked one ray to the tank's centre and left the roof's outline shell solid. Now 5 rays (centre + hull corners) and outlines fade with their mesh. The look itself was kept as the **Glitch** skin (shop, 2500 gold). | `js/game.js` `_updateOccluders`, `js/tank-styles.js` | Fixed |
+| 61 | Camera: the angled view, the Settings > Camera View switch and the `/camera dynamic|strategic|tp` console commands are removed — top-down is the only camera. | `js/game.js`, `js/menu.js`, `js/config.js` | Done |
+
 ## Known limits (not bugs, but worth knowing)
 
 - On The Hill, only one team's spawn sits near a ramp, so captures there are lopsided.

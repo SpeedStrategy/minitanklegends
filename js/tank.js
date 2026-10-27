@@ -304,7 +304,10 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
          hides nothing, and leaves the model exactly as it was. */
       Promise.resolve(this._modelReady).catch(()=>null).then(() => {
         try { this._applyTrackGearPolicy(); } catch(e){ console.warn('[tank] track gear policy:', e); }
+        try { this._fitHitboxToModel(); } catch(e){ console.warn('[tank] hitbox fit:', e); }
       });
+    } else {
+      try { this._fitHitboxToModel(); } catch(e){}
     }
 
     // Sprays placed in the tank menu are stamped onto the real tank once the
@@ -697,9 +700,22 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
        (sin h, cos h) — see the look-ahead maths in Game._update — and the width
        axis is its perpendicular. The sign of the width axis does not matter
        because both tests take an absolute value. */
-    const lz = dx * sh + dz * ch;   /* along the length */
-    const lx = dx * ch - dz * sh;   /* across the width */
+    const lz = dx * sh + dz * ch - (this.colOffZ || 0) * s;   /* along the length */
+    const lx = dx * ch - dz * sh - (this.colOffX || 0) * s;   /* across the width */
     return Math.abs(lx) <= hw && Math.abs(lz) <= hl;
+  }
+
+  /* Ground distance from a point to the edge of the same footprint, 0 inside.
+     Blasts measure from here, so a shell landing on the nose of a long tank
+     counts as landing ON it rather than half a hull length away. */
+  distTo2D(px, pz){
+    const s = this.hitScale || 1;
+    const hw = this.colHalfW * s, hl = this.colHalfL * s;
+    const dx = px - this.x, dz = pz - this.z;
+    const ch = Math.cos(this.heading), sh = Math.sin(this.heading);
+    const lz = dx * sh + dz * ch - (this.colOffZ || 0) * s;
+    const lx = dx * ch - dz * sh - (this.colOffX || 0) * s;
+    return Math.hypot(Math.max(0, Math.abs(lx) - hw), Math.max(0, Math.abs(lz) - hl));
   }
 
   /* ================================================================ TRACKS */
@@ -3200,6 +3216,82 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     if(this._physBody && this._physWorld){
       try { this._physWorld.removeRigidBody(this._physBody); } catch(e){}
       this._physBody = null;
+    }
+  }
+
+  /* HITBOX = THE MODEL YOU SEE.
+
+     The collider used to come from def.body (or the editor override) x 0.55 x
+     GLOBAL_SCALE. The editor overrides are already in world units, so they came
+     out doubled -- Cool Buddy's box was 18 x 22 around an 8 x 10 hull, which is
+     the invisible thing that shoved other tanks away -- and the box only rose
+     1-3 units above the hull centre while the guns fire from 4-8 units up, so
+     shells sailed over it and only the 2D fallback ever registered a hit.
+
+     Measured once the model has loaded: the HULL's footprint (bodyGroup, in its
+     own frame, so the heading does not matter) for width and length, and from
+     the hull's underside up to the TURRET's top for height. The barrel is left
+     out of the footprint on purpose -- it swings with the turret, and a box
+     that grew whenever the gun pointed sideways would be a new invisible wall.
+     The collider is offset to the measured centre, since models are rarely
+     authored around their body origin. hitTest2D reads the same numbers. */
+  _fitHitboxToModel(){
+    if(this._disposed || !this.bodyGroup || !this.root) return;
+    const box = new THREE.Box3(), tmp = new THREE.Box3(), m = new THREE.Matrix4();
+    this.root.updateMatrixWorld(true);
+    /* Each part is measured in its OWN group's frame, so the tank's tilt while
+       it settles from the spawn drop and the visual's lag behind the heading
+       while it turns cannot skew the numbers. */
+    const measure = (group, into) => {
+      const inv = new THREE.Matrix4().copy(group.matrixWorld).invert();
+      group.traverse(o => {
+        if(!o.isMesh || !o.geometry || o.isSprite) return;
+        for(let p = o; p && p !== group; p = p.parent){ if(!p.visible) return; }
+        if(!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+        if(!o.geometry.boundingBox || o.geometry.boundingBox.isEmpty()) return;
+        tmp.copy(o.geometry.boundingBox).applyMatrix4(m.multiplyMatrices(inv, o.matrixWorld));
+        into.union(tmp);
+      });
+    };
+    const tBox = new THREE.Box3();
+    measure(this.bodyGroup, box);
+    if(this.turretGroup) measure(this.turretGroup, tBox);
+    if(box.isEmpty()) return;
+    /* bodyGroup's frame is the physics frame turned by the model's yaw fix
+       (Striker is authored sideways, Demolisher and Burst backwards). Those
+       fixes are quarter turns, so the difference is rounded to one -- the few
+       degrees the visual lags behind a turning hull drop out -- and the box is
+       turned into the physics frame, where the collider lives. */
+    const bq = new THREE.Quaternion();
+    this.bodyGroup.getWorldQuaternion(bq);
+    const bYaw = new THREE.Euler().setFromQuaternion(bq, 'YXZ').y;
+    const quarter = Math.round(Math.atan2(Math.sin(bYaw - (this.heading || 0)), Math.cos(bYaw - (this.heading || 0))) / (Math.PI / 2));
+    if(quarter) box.applyMatrix4(m.makeRotationY(quarter * Math.PI / 2));
+    const topY = tBox.isEmpty() ? box.max.y : Math.max(box.max.y, tBox.max.y);
+    const hw = (box.max.x - box.min.x) / 2, hl = (box.max.z - box.min.z) / 2;
+    const hh = (topY - box.min.y) / 2;
+    /* A model that measured as nonsense (a stray giant helper mesh, an empty
+       placeholder) keeps the old box rather than becoming a 100-unit wall. */
+    if(!(hw > 0.3 && hl > 0.3 && hh > 0.2) || hw > 20 || hl > 20 || hh > 15) return;
+    this.colHalfW = hw; this.colHalfL = hl; this.colHalfH = hh;
+    this.colOffX = (box.max.x + box.min.x) / 2;
+    this.colOffY = (topY + box.min.y) / 2;
+    this.colOffZ = (box.max.z + box.min.z) / 2;
+    if(this._physBody && this._physWorld && typeof RAPIER !== 'undefined'){
+      try {
+        if(this._physCollider) this._physWorld.removeCollider(this._physCollider, true);
+        const col = RAPIER.ColliderDesc.cuboid(hw, hh, hl)
+          .setTranslation(this.colOffX, this.colOffY, this.colOffZ)
+          .setDensity(this.mass / (hw * 2 * hh * 2 * hl * 2))
+          .setRestitution(0.15)
+          .setFriction(0.7);
+        this._physCollider = this._physWorld.createCollider(col, this._physBody);
+        if(typeof this._physCollider.setActiveEvents === 'function'){
+          this._physCollider.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
+        }
+        this._physCollider.userData = {type:'tank', tank:this};
+        this._lastFriction = -1;
+      } catch(e){ console.warn('[tank] hitbox refit failed:', e); }
     }
   }
 

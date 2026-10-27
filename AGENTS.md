@@ -689,3 +689,27 @@ local matches.
 4. Verified live: health 15/15, bump-stamps OK, /api/health db:up, both /
    and /dev/ render 11 milestones + the gate in a real browser, owned/next/
    fill math works with simulated 27 wins, nothing clipped.
+
+---
+
+## 2026-10-27, eleventh pass (Claude Code) — HITBOXES = MODELS, MORTAR HITS, TOP-DOWN ONLY, GLITCH SKIN
+
+1. **Tank hitboxes are measured from the loaded model** (`Tank._fitHitboxToModel`,
+   run after `_modelReady`): hull footprint for width/length, hull bottom to turret
+   top for height, collider offset to the measured centre (`colOffX/Y/Z`).
+   `hitTest2D` and the new `distTo2D` use the offsets. Old boxes were ~2x the model
+   (editor `body` sizes are world units and were multiplied by GLOBAL_SCALE again).
+2. **Direct-fire shells start at the shooter's hitbox centre**, not the barrel tip
+   (barrel tips on animated gun nodes ranged from -4.8 to +8.5). Mortar keeps its
+   barrel but never below that centre. Shells ignore their own tank while leaving
+   the barrel via `Game._physHooks()` (passed to every `physicsWorld.step`, shell
+   colliders opt in with `ActiveHooks.FILTER_CONTACT_PAIRS`).
+3. **`Game._shellSegmentHit` now exists** (it was called but never written): Rapier
+   ray per artillery sub-step against static geometry; tanks/shells refused by a
+   predicate because `EXCLUDE_DYNAMIC` alone let tanks through a plain castRay.
+4. Top-down is the only camera (`CONFIG.TOPDOWN_PITCH_DEG`, 85). `camView` setting
+   and the angled view are gone.
+5. `_updateOccluders` casts 5 rays (centre + hull corners) and fades outline
+   children with their mesh. The old "tank under a roof = all x-ray stripes" look
+   is the **Glitch** style in `tank-styles.js` (texture painted on a canvas,
+   `boxUv: true`, shared texture twitches via `startGlitchJitter`).

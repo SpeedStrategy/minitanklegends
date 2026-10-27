@@ -350,6 +350,13 @@ class Shell {
       if(col && typeof col.setActiveEvents === 'function'){
         col.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
       }
+      /* The muzzle sits inside the firing tank's own hitbox (the box reaches
+         the turret top), so without this the shell is shoved out of its own
+         tank on the first step and flies off at an angle. Game._physHooks
+         drops shell-vs-owner contacts while the round is leaving the barrel. */
+      if(col && typeof col.setActiveHooks === 'function' && RAPIER.ActiveHooks){
+        col.setActiveHooks(RAPIER.ActiveHooks.FILTER_CONTACT_PAIRS);
+      }
       col.userData = {type:'shell', shell:this};
       /* Straight down the barrel. The `_inherit*` terms are still written so the
          shape of the integrator is unchanged and stays readable next to the
@@ -1856,8 +1863,14 @@ class Shell {
       if(game && game.tanks && this._vel.y < 0){
         for(const t of game.tanks){
           if(!t.alive || t === this.owner) continue;
-          const topY = (t.def.body.h + t.def.turret.h) * 0.9;
-          if(this.y > topY + 0.6) continue;
+          /* Measured from the tank's OWN height, not from world y=0: maps put
+             their floor anywhere (often 40 units up), and the old absolute
+             `(body.h + turret.h) * 0.9` let every shell on those maps fall
+             straight through the hull and burst on the ground under it. */
+          const baseY = (t.root && t.root.position) ? t.root.position.y : (t.y || 0);
+          const midY = baseY + (t.colOffY || 0);
+          const halfH = t.colHalfH || 2;
+          if(this.y > midY + halfH + 0.6 || this.y < midY - halfH - 1.5) continue;
           /* Same footprint as every other hit test. See the note in the direct
              fire path — this one used to be the same mismatched circle. */
           if(t.hitTest2D(this.x, this.z, this.radius)){ this._detonate(game); return; }
@@ -1899,7 +1912,9 @@ class Shell {
       for(const t of (game.tanks || [])){
         if(!t.alive || t === this.owner) continue;
         if(this.owner && this.owner.team && t.team && this.owner.team === t.team) continue;
-        const d = Math.hypot(t.x - this.x, t.z - this.z);
+        /* Measured to the edge of the tank's hitbox, not its centre -- see
+           Tank.distTo2D. The shove direction below still uses the centre. */
+        const d = t.distTo2D ? t.distTo2D(this.x, this.z) : Math.hypot(t.x - this.x, t.z - this.z);
         if(d > R) continue;
         /* LINEAR ramp from maxD at the centre to minD at the rim, then zero
            outside. Linear is the teachable one: after a couple of shells a
@@ -1914,7 +1929,7 @@ class Shell {
            BEFORE the damage call, because takeDamage can end the tank here,
            and pushImpact refuses dead/dying hulls. */
         if(t.pushImpact){
-          const bd = Math.max(1e-6, d);
+          const bd = Math.max(1e-6, Math.hypot(t.x - this.x, t.z - this.z));
           if(bd > 0.1) t.pushImpact((t.x - this.x) / bd, (t.z - this.z) / bd,
                                     maxD * f * ((CONFIG && CONFIG.IMPULSE_BLAST) || 0.055),
                                     {hop: f * ((CONFIG && CONFIG.IMPULSE_BLAST_HOP) || 1.1)});

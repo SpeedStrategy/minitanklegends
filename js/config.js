@@ -137,6 +137,10 @@ const CONFIG = {
     { mode:'strategic', dist:60, pitchDeg:60 },   // 5 — widest
   ],
 
+  /* The only camera view: top-down like Brawl Stars. Degrees above the
+     horizon; 90 would be straight down (lookAt breaks there). */
+  TOPDOWN_PITCH_DEG: 85,
+
   // Mode 1 crosshair pitch: mouse-Y moves the CROSSHAIR, not the camera.
   AIM_PITCH_UP_DEG:   18,      // how far the aim can rise above horizontal
   AIM_PITCH_DOWN_DEG: 8,       // how far it can dig below horizontal

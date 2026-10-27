@@ -389,7 +389,7 @@ class Game {
     this.camDist = CONFIG.CAM_DIST;
     this.camAngle = Math.PI; // radians, p = behind the tank
     this.camMode = 'arrows';
-    this.cameraMode = (this.settings && this.settings.cameraMode) || 'dynamic';
+    this.cameraMode = 'strategic';   /* top-down is the only camera */
 
     /* TWO-MODE CAMERA. Six fixed camera points, two layouts — see the
        CAMERA_STOPS comment in config.js. Stage 0..2 drive the WoT-style
@@ -1056,6 +1056,30 @@ class Game {
     }
   }
 
+  /* Rapier physics hooks, asked only about shell colliders (they opt in with
+     ActiveHooks.FILTER_CONTACT_PAIRS). A shell does not touch the tank that
+     fired it while it is leaving the barrel -- the same 0.30 s window
+     _onShellHitTank uses -- because the muzzle is inside that tank's hitbox. */
+  _physHooks(){
+    if(this._physHooksObj) return this._physHooksObj;
+    if(typeof RAPIER === 'undefined' || !RAPIER.SolverFlags) return undefined;
+    const keep = RAPIER.SolverFlags.COMPUTE_IMPULSES;
+    this._physHooksObj = {
+      filterContactPair: (h1, h2) => {
+        const pw = this.physicsWorld;
+        const c1 = pw && pw.getCollider(h1), c2 = pw && pw.getCollider(h2);
+        const d1 = c1 && c1.userData, d2 = c2 && c2.userData;
+        const shell = (d1 && d1.type === 'shell') ? d1.shell : (d2 && d2.type === 'shell') ? d2.shell : null;
+        const other = (shell && d1 && d1.shell === shell) ? d2 : d1;
+        if(shell && other && other.type === 'tank' && other.tank === shell.owner &&
+           shell.life > (shell.owner.def.shellRange / shell.speed) - 0.30) return null;
+        return keep;
+      },
+      filterIntersectionPair: () => true,
+    };
+    return this._physHooksObj;
+  }
+
   _onShellHitTank(shell, tank){
     if(shell.dead) return;
     if(tank === shell.owner && shell.life > (shell.owner.def.shellRange/shell.speed) - 0.30) return;
@@ -1559,10 +1583,7 @@ class Game {
       this._camStage = Math.max(0, Math.min(5,
         (typeof s.cameraStage === 'number' && s.cameraStage >= 0 && s.cameraStage <= 5) ? s.cameraStage|0 : 2));
       const stop = CONFIG.CAMERA_STOPS[this._camStage];
-      this.cameraMode = (stop && stop.mode === 'strategic') ? 'strategic' : 'dynamic';
-      if(stop && stop.mode === 'tp') this.camDist = stop.dist;
-    } else {
-      this.cameraMode = s.cameraMode || 'dynamic';
+      this.cameraMode = 'strategic';   /* top-down is the only camera */
     }
     if(this.input){
       this.input.binds = s.binds;
@@ -7977,7 +7998,7 @@ Net.sendJoinInfo(
           const physDt = Math.min(dt, PHYS_MAX_STEP * PHYS_MAX_SUB);
           const sub = Math.max(1, Math.ceil(physDt / PHYS_MAX_STEP - 1e-6));
           this.physicsWorld.timestep = physDt / sub;
-          for(let si = 0; si < sub; si++) this.physicsWorld.step(this._eventQueue);
+          for(let si = 0; si < sub; si++) this.physicsWorld.step(this._eventQueue, this._physHooks());
           if(this._eventQueue) this._eventQueue.drainCollisionEvents((h1, h2, started) => {
             if(!started) return;
             this._onCollision(h1, h2);
@@ -9607,13 +9628,13 @@ Net.sendJoinInfo(
         const D = stop.dist;
         this.camDist = D;
         const stratPitchDeg = stop.pitchDeg || 58;
-        /* TOP-DOWN VIEW (Settings > Camera > View). Same viewing distance as
-           the angled stop, so a zoom step frames the same amount of arena,
-           but tilted to 85 deg -- almost straight down (a true 90 deg would
+        /* TOP-DOWN is the only view. Same viewing distance as the old angled
+           stop, so a zoom step frames the same amount of arena, tilted to
+           CONFIG.TOPDOWN_PITCH_DEG -- almost straight down (a true 90 deg would
            make lookAt's up-vector degenerate) -- with the tank centred. */
-        const topDown = !!(this.settings && this.settings.camView === 'topdown');
+        const topDown = true;
         const viewDist = D / Math.cos(stratPitchDeg * Math.PI / 180);
-        const pitchRad = (topDown ? 85 : stratPitchDeg) * Math.PI / 180;
+        const pitchRad = (CONFIG.TOPDOWN_PITCH_DEG || 85) * Math.PI / 180;
         const horiz = viewDist * Math.cos(pitchRad);
         const stratH = viewDist * Math.sin(pitchRad);
         // Use the FIXED strategic camera angle for both position and look-at
@@ -11736,16 +11757,29 @@ _initMortarMarker(){
     this._occTo = this._occTo || new THREE.Vector3();
     this._occDir = this._occDir || new THREE.Vector3();
     const from = this.camera.position;
-    const ty = (t._visualY != null && isFinite(t._visualY)) ? t._visualY : (t.y || 0);
-    this._occTo.set(t.x, ty + 1.2, t.z);
-    this._occDir.copy(this._occTo).sub(from);
-    const len = this._occDir.length();
-    if(!(len > 2)) return;
-    this._occDir.multiplyScalar(1 / len);
-    this._occRay.set(from, this._occDir);
-    this._occRay.far = len - 2.5;
+    const ty = (t.root ? t.root.position.y : (t.y || 0)) + (t.colOffY || 1.2);
+    /* The centre and the four hull corners. One ray to the centre left any
+       roof edge over the front or back of the tank opaque, and the x-ray pass
+       then drew the whole covered part as white stripes. */
+    const hw = (t.colHalfW || 2) * 0.9, hl = (t.colHalfL || 3) * 0.9;
+    const ch = Math.cos(t.heading || 0), sh = Math.sin(t.heading || 0);
+    const pts = [[0, 0], [hw, hl], [-hw, hl], [hw, -hl], [-hw, -hl]];
     const hitSet = new Set();
-    for(const h of this._occRay.intersectObjects(list, false)) hitSet.add(h.object);
+    for(const [lx, lz] of pts){
+      this._occTo.set(t.x + lx * ch + lz * sh, ty, t.z - lx * sh + lz * ch);
+      this._occDir.copy(this._occTo).sub(from);
+      const len = this._occDir.length();
+      if(!(len > 2)) continue;
+      this._occDir.multiplyScalar(1 / len);
+      this._occRay.set(from, this._occDir);
+      this._occRay.far = len - 2.5;
+      for(const h of this._occRay.intersectObjects(list, false)) hitSet.add(h.object);
+    }
+    /* A faded mesh takes its outline shell (a child mesh) with it; a solid
+       outline left over a see-through roof still hid the tank. */
+    for(const m of Array.from(hitSet)){
+      m.traverse(c => { if(c !== m && c.isMesh && c.material) hitSet.add(c); });
+    }
     for(const m of hitSet){
       if(m.userData._occOrig) continue;
       m.userData._occOrig = m.material;
@@ -11778,6 +11812,37 @@ _initMortarMarker(){
     this._cgpRay.setFromCamera(this._cgpVec, this.camera);
     this._cgpPlane.constant = -(y || 0);
     return this._cgpRay.ray.intersectPlane(this._cgpPlane, this._cgpHit);
+  }
+
+  /* Where a lobbed shell's step from (x0,y0,z0) to (x1,y1,z1) first meets the
+     map -- terrain, walls, props -- or null. Artillery has called this since it
+     got its sub-stepped arc, but it was never written, so mortar shells fell
+     through everything and only burst at world y=0. Dynamic bodies (tanks,
+     other shells) are excluded: tanks have their own test in the shell. A
+     surface facing DOWN (a sky dome or a ceiling seen from below) does not
+     stop a shell on its way up. */
+  _shellSegmentHit(x0, y0, z0, x1, y1, z1){
+    const pw = this.physicsWorld;
+    if(!pw || typeof RAPIER === 'undefined' || !RAPIER.Ray) return null;
+    const dx = x1 - x0, dy = y1 - y0, dz = z1 - z0;
+    const len = Math.hypot(dx, dy, dz);
+    if(len < 1e-6) return null;
+    const dir = { x: dx / len, y: dy / len, z: dz / len };
+    const ray = new RAPIER.Ray({ x: x0, y: y0, z: z0 }, dir);
+    const flags = (RAPIER.QueryFilterFlags && RAPIER.QueryFilterFlags.EXCLUDE_DYNAMIC) || undefined;
+    /* The flag alone did not keep tanks out of a plain castRay in testing, so
+       tanks and shells are also refused by name. */
+    const notActor = (c) => { const u = c && c.userData; return !(u && (u.type === 'tank' || u.type === 'shell')); };
+    let hit = null;
+    try {
+      hit = pw.castRayAndGetNormal ? pw.castRayAndGetNormal(ray, len, true, flags, undefined, undefined, undefined, notActor)
+                                   : pw.castRay(ray, len, true, flags, undefined, undefined, undefined, notActor);
+    } catch(e){ return null; }
+    if(!hit) return null;
+    if(hit.normal && hit.normal.y < -0.5) return null;
+    const t = (hit.timeOfImpact != null) ? hit.timeOfImpact : hit.toi;
+    if(t == null) return null;
+    return { x: x0 + dir.x * t, y: y0 + dir.y * t, z: z0 + dir.z * t };
   }
 
   _mouseWorldAngle(){
@@ -13632,7 +13697,19 @@ _initMortarMarker(){
          dir = new THREE.Vector3(0, 0, 1);
        }
      }
-    const y = pos.y;
+    /* SHELL HEIGHT = THE MIDDLE OF THE HITBOX, not the barrel tip.
+
+       The barrel tip hangs off animated gun nodes and editor offsets, and in a
+       live match it measured anywhere from 4.8 units BELOW the hull (Demolisher,
+       so the round spawned inside the ground and died at once) to 8.5 above it
+       (Striker, so it flew over every tank's hitbox). The game is played from
+       above, so a direct-fire round now leaves at the shooter's own hitbox
+       centre, which is also where a target standing at the same level is.
+       The mortar keeps its barrel (its arc is solved from it) but never starts
+       below that centre. The flash and smoke still come from the barrel. */
+    const hitMidY = (tank.root ? tank.root.position.y : 0) + (tank.colOffY || 0);
+    if(tank.def.shellType === 'mortar'){ if(!(pos.y >= hitMidY)) pos.y = hitMidY; }
+    const y = (tank.def.shellType === 'mortar') ? pos.y : hitMidY;
     if(window.Audio && Audio.click){
       const vol = tank === this.localTank ? 1 : 0.45;
       if(tank.def.shellType === 'flame'){ if(Audio.flame) Audio.flame(vol); }
@@ -15897,12 +15974,6 @@ _logEl.scrollTop = _logEl.scrollHeight;
            var g4 = window.game;
            if (g4) log('Camera mode: ' + (g4.cameraMode || '-') + '  angle: ' + (g4.camAngle != null ? g4.camAngle.toFixed(2) : '-') + '  dist: ' + (g4.camDist != null ? g4.camDist : '-'));
            else log('No game');
-         } else if (cmd === '/camera dynamic') {
-           if (window.game) { window.game.cameraMode = 'dynamic'; log('Camera: dynamic'); }
-         } else if (cmd === '/camera strategic') {
-           if (window.game) { window.game.cameraMode = 'strategic'; log('Camera: strategic'); }
-         } else if (cmd === '/camera tp') {
-           if (window.game) { window.game.cameraMode = 'automatic'; log('Camera: third-person (auto)'); }
          } else if (cmd === '/settings') {
            if (window.game && window.game.settings) log(JSON.stringify(window.game.settings));
            else log('No settings');

@@ -2826,27 +2826,12 @@ const Menu = {
     if(!wrap) return;
     const stage = (typeof this.settings.cameraStage === 'number') ? this.settings.cameraStage : 2;
     const names = ['Closest', 'Close', 'Default', 'Far', 'Farther', 'Widest'];
-    const view = this.settings.camView === 'topdown' ? 'topdown' : 'angled';
     wrap.innerHTML = `
-      <label>Camera View</label>
-      <div class="seg" style="display:grid; grid-template-columns:repeat(2,1fr); gap:4px;">
-        <div class="seg-opt${view==='angled'?' active':''}" data-camview="angled">Angled</div>
-        <div class="seg-opt${view==='topdown'?' active':''}" data-camview="topdown">Top-down</div>
-      </div>
-      <div class="hint">Angled looks over the tank like Brawl Stars; Top-down looks straight down on it.</div>
-      <label style="margin-top:16px">Camera Zoom</label>
+      <label>Camera Zoom</label>
       <div class="seg" style="display:grid; grid-template-columns:repeat(3,1fr); gap:4px;">
         ${names.map((n, i) => `<div class="seg-opt${stage===i?' active':''}" data-camstage="${i}">${n}</div>`).join('')}
       </div>
       <div class="hint">The scroll wheel (or a two-finger pinch) changes this during a match.</div>`;
-    wrap.querySelectorAll('[data-camview]').forEach(el=>{
-      el.onclick = ()=>{
-        this.settings.camView = el.dataset.camview;
-        saveSettings(this.settings);
-        if(this.game) this.game.applySettings(this.settings);
-        this._renderCameraSettings();
-      };
-    });
     wrap.querySelectorAll('[data-camstage]').forEach(el=>{
       el.onclick = ()=>{
         this.settings.cameraStage = +el.dataset.camstage;
@@ -3842,6 +3827,7 @@ const Menu = {
       style_woodland_camo: { amount:1, price:1200, currency:'gold', name:'Woodland Camo', desc:'Olive-drab military woodland pattern for your tank.' },
       style_desert_camo:   { amount:1, price:1200, currency:'gold', name:'Desert Storm',  desc:'Sandy desert pattern with brown blotches.' },
       style_tiger_stripes: { amount:1, price:1800, currency:'gold', name:'Tiger Stripes',  desc:'Loud orange paint job with black stripes.' },
+      style_glitch:        { amount:1, price:2500, currency:'gold', name:'Glitch',         desc:'A rendering bug, kept on purpose: white x-ray stripes and a torn signal.' },
     };
     const prependedStyles = new Set();
     Object.keys(STYLE_OFFERS).forEach(reward => {
@@ -4014,6 +4000,8 @@ const Menu = {
       style_woodland_camo: { img:'assets/styles/woodland_camo.webp?v=2', label:'Woodland Camo' },
       style_desert_camo:   { img:'assets/styles/desert_camo.webp?v=2', label:'Desert Storm' },
       style_tiger_stripes: { img:'assets/styles/tiger_stripes.webp?v=2', label:'Tiger Stripes' },
+      /* Painted in code, so its card art is the same data URL the tank wears. */
+      style_glitch:        { img:(window.TankStyles && TankStyles.DEFS.glitch && TankStyles.DEFS.glitch.texture) || '', label:'Glitch' },
     }[reward] || { img:'', label:reward || '' };
   },
   _shopCurrencyIcon(currency){
