@@ -12927,3 +12927,9 @@ body:has(#ui-layer.game-active) #mobile-back-btn { display: none; }
 .gm-fullscreen .gm-card.mode-locked {
   box-shadow: 0 6px 0 #000, 0 12px 24px rgba(0, 0, 0, 0.45) !important;
 }
+
+/* Upgrade research REFUND button (tank-menu.js): sits beside the tech chip,
+   turns red while armed for the confirming second tap. */
+.tm-research .tr-refund { margin-left: 8px; padding: 6px 12px; font-size: 13px; }
+.tm-research .tr-refund[disabled] { opacity: 0.45; cursor: default; }
+.tm-research .tr-refund.armed { background: #c0392b; color: #fff; }

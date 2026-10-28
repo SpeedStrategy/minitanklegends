@@ -35,6 +35,16 @@ window.Progression = (function () {
     XP_PARTICIPATE: 10,
     MAX_LEVEL: 25,
     GUP_PER_WIN: 1,
+    REGEN_DELAY: 8,         /* s without taking damage before regen starts */
+    REGEN_BASE_PCT: 3,      /* % max HP per second once regen is unlocked  */
+    ARMOR_PCT: 5,           /* Reinforced hull, % less damage taken        */
+    LASTSTAND_PCT: 15,      /* Last stand, % more damage below 35% HP      */
+    SCAVENGER_PCT: 20,      /* Scavenger, % max HP healed per kill         */
+    OVERDRIVE_S: 2.5,       /* Overdrive, seconds of +30% speed per kill   */
+    CRIT_PCT: 8,            /* Weak spot, % chance of a x1.75 hit          */
+    LIFESTEAL_PCT: 5,       /* Leech rounds, % of damage dealt healed      */
+    EXEC_PCT: 25,           /* Executioner, % more damage vs targets <30%  */
+    SHELL_VEL_PCT: 12,      /* Shell velocity, % faster shells             */
     MAX_HP_BONUS: 7,        /* Health node         */
     MAX_DMG_BONUS: 3,       /* Damage node         */
     SPD_BONUS: 3,           /* Speed node, km/h    */
@@ -60,6 +70,11 @@ window.Progression = (function () {
    *   merges        Reverse|Turning -> Regen time, Turret|Pen -> Super cool
    *   two lanes     climb in parallel (tiers 3-4)
    *   capstone      Fire rate needs BOTH lanes.
+   *   outer lanes   combat perks: Reinforced hull -> Last stand -> Scavenger
+   *                 (left), Shell velocity -> Weak spot -> Leech rounds ->
+   *                 Executioner (right); Overdrive hangs off Turning.
+   * Perk effects are applied in tank.js (takeDamage, _tickFieldRepairs,
+   * the speed cap) and only on the local player's tank.
    * Node ids are the save keys -- never rename one.
    * Slot rows keep the three paths readable: each column stacks its
    * chain top-down.  `req` is a list; entries are satisfied if the named
@@ -84,6 +99,21 @@ window.Progression = (function () {
       max: 1, cost: 2, desc: '+ 3 km/h reverse speed',
       req: [{ id: 'health', lvl: 2 }], per: { reverse: 3 },
     },
+    armor: {
+      name: 'Reinforced hull', col: 'health', row: 3, gx: 0, gy: 2,
+      max: 3, cost: 2, desc: 'Take 5% less damage',
+      req: [{ id: 'ricoshet', lvl: 2 }], per: { armor: 5 },
+    },
+    laststand: {
+      name: 'Last stand', col: 'health', row: 4, gx: 0, gy: 3,
+      max: 2, cost: 2, desc: 'Below 35% HP: +15% damage',
+      req: [{ id: 'armor', lvl: 2 }], per: { lastStand: 15 },
+    },
+    scavenger: {
+      name: 'Scavenger', col: 'health', row: 5, gx: 0, gy: 4,
+      max: 1, cost: 3, desc: 'Each kill repairs 20% HP',
+      req: [{ id: 'laststand', lvl: 1 }], per: { scavenge: 20 },
+    },
 
     /* ---- MOBILITY PATH (middle column) ---- */
     speed: {
@@ -102,9 +132,14 @@ window.Progression = (function () {
       req: [{ id: 'speed', lvl: 1 }], per: { turret: 5 },
     },
     regen: {
-      name: 'Regen time', col: 'speed', row: 3, gx: 1.5, gy: 2,
-      max: 2, cost: 3, desc: '- 2.5s wait for regen',
-      req: [{ id: 'reverse', lvl: 1 }, { id: 'turning', lvl: 2 }], orMode: true, per: { regenS: 2.5 }, reserved: true,
+      name: 'Field repairs', col: 'speed', row: 3, gx: 1.5, gy: 2,
+      max: 2, cost: 3, desc: 'Repair 3% HP/s after 8s out of fire (2nd level: 5.5s)',
+      req: [{ id: 'reverse', lvl: 1 }, { id: 'turning', lvl: 2 }], orMode: true, per: { regenS: 2.5 },
+    },
+    overdrive: {
+      name: 'Overdrive', col: 'speed', row: 3, gx: 2.5, gy: 2,
+      max: 2, cost: 2, desc: 'Each kill: +30% speed for 2.5s',
+      req: [{ id: 'turning', lvl: 1 }], per: { overdriveS: 2.5 },
     },
     towerturn2: {
       name: 'Tower turning speed 2', col: 'speed', row: 4, gx: 1.5, gy: 3,
@@ -113,8 +148,8 @@ window.Progression = (function () {
     },
     regenstr: {
       name: 'Regen strength', col: 'speed', row: 5, gx: 1.5, gy: 4,
-      max: 1, cost: 1, desc: '+ 3% regen strength',
-      req: [{ id: 'towerturn2', lvl: 2 }], per: { regenPct: 3 }, reserved: true,
+      max: 1, cost: 1, desc: 'Field repairs heal +3% HP/s',
+      req: [{ id: 'towerturn2', lvl: 2 }], per: { regenPct: 3 },
     },
 
     /* ---- DAMAGE PATH (right column) ---- */
@@ -128,10 +163,27 @@ window.Progression = (function () {
       max: 1, cost: 2, desc: '+ 1% penetration',
       req: [{ id: 'damage', lvl: 3 }], per: { pen: 1 },
     },
+    /* id kept from the old "Gadget cool" node (it did nothing) so saves keep
+       their levels; it is now a real upgrade. */
     gadgetcool: {
-      name: 'Gadget cool', col: 'damage', row: 2, gx: 5, gy: 1,
-      max: 2, cost: 2, desc: '- 1.5s gadget cooldown',
-      req: [{ id: 'damage', lvl: 2 }], per: { gadgetS: 1.5 }, reserved: true,
+      name: 'Shell velocity', col: 'damage', row: 2, gx: 5, gy: 1,
+      max: 2, cost: 2, desc: '+ 12% shell speed',
+      req: [{ id: 'damage', lvl: 2 }], per: { shellVel: 12 },
+    },
+    critical: {
+      name: 'Weak spot', col: 'damage', row: 3, gx: 5, gy: 2,
+      max: 2, cost: 2, desc: '8% chance a hit deals x1.75',
+      req: [{ id: 'gadgetcool', lvl: 1 }], per: { crit: 8 },
+    },
+    lifesteal: {
+      name: 'Leech rounds', col: 'damage', row: 4, gx: 5, gy: 3,
+      max: 2, cost: 3, desc: 'Heal 5% of the damage you deal',
+      req: [{ id: 'critical', lvl: 1 }], per: { lifesteal: 5 },
+    },
+    executioner: {
+      name: 'Executioner', col: 'damage', row: 5, gx: 5, gy: 4,
+      max: 1, cost: 3, desc: '+25% damage to tanks under 30% HP',
+      req: [{ id: 'lifesteal', lvl: 1 }], per: { exec: 25 },
     },
     supercool: {
       name: 'Super cool', col: 'damage', row: 3, gx: 3.5, gy: 2,
@@ -334,9 +386,10 @@ window.Progression = (function () {
     var chargeMult = 1 + KNOBS.CHARGE_MULT * n.supercharge;
     var passiveRate = KNOBS.PASSIVE_RATE * n.passive;   /* fraction of cd/s */
     var fireCdS = n.firerate * KNOBS.FIRE_CUT;
-    var gadgetCdS = n.gadgetcool * 1.5;
-    var regenS = n.regen * 2.5;
-    var regenPct = n.regenstr * 3;
+    /* Field repairs: unlocked by the first level, each level after it starts
+       repairing 2.5s sooner; Regen strength adds to the heal rate. */
+    var regenDelayS = n.regen > 0 ? KNOBS.REGEN_DELAY - 2.5 * (n.regen - 1) : 0;
+    var regenPctS = n.regen > 0 ? KNOBS.REGEN_BASE_PCT + 3 * n.regenstr : 0;
 
     return {
       levels: n, hpBonus: hpBonus, dmgBonus: dmgBonus, speedBonus: speedBonus,
@@ -344,11 +397,37 @@ window.Progression = (function () {
       turnMult: turnMult, turretMult: turretMult,
       penPct: penPct, superCoolS: superCoolS,
       chargeMult: chargeMult, passiveRate: passiveRate,
-      fireCdS: fireCdS, gadgetCdS: gadgetCdS, regenS: regenS, regenPct: regenPct,
-      reserved: {
-        gadgetS: gadgetCdS > 0, regenS: regenS > 0, regen: n.regen > 0, gears: false,
-      },
+      fireCdS: fireCdS,
+      regenDelayS: regenDelayS, regenPctS: regenPctS,
+      armorPct: n.armor * KNOBS.ARMOR_PCT,
+      lastStandPct: n.laststand * KNOBS.LASTSTAND_PCT,
+      scavengePct: n.scavenger * KNOBS.SCAVENGER_PCT,
+      overdriveS: n.overdrive * KNOBS.OVERDRIVE_S,
+      critPct: n.critical * KNOBS.CRIT_PCT,
+      lifestealPct: n.lifesteal * KNOBS.LIFESTEAL_PCT,
+      execPct: n.executioner * KNOBS.EXEC_PCT,
+      shellVelMult: 1 + n.gadgetcool * KNOBS.SHELL_VEL_PCT / 100,
+      anyBought: Object.keys(n).some(function (k) { return n[k] > 0; }),
     };
+  }
+
+  /* REFUND: every node this tank bought is removed and the tech points spent
+     on them come back, so the tree can be rebuilt a different way. Levels
+     (and the upgrade points / cash paid for them) are kept. */
+  function refundTree(tankId) {
+    var t = tankState(tankId);
+    var st = t.tanks[tankId];
+    var back = 0;
+    Object.keys(st.nodes || {}).forEach(function (id) {
+      var node = TREE[id];
+      back += (st.nodes[id] || 0) * (node ? node.cost : 0);
+    });
+    if (!back) return { ok: false, why: 'Nothing to refund' };
+    st.nodes = {};
+    st.tech += back;
+    saveState(t);
+    if (window.Menu && Menu.toast) Menu.toast('Refunded ' + back + ' tech points');
+    return { ok: true, refunded: back, tech: st.tech };
   }
 
   /* Clone a tank definition with every bought upgrade baked in. Called
@@ -374,6 +453,7 @@ window.Progression = (function () {
     };
     if (def.magSize) d.magReload = Math.max(KNOBS.MAG_RELOAD_FLOOR, (def.magReload || 3) - s.fireCdS);
     else d.reload = Math.max(KNOBS.RELOAD_FLOOR, (def.reload || 1) - s.fireCdS);
+    if (def.shellSpeed && s.shellVelMult !== 1) d.shellSpeed = def.shellSpeed * s.shellVelMult;
     /* The rest ride on the tank instance (super cd, passive charge,
        penetration), because they read engine CONFIG times at spawn. */
     return d;
@@ -461,7 +541,7 @@ window.Progression = (function () {
     tankState: tankState,
     xpNeeded: xpNeeded, levelUpPrice: levelUpPrice, xpProgress: xpProgress,
     buyLevel: buyLevel,
-    nodeState: nodeState, nodeBought: nodeBought, buyNode: buyNode,
+    nodeState: nodeState, nodeBought: nodeBought, buyNode: buyNode, refundTree: refundTree,
     tankStats: tankStats, defWithUpgrades: defWithUpgrades,
     recordBattle: recordBattle, getLastAward: getLastAward,
     addUp: addUp, getUp: getUp,

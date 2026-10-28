@@ -222,7 +222,7 @@ window.TankMenu = (function(){
     } else {
       add('FIRING', 'Reload', def.reload, Math.max((window.Progression && window.Progression.KNOBS.RELOAD_FLOOR) || 0.05, def.reload - st.fireCdS), 's');
     }
-    add('FIRING', 'Shell speed', def.shellSpeed, def.shellSpeed);
+    add('FIRING', 'Shell speed', def.shellSpeed, Math.round(def.shellSpeed * (st.shellVelMult || 1) * 10) / 10);
     add('FIRING', 'Range', def.shellRange, def.shellRange, 'm');
     add('MOBILITY', 'Speed', def.speed, def.speed + st.speedBonus, 'km/h');
     var revFrac = (CONFIG && CONFIG.REVERSE_SPEED_PENALTY) ? 1 / CONFIG.REVERSE_SPEED_PENALTY : 0.6667;
@@ -244,9 +244,15 @@ window.TankMenu = (function(){
     add('SYSTEMS', 'Super charge rate', 1, st.chargeMult, '×');
     add('SYSTEMS', 'Passive super charge', 0, Math.round(st.passiveRate * 1000) / 10, '% of bar /s');
     add('SYSTEMS', 'Penetration', 0, st.penPct, '% (vs ricochet angle)');
-    if(st.reserved.gadgetS) add('SYSTEMS (HOLD)', 'Gadget cooldown', 0, st.gadgetCdS, 's');
-    if(st.reserved.regenS) add('SYSTEMS (HOLD)', 'Regen wait', 0, st.regenS, 's');
-    if(st.reserved.regen) add('SYSTEMS (HOLD)', 'Regen strength', 0, st.regenPct, '%');
+    /* Combat perks: only listed once bought, so a fresh tank's panel stays short. */
+    if(st.regenPctS) add('PERKS', 'Field repairs', 0, st.regenPctS, '% HP/s after ' + st.regenDelayS + 's');
+    if(st.armorPct) add('PERKS', 'Damage taken', 0, -st.armorPct, '%');
+    if(st.lastStandPct) add('PERKS', 'Last stand', 0, st.lastStandPct, '% dmg <35% HP');
+    if(st.scavengePct) add('PERKS', 'Scavenger', 0, st.scavengePct, '% HP per kill');
+    if(st.overdriveS) add('PERKS', 'Overdrive', 0, st.overdriveS, 's +30% speed per kill');
+    if(st.critPct) add('PERKS', 'Weak spot', 0, st.critPct, '% x1.75 hits');
+    if(st.lifestealPct) add('PERKS', 'Leech rounds', 0, st.lifestealPct, '% of damage healed');
+    if(st.execPct) add('PERKS', 'Executioner', 0, st.execPct, '% dmg vs <30% HP');
     return rows;
   }
 
@@ -284,8 +290,8 @@ window.TankMenu = (function(){
   function statsPanelHtml(tankId){
     if(!window.Progression) return '';
     var rows = statsRows(tankId);
-    var order = ['FIRING', 'MOBILITY', 'SURVIVABILITY', 'SYSTEMS', 'SYSTEMS (HOLD)'];
-    var icons = { 'FIRING': '🎯', 'MOBILITY': '💨', 'SURVIVABILITY': '🛡️', 'SYSTEMS': '⚡', 'SYSTEMS (HOLD)': '🧪' };
+    var order = ['FIRING', 'MOBILITY', 'SURVIVABILITY', 'SYSTEMS', 'PERKS'];
+    var icons = { 'FIRING': '🎯', 'MOBILITY': '💨', 'SURVIVABILITY': '🛡️', 'SYSTEMS': '⚡', 'PERKS': '🧪' };
     var html = '<div class="tm-panel tm-stats-panel tm-fresh">';
     order.forEach(function(g){
       var got = rows.filter(function(r){
@@ -420,6 +426,13 @@ window.TankMenu = (function(){
     svg.innerHTML = out;
   }
 
+  /* Tech points currently spent in this tank's tree (what REFUND gives back). */
+  function refundableTech(tankId){
+    var T = Progression.TREE, n = 0;
+    Object.keys(T).forEach(function(id){ n += Progression.nodeBought(tankId, id) * T[id].cost; });
+    return n;
+  }
+
   function researchHtml(tankId){
     var def = TANKS[tankId];
     var prog = Progression.xpProgress(tankId);
@@ -436,6 +449,8 @@ window.TankMenu = (function(){
           '<div class="tr-chips">' +
             '<span class="tr-chip">TANK LEVEL<b>' + prog.level + '</b></span>' +
             '<span class="tr-chip" title="One per bought level — spends on tree nodes">TECH PTS<b>' + prog.tech + '</b></span>' +
+            '<button class="tr-back tr-refund" id="tr-refund" title="Remove every bought upgrade on this tank and get all its tech points back"' +
+              (refundableTech(tankId) ? '' : ' disabled') + '>↺ REFUND ' + refundableTech(tankId) + ' ⚙</button>' +
             '<span class="tr-chip" title="Upgrade points — from boxes and the store BANK"><img src="assets/rewards/upgradepoints.webp" alt="">UP<b>' + fmtInt(prog.currencies.up) + '</b></span>' +
             '<span class="tr-chip" title="Golden upgrade points — one per battle win"><img src="assets/rewards/goldupgradepoints.webp" alt="">GUP<b>' + fmtInt(prog.currencies.gup) + '</b></span>' +
           '</div>' +
@@ -475,10 +490,28 @@ window.TankMenu = (function(){
     setTimeout(reveal, 60);
     var back = document.getElementById('tr-back');
     if(back) back.onclick = closeResearch;
+    /* REFUND asks twice: the first tap arms it for 3 s, the second refunds. */
+    var refund = document.getElementById('tr-refund');
+    if(refund) refund.onclick = function(){
+      if(!refund.classList.contains('armed')){
+        refund.classList.add('armed');
+        refund.textContent = 'TAP AGAIN TO REFUND';
+        setTimeout(function(){
+          if(!refund.isConnected || !refund.classList.contains('armed')) return;
+          refund.classList.remove('armed');
+          refund.textContent = '↺ REFUND ' + refundableTech(tankId) + ' ⚙';
+        }, 3000);
+        return;
+      }
+      refund.classList.remove('armed');
+      var r = Progression.refundTree(tankId);
+      if(r.ok){ openResearch(tankId); refreshTankProgUI(tankId); refreshStatsPanel(tankId); }
+      else if(window.Menu) Menu.toast(r.why || 'Nothing to refund');
+    };
     scr.querySelectorAll('.tp-buy').forEach(function(btn){
       btn.onclick = function(){
         var r = Progression.buyNode(tankId, btn.dataset.node);
-        if(r.ok){ openResearch(tankId); refreshTankProgUI(tankId); }
+        if(r.ok){ openResearch(tankId); refreshTankProgUI(tankId); refreshStatsPanel(tankId); }
         else if(window.Menu) Menu.toast(r.why || 'Cannot buy');
       };
     });
@@ -500,6 +533,13 @@ window.TankMenu = (function(){
       if(document.getElementById('tm-research')) openResearch(tankId);
     }
     else if(window.Menu) Menu.toast(r.why || 'Cannot level up');
+  }
+
+  /* The garage stats panel behind the research screen, redrawn after a buy or
+     a refund so it never shows the tree as it was before. */
+  function refreshStatsPanel(tankId){
+    var old = document.querySelector('#menu-tank .tm-stats-panel');
+    if(old) old.outerHTML = statsPanelHtml(tankId);
   }
 
   function refreshTankProgUI(tankId){

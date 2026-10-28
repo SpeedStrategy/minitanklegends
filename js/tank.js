@@ -77,11 +77,12 @@ class Tank {
        `upStats` carries the numbers that are read per-frame instead of per-
        spawn: reverse km/h bonus, super cooldown cut, the passive charge
        rate and the penetration % the projectile ricochet pass uses. */
-    const upStats = (window.Progression && def && def.id) ? window.Progression.tankStats(def.id) : null;
-    if (window.Progression) def = window.Progression.defWithUpgrades(def);
-    this.upStats = upStats && (upStats.hpBonus || upStats.superCoolS || upStats.passiveRate ||
-      upStats.chargeMult !== 1 || upStats.reverseKmh || upStats.penPct || upStats.fireCdS)
-      ? upStats : null;
+    /* Only the LOCAL player's tank wears the tree. It used to apply to every
+       tank of the same type, so upgrading Cool Buddy upgraded every bot Cool
+       Buddy too. The tree is saved on this machine and belongs to this player. */
+    const upStats = (window.Progression && def && def.id && opts.isLocal) ? window.Progression.tankStats(def.id) : null;
+    if (window.Progression && opts.isLocal) def = window.Progression.defWithUpgrades(def);
+    this.upStats = upStats && upStats.anyBought ? upStats : null;
     this.def = def;
     this.id   = opts.id   || ('tank_'+Math.random().toString(36).slice(2,8));
     this.name = opts.name || 'Tank';
@@ -3403,6 +3404,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     const d = this.def;
     const inp = this._input || {};
 
+    this._tickFieldRepairs(dt);
     this._updateCover(world, dt);
     this._applyCamoVisual();
 
@@ -3419,7 +3421,9 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     }
 
     const effThrottle = this.drifting ? 0 : (inp.throttle||0);
-    const speedCap = d.speed * (1 - Math.min(0.35, (this.mass-18)/120));
+    const speedCap = d.speed * (1 - Math.min(0.35, (this.mass-18)/120))
+      /* Overdrive (upgrade tree): +30% top speed for a few seconds after a kill. */
+      * ((this._overdriveUntil && performance.now() < this._overdriveUntil) ? 1.3 : 1);
     /* ONE REVERSE FACTOR, READ INSTEAD OF WRITTEN.
 
        The old code carried a literal 0.5 in two places, and the two were not
@@ -4760,6 +4764,23 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     }
   }
 
+  /* Heal up to max HP and redraw the bar. Used by the tree's repair perks. */
+  healBy(n){
+    if(!this.alive || this.dying || !(n > 0)) return;
+    const before = this.hp;
+    this.hp = Math.min(this.maxHp, this.hp + n);
+    if(this.hp !== before) this._drawHp();
+  }
+
+  /* Field repairs (upgrade tree): after regenDelayS without taking damage the
+     hull repairs regenPctS % of its max HP every second. */
+  _tickFieldRepairs(dt){
+    const us = this.upStats;
+    if(!us || !us.regenPctS || this.hp >= this.maxHp) return;
+    if(performance.now() - (this._lastHurtAt || 0) < us.regenDelayS * 1000) return;
+    this.healBy(this.maxHp * us.regenPctS / 100 * dt);
+  }
+
   takeDamage(amount, fromTank, game, accumulate){
     if(!this.alive || this.dying) return;
     if(this._spawnInvuln && this._spawnInvuln > 0) return;
@@ -4782,7 +4803,18 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
        phase: being shot at has to be reacted to at once, not up to four
        frames later. */
     this._hurtThisFrame = true;
+    /* UPGRADE-TREE PERKS (upgrade-tree.js), shooter's first, then this hull's
+       armour. Only the local player's tank carries upStats. */
+    const atk = (fromTank && fromTank !== this) ? fromTank.upStats : null;
+    if(atk){
+      if(atk.lastStandPct && fromTank.hp < fromTank.maxHp * 0.35) amount *= 1 + atk.lastStandPct / 100;
+      if(atk.execPct && this.hp < this.maxHp * 0.30) amount *= 1 + atk.execPct / 100;
+      if(atk.critPct && Math.random() * 100 < atk.critPct) amount *= 1.75;
+    }
+    if(this.upStats && this.upStats.armorPct) amount *= 1 - this.upStats.armorPct / 100;
+    this._lastHurtAt = performance.now();
     this.hp -= amount;
+    if(atk && atk.lifestealPct && fromTank.alive) fromTank.healBy(amount * atk.lifestealPct / 100);
     if(fromTank && fromTank !== this){
       fromTank.damageDealt += amount;
       /* REMEMBER WHO HIT ME, so an assist can be paid out when I die.
@@ -4827,7 +4859,14 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     }
     if(this.hp <= 0){
       this.hp = 0; this.alive = false;
-      if(fromTank && fromTank !== this) fromTank.kills++;
+      if(fromTank && fromTank !== this){
+        fromTank.kills++;
+        const ks = fromTank.upStats;
+        if(ks && fromTank.alive){
+          if(ks.scavengePct) fromTank.healBy(fromTank.maxHp * ks.scavengePct / 100);
+          if(ks.overdriveS) fromTank._overdriveUntil = performance.now() + ks.overdriveS * 1000;
+        }
+      }
       this._payAssists(fromTank);
       this._startDeath(game, fromTank);
     }

@@ -108,3 +108,10 @@ myself are marked *(mine)*.
 
 - On The Hill, only one team's spawn sits near a ramp, so captures there are lopsided.
 - Multiplayer has not been tested end-to-end in these sessions (it needs the online match server).
+
+## Found Oct 28
+
+| # | Bug | Where | Status |
+|---|-----|-------|--------|
+| 62 | Upgrades bought for a tank were applied to EVERY tank of that type, so upgrading Cool Buddy also upgraded every bot Cool Buddy. Now only your own tank wears your tree. | `js/tank.js` constructor | Fixed |
+| 63 | Three tree nodes (Regen time, Regen strength, Gadget cool) cost tech points but did nothing in battle ("HOLD: UNUSED YET"). Regen is now Field repairs, Gadget cool is now Shell velocity, all three work. | `js/upgrade-tree.js`, `js/tank.js` | Fixed |
