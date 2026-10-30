@@ -501,7 +501,7 @@ const TANKS = {
     desc:'Tiny, fast, hit-and-run.',
     friction: 0.82,
     superType:'cloak',
-    cloakWindup:3, cloakMax:10,
+    cloakWindup:0.3, cloakMax:8, cloakSpeedMult:1.4, cloakFirstShotMult:2.5,
   },
 
   dummy: {
@@ -604,7 +604,7 @@ const TANKS = {
     desc:'Juggernaut. Massive shells, very slow.',
     friction: 0.92,
     superType:'panzers',
-    panzerDelay:8,
+    panzerDelay:1.2, panzerCount:3, panzerLife:25, panzerHp:120,
   },
 
   rapid: {
@@ -843,7 +843,7 @@ const TANKS = {
     armor:{front:11, sides:18, back:11},
     desc:'30 km/h and a ten-pellet spread. Enormous damage per second inside 20m and almost nothing past it.',
     friction: 0.88,
-    superType:'reload_boost', superReloadMult:0.55, superDuration:7, superCd:42,
+    superType:'nova', novaPellets:32, novaDamage:70, novaRadius:16,
   },
 
   predator: {
@@ -885,7 +885,7 @@ const TANKS = {
     armor:{front:10, sides:30, back:10},
     desc:'5-round burst, half a second between rounds. Cool Buddy numbers in a slower, better-tracked hull.',
     friction: 0.88,
-    superType:'reload_boost', superRadius:10, superReloadMult:0.5, superDuration:8, superCd:45,
+    superType:'hunt', huntTime:7, huntSpeedMult:1.35, huntReloadMult:3,
   },
 
   double: {
@@ -907,7 +907,7 @@ const TANKS = {
     armor:{front:20, sides:35, back:20},
     desc:'Heavy double-barrel tank. Toggle single/double fire. Double shot = +10% combined damage.',
     friction: 0.82,
-    superType:'landfield', superMineCount:5, superCd:45,
+    superType:'twin_salvo', salvoShots:14, salvoEvery:0.09,
   },
 
 
@@ -1126,7 +1126,7 @@ const TANKS = {
     /* The one thing that makes a ten second reload bearable, and the obvious
        pick for it: the shell IS the weapon, so cutting the reload cuts the
        rate of fire on that weapon. */
-    superType:'reload_boost', superRadius:10, superReloadMult:0.45, superDuration:8, superCd:50,
+    superType:'barrage', airstrikeBombs:7, airstrikeDelay:1.2, airstrikeRadius:9, airstrikeDamage:40, airstrikeSpread:14, airstrikeStagger:70,
   },
 };
 
@@ -1148,6 +1148,21 @@ for(const _hid in TANKS){
     if(typeof _ht[_hk] === 'number') _ht[_hk] *= TANK_HANDLING_MULT[_hk];
   }
 }
+
+/* What each super is called and does: the tank screen and the pick screen read this. */
+const SUPER_INFO = {
+  airstrike:  { name:'Airstrike',    icon:'\u2708',     color:0xffc040, desc:'Pick a spot: three huge bombs land there, each about three tanks wide.' },
+  molotov:    { name:'Firestorm',    icon:'\u{1F525}',  color:0xff6a20, desc:'Sets a huge area on fire for 10 seconds. Big damage to anything inside.' },
+  bush:       { name:'Giant Bush',   icon:'\u{1F33F}',  color:0x55cc55, desc:'Grows a giant bush around you to hide in.' },
+  cloak:      { name:'Phantom',      icon:'\u{1F47B}',  color:0x99ddff, desc:'Almost instantly invisible and 40% faster for 8 seconds. Your first shot out of it deals 2.5x damage.' },
+  panzers:    { name:'Panzer Squad', icon:'\u{1F6E1}',  color:0x88ccff, desc:'Three escort panzers drop in beside you and fight for 25 seconds.' },
+  big_shells: { name:'Heavy Rounds', icon:'\u{1F4A5}',  color:0xff5533, desc:'Your next 3 shots burst three times as wide and hit harder.' },
+  mine_dash:  { name:'Mine Dash',    icon:'\u{1F4A3}',  color:0xffe040, desc:'Dash forward at triple speed, leaving a trail of landmines.' },
+  hunt:       { name:'Hunter Mode',  icon:'\u26A1',     color:0xffa030, desc:'For 7 seconds: reload three times faster and drive 35% faster.' },
+  nova:       { name:'Nova Blast',   icon:'\u{1F4A2}',  color:0xffee66, desc:'A blast all around you that hurts and throws back nearby tanks, plus a ring of pellets.' },
+  twin_salvo: { name:'Twin Salvo',   icon:'\u{1F680}',  color:0x66ccff, desc:'Both barrels unload 14 extra shells in about a second.' },
+  barrage:    { name:'Barrage',      icon:'\u2604',     color:0xff8844, desc:'Pick a spot anywhere in range: seven shells rain down across it.' },
+};
 
 const TANK_ORDER = ['coolbuddy','demolisher','predator','grom','helix','striker','double','burst','ghost','sturmratte','mortar','tankdisplay'];
 const U_TO_KMH = CONFIG.U_TO_KMH;

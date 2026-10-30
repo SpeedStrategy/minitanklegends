@@ -1655,7 +1655,7 @@ const canSeeTarget = target ? !!pick.canSee : false;
     const dist = target ? Math.hypot(target.x - me.x, target.z - me.z) : Infinity;
     const hurt = me.hp / Math.max(1, me.maxHp) < 0.5;
     let use = false, pick = null;
-    if(type === 'airstrike' && seen && dist < 70){
+    if((type === 'airstrike' && seen && dist < 70) || (type === 'barrage' && seen && dist < 110)){
       /* Bombs land ~3 s later: aim where the target is heading. */
       let vx = 0, vz = 0;
       try { const v = target._physBody && target._physBody.linvel(); if(v){ vx = v.x; vz = v.z; } } catch(e){}
@@ -1668,6 +1668,12 @@ const canSeeTarget = target ? !!pick.canSee : false;
     } else if((type === 'cloak' || type === 'bush') && hurt && (seen || this._hitPanicTimer > 0)){
       use = true;
     } else if((type === 'panzers' || type === 'reload_boost') && seen && dist < 50){
+      use = true;
+    } else if(type === 'hunt' && seen && dist < 60){
+      use = true;
+    } else if(type === 'twin_salvo' && seen && dist < 50){
+      use = true;
+    } else if(type === 'nova' && seen && dist < 13){
       use = true;
     } else if(type === 'big_shells' && seen && dist < 45){
       use = true;

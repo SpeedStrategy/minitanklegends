@@ -338,7 +338,7 @@ window.TankMenu = (function(){
     var st = Progression.tankStats(tankId);
     var baseCD = (CONFIG && CONFIG.SUPER_COOLDOWN) || 60;
     var effCd = Math.max(Progression.KNOBS.SUPER_CD_FLOOR, baseCD - st.superCoolS);
-    var name = SUPER_NAMES[def.superType] || 'Super';
+    var name = (typeof SUPER_INFO !== 'undefined' && SUPER_INFO[def.superType] && SUPER_INFO[def.superType].name) || SUPER_NAMES[def.superType] || 'Super';
     return '<div class="tr-super open" title="Live in battle right now">' +
       '⚡ ' + name.toUpperCase() + ' · charged by <b>' + Math.round(((CONFIG && CONFIG.SUPER_CHARGE_DAMAGE) || 300) * effCd / baseCD) + '</b> damage' +
       (st.chargeMult > 1 ? ' · ×' + st.chargeMult.toFixed(2) + ' charge' : '') +
@@ -552,7 +552,10 @@ window.TankMenu = (function(){
   }
 
   function getMechanics(tankId){
-    return (TANK_MECHANICS[tankId] || []).map(function(k){ return MECHANICS[k]; }).filter(Boolean);
+    var list = (TANK_MECHANICS[tankId] || []).map(function(k){ return MECHANICS[k]; }).filter(Boolean);
+    var sup = TANKS[tankId] && typeof SUPER_INFO !== 'undefined' && SUPER_INFO[TANKS[tankId].superType];
+    if(sup) list.unshift({ name:'Super: ' + sup.name, icon:sup.icon, desc:sup.desc });
+    return list;
   }
 
   function show(tankId){

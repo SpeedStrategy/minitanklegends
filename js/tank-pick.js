@@ -122,6 +122,9 @@ window.TankPick = (function(){
     if(info) info.innerHTML = bars(def);
     var desc = _panel && _panel.querySelector('.tkp-desc');
     if(desc) desc.textContent = def.desc || '';
+    var sup = _panel && _panel.querySelector('.tkp-super');
+    var si = typeof SUPER_INFO !== 'undefined' && SUPER_INFO[def.superType];
+    if(sup) sup.innerHTML = si ? '<b>' + si.icon + ' ' + esc(si.name) + '</b>' + esc(si.desc) : '';
     _queue = _queue.then(function(){
       return buildModel(id).then(function(m){
         if(my !== _token || !_scene) return;
@@ -243,7 +246,7 @@ window.TankPick = (function(){
         '<div class="tkp-team"><div class="tkp-head">YOUR TEAM</div><div class="tkp-team-list"></div></div>' +
         '<div class="tkp-main">' +
           '<div class="tkp-stage" title="Drag to spin"></div>' +
-          '<div class="tkp-info"><div class="tkp-name"></div><div class="tkp-desc"></div><div class="tkp-bars"></div></div>' +
+          '<div class="tkp-info"><div class="tkp-name"></div><div class="tkp-desc"></div><div class="tkp-bars"></div><div class="tkp-super"></div></div>' +
         '</div>' +
         '<div class="tkp-strip"></div>';
       ensureRenderer();

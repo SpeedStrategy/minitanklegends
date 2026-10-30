@@ -1138,7 +1138,7 @@ class Game {
       shell._detonate(this);
       return;
     }
-    tank.takeDamage(shell.damage, shell.owner, this);
+    tank.takeDamage(shell.damage, shell.owner, this, false, !!shell._fromSuper);
     this._tankHitVfx(tank, shell.dir.x, shell.dir.z, 0xffaa40);
     shell.dead = true;
   }
@@ -3277,8 +3277,8 @@ class Game {
        health is a loss decided by a respawn timer. Only the bases end it. */
     if(this._baseDefendMode) return;
     // Check if a team is eliminated
-    const blueAlive = this.tanks.filter(t => t.team === 'blue' && t.alive && !t.dying && !t.isDummy).length;
-    const redAlive = this.tanks.filter(t => t.team === 'red' && t.alive && !t.dying && !t.isDummy).length;
+    const blueAlive = this.tanks.filter(t => t.team === 'blue' && t.alive && !t.dying && !t.isDummy && !t.isPanzer).length;
+    const redAlive = this.tanks.filter(t => t.team === 'red' && t.alive && !t.dying && !t.isDummy && !t.isPanzer).length;
     if(blueAlive === 0){
       // Red wins the round
       this._tdmEndRound('red');
@@ -3356,8 +3356,8 @@ class Game {
     // Respawn all tanks at their spawn positions
     const blueSpawns = this._tdmBlueSpawns || [];
     const redSpawns = this._tdmRedSpawns || [];
-    const blueTanks = this.tanks.filter(t => t.team === 'blue' && !t.isDummy);
-    const redTanks = this.tanks.filter(t => t.team === 'red' && !t.isDummy);
+    const blueTanks = this.tanks.filter(t => t.team === 'blue' && !t.isDummy && !t.isPanzer);
+    const redTanks = this.tanks.filter(t => t.team === 'red' && !t.isDummy && !t.isPanzer);
     const respawnTank = (tank, spawns) => {
       if(!spawns.length) return;
       const sp = spawns[Math.floor(Math.random() * spawns.length)];
@@ -4848,7 +4848,7 @@ if(!g){ this._gladHideMarker(); return; }
     }
 
     // Alive count & win check
-    const alive = this.tanks.filter(t => t.alive && !t.dying && !t.isDummy);
+    const alive = this.tanks.filter(t => t.alive && !t.dying && !t.isDummy && !t.isPanzer);
     g.alive = alive.length;
     if(!g.winner && alive.length === 1){
       g.winner = alive[0];
@@ -6648,6 +6648,7 @@ Net.sendJoinInfo(
       }
       pool.length = 0;
     }
+    this._clearSuperShocks();
     if(this._molotovFires){
       for(const m of this._molotovFires){
         this.scene.remove(m.mesh); this.scene.remove(m.innerMesh);
@@ -9220,7 +9221,7 @@ Net.sendJoinInfo(
       const cfg = this._baseDefendMode ? GAMEMODES.baseDefend : GAMEMODES.captureTheCircle;
       const delay = cfg.respawnTime || 5;
       for(const t of this.tanks){
-        if(t.isDummy || !t.dying || t.deathT < delay) continue;
+        if(t.isDummy || t.isPanzer || !t.dying || t.deathT < delay) continue;
         this._captureRespawn(t);
       }
     }
@@ -9395,11 +9396,16 @@ Net.sendJoinInfo(
         m.tickTimer -= dt;
         const fadeIn = Math.min(1, (1 - m.timer / m.maxTimer) / 0.5);
         const fadeOut = Math.min(1, m.timer / m.fadeOut);
-        const op = Math.min(fadeIn, fadeOut) * 0.55;
+        const op = Math.min(fadeIn, fadeOut) * 0.72;
         const flicker = 0.85 + 0.15 * Math.sin(this.time * 18 + m.phase);
         m.mesh.material.opacity = op * flicker;
         m.innerMesh.material.opacity = op * flicker * 1.2;
         m.innerMesh.material.color.setHSL(0.08 + 0.02 * Math.sin(this.time * 25 + m.phase), 1, 0.55);
+        /* Flames licking up all over the area, thicker the bigger it is. */
+        if(this.spawnBurst && Math.random() < dt * m.radius * 1.2){
+          const fa = Math.random() * 6.283, fr = Math.sqrt(Math.random()) * m.radius;
+          this.spawnBurst(m.x + Math.cos(fa) * fr, (m.gy || 0) + 0.5, m.z + Math.sin(fa) * fr, { count: 3, tex: 'ember', speed: 3, size: 0.7, life: 0.7, rise: 6, gravity: 1, blend: 'add' });
+        }
         if(m.tickTimer <= 0){
           m.tickTimer = m.tick;
           for(const o of this.tanks){
@@ -10067,7 +10073,7 @@ Net.sendJoinInfo(
           cd: this._netSnapshotCountdown(),
         });
         if(window.__PLATOON_BATTLE){
-          window.__PLATOON_BATTLE.score = this.tanks.filter(t=>!t.isDummy).map(t=>({name:t.name||'Player', kills:t.kills||0, dd:Math.round(t.damageDealt||0)}));
+          window.__PLATOON_BATTLE.score = this.tanks.filter(t=>!t.isDummy && !t.isPanzer).map(t=>({name:t.name||'Player', kills:t.kills||0, dd:Math.round(t.damageDealt||0)}));
         }
       }
     } else if(this.mode==='freeroam' && NakamaNet.isHost){
@@ -11967,6 +11973,20 @@ _initMortarMarker(){
   _updateSupers(dt){
     for(const t of this.tanks){
       if(t && t.alive && !t.dying && t.superState && t.hasSuper && t.hasSuper()) this._tickSuper(t, dt);
+      if(t && t._superFired){ t._superFired = false; this._superCast(t); }
+      if(t) this._updateSuperAura(t);
+    }
+    this._updateSuperShocks(dt);
+    /* Escort panzers are temporary: they expire, and a dead one is gone for good
+       instead of coming back on the spot in the respawn modes. */
+    for(let i = this.tanks.length - 1; i >= 0; i--){
+      const p = this.tanks[i];
+      if(!p || !p.isPanzer) continue;
+      if(p.alive && !p.dying && this.time >= p._expireAt) p.takeDamage(p.hp, null, this);
+      if(p.dying && p.deathT > 1.5){
+        this.tanks.splice(i, 1);
+        try { p.detach(); p.dispose(); } catch(e){}
+      }
     }
     this._tickStrikeBombs(dt);
   }
@@ -11978,7 +11998,7 @@ _initMortarMarker(){
     btn._stickWired = true;
     const reach = (t) => {
       const ty = t.def.superType;
-      return ty === 'airstrike' ? 70 : ty === 'molotov' ? 60 : 14;
+      return ty === 'airstrike' ? 70 : ty === 'barrage' ? 110 : ty === 'molotov' ? 60 : 14;
     };
     const point = (t) => {
       const s = this._superStick;
@@ -11986,7 +12006,8 @@ _initMortarMarker(){
       const ang = (this.camAngle || Math.PI) + Math.PI - Math.atan2(s.dx, -s.dy);
       return { x: t.x + Math.sin(ang) * reach(t) * mag, z: t.z + Math.cos(ang) * reach(t) * mag };
     };
-    const ringFor = (t) => t.def.superType === 'airstrike' ? (t.def.airstrikeRadius || 4)
+    const ringFor = (t) => t.def.superType === 'barrage' ? (t.def.airstrikeSpread || 14)
+      : t.def.superType === 'airstrike' ? (t.def.airstrikeRadius || 4)
       : t.def.superType === 'molotov' ? (t.def.molotovRadius || 7) : 4;
     btn.addEventListener('touchstart', (e) => {
       e.preventDefault(); e.stopPropagation();
@@ -12069,8 +12090,9 @@ _initMortarMarker(){
     if(st === 'targeting' && d.superType !== 'landfield' && d.superType !== 'molotov'){
       const picked = this._superPick(t);
       if(picked){
-        const r = d.airstrikeRadius || 4;
+        const r = d.airstrikeSpread || d.airstrikeRadius || 4;
         t.superTarget = { x: picked.x, z: picked.z };
+        t._superFired = true; t._superFxAt = { x: picked.x, z: picked.z };
         t.superState = 'strike';
         t.superTimer = d.airstrikeDelay || 3;
         t.superCdLeft = t.superCdTotal;
@@ -12223,6 +12245,7 @@ _initMortarMarker(){
           if(t === this.localTank && typeof Menu !== 'undefined' && Menu.toast) Menu.toast('Too far!');
         } else {
           this._spawnMolotov(t, picked.x, picked.z);
+          t._superFired = true; t._superFxAt = { x: picked.x, z: picked.z };
           t.superState = 'done';
           t.superTimer = 0;
           t.superCdLeft = t.superCdTotal;
@@ -12234,6 +12257,9 @@ _initMortarMarker(){
     else if(st === 'dashing'){
       t.superTimer -= dt;
       t._dashMineT = (t._dashMineT || 0) - dt;
+      if(this.spawnBurst && Math.random() < dt * 30){
+        this.spawnBurst(t.x, t.root.position.y + 0.6, t.z, { count: 3, tex: 'dust', speed: 4, size: 1.4, life: 0.5, rise: 1.5, gravity: 2, blend: 'normal', fade: 0.7 });
+      }
       if(t._dashMineT <= 0){
         t._dashMineT = d.dashMineEvery || 0.14;
         const side = (Math.random() - 0.5) * (t.colHalfW || 3) * 3;
@@ -12245,6 +12271,27 @@ _initMortarMarker(){
         mine.attach(this.scene); this.projectiles.push(mine);
       }
       if(t.superTimer <= 0){ t.superState = 'done'; t.superTimer = 0; }
+    }
+
+    // --- Predator: Hunter Mode. The speed half is in Tank's speed cap. ---
+    else if(st === 'hunting'){
+      t.superTimer -= dt;
+      const extra = dt * ((d.huntReloadMult || 3) - 1);
+      if(t.reloadLeft > 0) t.reloadLeft -= extra;
+      if(t.magReloadLeft > 0) t.magReloadLeft -= extra;
+      if(t.superTimer <= 0){ t.superState = 'done'; t.superTimer = 0; }
+    }
+
+    // --- Double: Twin Salvo ---
+    else if(st === 'salvo'){
+      t._salvoT = (t._salvoT || 0) - dt;
+      if(t._salvoT <= 0 && t._salvoLeft > 0){
+        t._salvoT = d.salvoEvery || 0.09;
+        t._salvoLeft--;
+        t._superFiring = true;
+        try { this.spawnShot(t); } finally { t._superFiring = false; }
+      }
+      if(t._salvoLeft <= 0){ t.superState = 'done'; t.superTimer = 0; }
     }
 
     // --- Predator: reload boost circle ---
@@ -12317,14 +12364,14 @@ _initMortarMarker(){
     if(!this._strikeBombs) this._strikeBombs = [];
     for(let i = 0; i < (d.airstrikeBombs || 3); i++){
       const a = Math.random() * Math.PI * 2;
-      const off = Math.random() * r * 0.7;
-      const geo = new THREE.SphereGeometry(0.28, 10, 10);
+      const off = Math.random() * (d.airstrikeSpread || r * 0.7);
+      const geo = new THREE.SphereGeometry(0.75, 12, 12);
       const mat = Toon.mat({ color: 0x333338 });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.castShadow = true;
       const x = cx + Math.cos(a) * off, z = cz + Math.sin(a) * off;
       const gy = this._groundY(x, z, t.root.position.y);
-      const y = gy + 46 + Math.random() * 4;
+      const y = gy + 46 + Math.random() * (d.airstrikeStagger || 4);
       mesh.position.set(x, y, z);
       this.scene.add(mesh);
       this._strikeBombs.push({ mesh, x, z, y, gy, hit:false, owner:t, radius:r, damage:d.airstrikeDamage || 60, fallSpeed: 55 + Math.random()*15 });
@@ -12339,6 +12386,118 @@ _initMortarMarker(){
     }
     if(!drawn) this.spawnExplosion(x, y + 0.6, z, 0xffaa33, Math.max(10, r));
     if(this.addShake) this.addShake(0.5);
+  }
+
+  /* Everything a super does the instant it is cast: a shockwave in its colour,
+     sparks, and its name for the player. Nova's blast happens here too. */
+  _superCast(t){
+    const info = (typeof SUPER_INFO !== 'undefined' && SUPER_INFO[t.def.superType]) || {};
+    const at = t._superFxAt || { x: t.x, z: t.z };
+    t._superFxAt = null;
+    const y = this._groundY(at.x, at.z, t.root.position.y) + 0.3;
+    const color = info.color || 0xffffff;
+    this._superShock(at.x, y, at.z, t.def.superType === 'nova' ? (t.def.novaRadius || 16) : 12, color);
+    if(this.spawnBurst) this.spawnBurst(at.x, y + 1, at.z, { count: 18, tex: 'ember', speed: 12, size: 0.5, life: 0.6, rise: 4, gravity: 8, blend: 'add' });
+    if(t === this.localTank){
+      if(typeof Menu !== 'undefined' && Menu.toast && info.name) Menu.toast(info.name + '!');
+      if(this.addShake) this.addShake(0.25);
+    }
+    if(t.def.superType === 'nova') this._fireNova(t);
+  }
+
+  /* Burst: hurts and throws back everything close, plus a full ring of pellets. */
+  _fireNova(t){
+    const d = t.def, R = d.novaRadius || 16;
+    for(const o of this.tanks){
+      if(!o.alive || o.dying || o === t) continue;
+      if(t.team && o.team === t.team) continue;
+      if(t.allyId === o.id || o.allyId === t.id) continue;
+      const dx = o.x - t.x, dz = o.z - t.z, dist = Math.hypot(dx, dz);
+      if(dist > R) continue;
+      const f = 1 - dist / R * 0.6;
+      if(o.pushImpact && dist > 0.1) o.pushImpact(dx / dist, dz / dist, 34 * f, { hop: 1.2 * f });
+      o.takeDamage((d.novaDamage || 70) * f, t, this, false, true);
+    }
+    const n = d.novaPellets || 32, y = t.root.position.y + (t.colOffY || 1);
+    for(let i = 0; i < n; i++){
+      const a = i / n * Math.PI * 2;
+      const dir = new THREE.Vector3(Math.sin(a), 0, Math.cos(a));
+      const s = new Shell(t, new THREE.Vector3(t.x, y, t.z), dir,
+        { shellSpeed: d.shellSpeed, shellRange: d.shellRange, damage: d.damage, _isShotgunPellet: true },
+        this.physicsWorld, { x: 0, z: 0 });
+      s._fromSuper = true;
+      s.attach(this.scene); this.projectiles.push(s);
+    }
+  }
+
+  /* An expanding ring on the ground that fades out. */
+  _superShock(x, y, z, r, color){
+    if(!this._superShocks) this._superShocks = [];
+    const m = new THREE.Mesh(
+      new THREE.RingGeometry(0.82, 1, 64),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false, depthTest: false, toneMapped: false })
+    );
+    m.rotation.x = -Math.PI / 2;
+    m.position.set(x, y, z);
+    m.renderOrder = 980;
+    m.scale.setScalar(0.5);
+    this.scene.add(m);
+    this._superShocks.push({ m, r, t: 0 });
+  }
+
+  _updateSuperShocks(dt){
+    const list = this._superShocks;
+    if(!list || !list.length) return;
+    for(let i = list.length - 1; i >= 0; i--){
+      const s = list[i];
+      s.t += dt / 0.55;
+      const e = 1 - Math.pow(1 - Math.min(1, s.t), 3);
+      s.m.scale.setScalar(Math.max(0.5, s.r * e));
+      s.m.material.opacity = 0.95 * Math.max(0, 1 - s.t);
+      if(s.t >= 1){
+        this.scene.remove(s.m);
+        s.m.geometry.dispose(); s.m.material.dispose();
+        list.splice(i, 1);
+      }
+    }
+  }
+
+  _clearSuperShocks(){
+    (this._superShocks || []).forEach(s => { this.scene.remove(s.m); s.m.geometry.dispose(); s.m.material.dispose(); });
+    this._superShocks = [];
+  }
+
+  /* A pulsing ring under a tank while its super is live, so everyone can read it.
+     A cloaked tank's ring shows only to its own player. Lives on the tank's root,
+     so it goes away with the tank. */
+  _updateSuperAura(t){
+    if(!t.root) return;
+    const st = t.superState;
+    let color = 0;
+    if(t.alive && !t.dying){
+      if(st === 'hunting') color = 0xffa030;
+      else if(st === 'dashing') color = 0xffe040;
+      else if(st === 'salvo') color = 0x66ccff;
+      else if(t._bigShots > 0) color = 0xff5533;
+      else if(st === 'cloaked' && t === this.localTank) color = 0x99ddff;
+    }
+    if(!color){ if(t._superAura) t._superAura.visible = false; return; }
+    if(!t._superAura){
+      const m = new THREE.Mesh(
+        new THREE.RingGeometry(0.78, 1, 48),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false, depthTest: false, toneMapped: false })
+      );
+      m.rotation.x = -Math.PI / 2;
+      m.renderOrder = 985;
+      m.userData.noXray = true; m.userData.noStyle = true; m.userData.noSpray = true; m.userData.isOutline = true;
+      t.root.add(m);
+      t._superAura = m;
+    }
+    const a = t._superAura;
+    a.visible = true;
+    a.material.color.setHex(color);
+    a.position.y = 0.2;
+    a.scale.setScalar(Math.max(t.colHalfW || 3, t.colHalfL || 4) * 1.5 * (1 + 0.08 * Math.sin(this.time * 9)));
   }
 
   _deployBush(t){
@@ -12357,23 +12516,29 @@ _initMortarMarker(){
   }
 
   _spawnPanzers(t){
-    for(const side of [-1, 1]){
-      const a = t.heading + Math.PI/2 * side;
-      const ox = Math.sin(a) * 3.2, oz = Math.cos(a) * 3.2;
+    const count = t.def.panzerCount || 2;
+    for(let pi = 0; pi < count; pi++){
+      const side = pi === 0 ? -1 : pi === 1 ? 1 : 0;
+      const a = side ? t.heading + Math.PI/2 * side : t.heading;
+      const reachOut = (t.colHalfW || 3) + 6;
+      const ox = Math.sin(a) * reachOut, oz = Math.cos(a) * reachOut;
       const def = TANKS.panzer;
       const p = new Tank(def, {
         id:'panzer-' + t.id + '-' + side + '-' + Math.random().toString(36).slice(2,6),
         name: side < 0 ? 'Panzer 1' : 'Panzer 2',
         x: t.x + ox, z: t.z + oz,
         heading: t.heading,
-        physicsWorld: this.physicsWorld,
+        physicsWorld: this.physicsWorld, allowFall: true, startY: t.root.position.y + 6,
       });
       p.allyId = t.id;
+      p.team = t.team;     /* without a team they shot their own side */
       p.isPanzer = true;
+      p._expireAt = this.time + (t.def.panzerLife || 25);
+      if(t.def.panzerHp){ p.maxHp = p.hp = t.def.panzerHp; }
       p.brain = new PanzerBrain(p, t);
       this._finalizeTank(p);
       this.tanks.push(p);
-      this.spawnExplosion(p.x, 0.6, p.z, 0x8899aa, 6, 'drop');
+      this._superShock(p.x, t.root.position.y + 0.3, p.z, 8, 0x88ccff);
     }
   }
 
@@ -12387,7 +12552,7 @@ _initMortarMarker(){
 
     const geo = new THREE.CircleGeometry(radius, 48);
     geo.rotateX(-Math.PI / 2);
-    const mat = new THREE.MeshBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.0, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+    const mat = new THREE.MeshBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.0, depthWrite: false, side: THREE.DoubleSide });
     const mesh = new THREE.Mesh(geo, mat);
     const gy = this._groundY(x, z, t.root.position.y);
     mesh.position.set(x, gy + 0.3, z);
@@ -12395,7 +12560,7 @@ _initMortarMarker(){
 
     const innerGeo = new THREE.CircleGeometry(radius * 0.7, 48);
     innerGeo.rotateX(-Math.PI / 2);
-    const innerMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.0, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+    const innerMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.0, depthWrite: false, side: THREE.DoubleSide });
     const innerMesh = new THREE.Mesh(innerGeo, innerMat);
     innerMesh.position.set(x, gy + 0.34, z);
     this.scene.add(innerMesh);
@@ -12404,7 +12569,7 @@ _initMortarMarker(){
     this.spawnBurst(x, gy + 0.6, z, { count: 16, tex: 'ember', speed: 10, size: 0.4, life: 0.8, rise: 5, gravity: 8, blend: 'add' });
 
     this._molotovFires.push({
-      owner: t, x, z, radius, damage, tick,
+      owner: t, x, z, gy, radius, damage, tick,
       timer: duration, maxTimer: duration, tickTimer: 0,
       mesh, innerMesh,
       fadeIn: 0.5, fadeOut: 5,
@@ -12451,8 +12616,8 @@ _initMortarMarker(){
       btn.onclick = () => { Audio && Audio.click && Audio.click(); if(this.localTank) this.localTank.activateSuper(); };
     }
     const info = t.superInfo();
-    const icons = { airstrike:'\u2708', molotov:'\u{1F525}', cloak:'\u{1F47B}', bush:'\u{1F33F}', panzers:'\u{1F6E1}', big_shells:'\u{1F4A5}', mine_dash:'\u{1F4A3}', landfield:'\u{1F4A3}', reload_boost:'\u26A1', oil:'\u{1F6E2}' };
-    btn.querySelector('.super-icon').textContent = icons[info.type] || '\u2605';
+    const sInfo = (typeof SUPER_INFO !== 'undefined' && SUPER_INFO[info.type]) || null;
+    btn.querySelector('.super-icon').textContent = sInfo ? sInfo.icon : '\u2605';
     const label = btn.querySelector('.super-label');
     const frac = info.cdTotal > 0 ? Math.min(1, info.cd / info.cdTotal) : 0;
     btn.style.setProperty('--cd', frac.toFixed(3));
@@ -12508,7 +12673,7 @@ _initMortarMarker(){
     const isTDM = !!this._tdmState;
 
     let dataHash = '';
-    const allTanks = this.tanks.filter(t => !t.isDummy);
+    const allTanks = this.tanks.filter(t => !t.isDummy && !t.isPanzer);
     for(const t of allTanks){
       dataHash += t.name + ':' + (t.kills||0) + ':' + Math.round(t.damageDealt||0) + ':' + (t.alive?'1':'0') + ':' + (t.team||'') + ';';
     }
@@ -12552,8 +12717,8 @@ _initMortarMarker(){
         rows+'</div>';
     };
     if(isTDM){
-      const blue = this.tanks.filter(t => t.team === 'blue' && !t.isDummy);
-      const red = this.tanks.filter(t => t.team === 'red' && !t.isDummy);
+      const blue = this.tanks.filter(t => t.team === 'blue' && !t.isDummy && !t.isPanzer);
+      const red = this.tanks.filter(t => t.team === 'red' && !t.isDummy && !t.isPanzer);
       const s = this._tdmState;
       const roundEl = document.getElementById('sb-round-info');
       if(roundEl){
@@ -12577,7 +12742,7 @@ _initMortarMarker(){
     } else {
       const roundEl = document.getElementById('sb-round-info');
       if(roundEl) roundEl.classList.add('hidden');
-      const all = this.tanks.filter(t => !t.isDummy);
+      const all = this.tanks.filter(t => !t.isDummy && !t.isPanzer);
       html = renderTeam(all, 'Players', 'blue');
     }
     container.innerHTML = html;
@@ -13480,7 +13645,7 @@ _initMortarMarker(){
     try {
       const lt = this.localTank;
       let dmgTotal = 0;
-      this.tanks.forEach(t => { if(t && !t.isDummy) dmgTotal += (t.damageDealt || 0); });
+      this.tanks.forEach(t => { if(t && !t.isDummy && !t.isPanzer) dmgTotal += (t.damageDealt || 0); });
       UpgradeTree.recordBattle({
         won: !!won,
         kills: lt.kills || 0,
@@ -13549,7 +13714,7 @@ _initMortarMarker(){
     const myTeam    = (me && me.team) || 'blue';
     const theirTeam = myTeam === 'blue' ? 'red' : 'blue';
 
-    const real = this.tanks.filter(t => !t.isDummy);
+    const real = this.tanks.filter(t => !t.isDummy && !t.isPanzer);
 
     /* TEAMING. The player is shown on the left under their own colour and the
        opposition on the right, whichever side they happened to be on — the side
@@ -13955,12 +14120,16 @@ _initMortarMarker(){
                       Object.assign({}, tank.def, {_launchVel: this._mortarAim(tank, pos).vel}),
                       null, null)
           : new Shell(tank, new THREE.Vector3(pos.x, y, pos.z), dir,
+              /* Ghost's first shot out of Phantom. */
+              (tank.superState === 'cloaked' && tank.def.cloakFirstShotMult) ? Object.assign({}, tank.def, { damage: tank.def.damage * tank.def.cloakFirstShotMult }) :
               /* Grom's super: the next shots carry a far wider, harder burst. */
               (tank._bigShots > 0) ? Object.assign({}, tank.def, {
                 splashRadius: (tank.def.splashRadius || 5) * (tank.def.bigShellRadiusMult || 3),
                 splashDamage: (tank.def.splashDamage || 26) * (tank.def.bigShellDamageMult || 1.6),
               }) : tank.def, this.physicsWorld, tank.getWorldVelocity());
-        if(tank._bigShots > 0) tank._bigShots--;
+        if(tank.superState === 'cloaked') tank.endCloak();   /* firing gives you away */
+        if(tank._bigShots > 0){ tank._bigShots--; p._fromSuper = true; }
+        if(tank._superFiring) p._fromSuper = true;
         p.attach(this.scene); this.projectiles.push(p);
         /* No trail spawned. The shell is the bullet model now and the streak
            behind it is gone, so there is nothing to start. */
@@ -14801,7 +14970,7 @@ spawnExplosion(x, y, z, color, count, style){
     }
     if(this.glad && !tank.isDummy){
       const g = this.glad;
-      const aliveNow = this.tanks.filter(t => t.alive && !t.dying && !t.isDummy).length;
+      const aliveNow = this.tanks.filter(t => t.alive && !t.dying && !t.isDummy && !t.isPanzer).length;
       tank.placement = aliveNow + 1;
       if(byTank && byTank.alive && !byTank.dying && !byTank.isDummy){
         byTank.applyPower(g.cfg.power.kill, this);
@@ -14811,7 +14980,7 @@ spawnExplosion(x, y, z, color, count, style){
         this._gladShowResult(true);
       }
       if(!g.ended && aliveNow === 1){
-        g.winner = this.tanks.find(t => t.alive && !t.dying && !t.isDummy) || null;
+        g.winner = this.tanks.find(t => t.alive && !t.dying && !t.isDummy && !t.isPanzer) || null;
         g.ended = true;
         this._gladAwardClanXP();
         this._gladShowResult(false);
@@ -15342,7 +15511,7 @@ spawnExplosion(x, y, z, color, count, style){
           const blueEl = document.getElementById('tdm-lb-blue');
           const redEl = document.getElementById('tdm-lb-red');
           if(blueEl){
-            const blue = this.tanks.filter(t => t.team === 'blue' && !t.isDummy);
+            const blue = this.tanks.filter(t => t.team === 'blue' && !t.isDummy && !t.isPanzer);
             blueEl.innerHTML = blue.map(t => {
               const isLocal = t === this.localTank;
               const isDead = t.hp <= 0;
@@ -15350,7 +15519,7 @@ spawnExplosion(x, y, z, color, count, style){
             }).join('');
           }
           if(redEl){
-            const red = this.tanks.filter(t => t.team === 'red' && !t.isDummy);
+            const red = this.tanks.filter(t => t.team === 'red' && !t.isDummy && !t.isPanzer);
             redEl.innerHTML = red.map(t => {
               const isLocal = t === this.localTank;
               const isDead = t.hp <= 0;

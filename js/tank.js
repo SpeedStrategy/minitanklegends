@@ -3478,7 +3478,9 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     const speedCap = d.speed * (1 - Math.min(0.35, (this.mass-18)/120))
       /* Overdrive (upgrade tree): +30% top speed for a few seconds after a kill. */
       * ((this._overdriveUntil && performance.now() < this._overdriveUntil) ? 1.3 : 1)
-      * (this.superState === 'dashing' ? (d.dashSpeedMult || 3) : 1);
+      * (this.superState === 'dashing' ? (d.dashSpeedMult || 3) : 1)
+      * (this.superState === 'hunting' ? (d.huntSpeedMult || 1.35) : 1)
+      * (this.superState === 'cloaked' ? (d.cloakSpeedMult || 1) : 1);
     /* ONE REVERSE FACTOR, READ INSTEAD OF WRITTEN.
 
        The old code carried a literal 0.5 in two places, and the two were not
@@ -3930,7 +3932,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
        so a super could be used ONCE per match and never again. */
     if(!this.hasSuper() || this.superCdLeft > 0 || (this.superState && this.superState !== 'done')) return false;
     const t = this.def.superType;
-    if(t === 'airstrike'){
+    if(t === 'airstrike' || t === 'barrage'){
       this.superState = 'targeting';
       this.superTarget = null;
     } else if(t === 'cloak'){
@@ -3955,6 +3957,19 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     } else if(t === 'landfield'){
       this.superState = 'targeting';
       this.superTarget = null;
+    } else if(t === 'hunt'){
+      this.superState = 'hunting';
+      this.superTimer = this.def.huntTime || 7;
+      this.superCdLeft = this.superCdTotal;
+    } else if(t === 'twin_salvo'){
+      this.superState = 'salvo';
+      this._salvoLeft = this.def.salvoShots || 14;
+      this._salvoT = 0;
+      this.superTimer = 3;
+      this.superCdLeft = this.superCdTotal;
+    } else if(t === 'nova'){
+      this.superState = 'done';
+      this.superCdLeft = this.superCdTotal;
     } else if(t === 'big_shells'){
       /* Grom: the next shots burst far wider. Game.spawnShot spends them. */
       this._bigShots = this.def.bigShellCount || 3;
@@ -3974,6 +3989,8 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       this.superState = 'done';
       this.superCdLeft = this.superCdTotal;
     }
+    /* Game._updateSupers plays the cast effect (a targeted super waits for its spot). */
+    if(this.superState !== 'targeting') this._superFired = true;
     return true;
   }
 

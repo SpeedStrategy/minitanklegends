@@ -118,6 +118,8 @@ myself are marked *(mine)*.
 | 71 | A finger that dragged off a joystick plus a second touch counted as a pinch, so driving changed the zoom. | `js/input.js` | Fixed |
 | 72 | Tank screen, Collections and win/lose screens overlapped or overflowed on phones. | `css/style.css` | Fixed |
 
+| 73 | Sturmratte's escort panzers had no spawn point, so in Capture the Circle and Base Defend a dead one came back where it died, forever. They also had no team and could shoot their own side, and counted on the scoreboard. This is the likely cause of "tanks respawn where they died". | `js/game.js` | Fixed |
+
 ## Known limits (not bugs, but worth knowing)
 
 - On The Hill, only one team's spawn sits near a ramp, so captures there are lopsided.

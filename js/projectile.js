@@ -1725,7 +1725,7 @@ class Shell {
           this._detonate(game);
           return;
         }
-        t.takeDamage(this.damage, this.owner, game);
+        t.takeDamage(this.damage, this.owner, game, false, !!this._fromSuper);
         /* IMPACT PHYSICS, fallback path — same shove the Rapier path applies
            in Game._onShellHitTank, so hits cannot feel different depending on
            whether physics came up. Shotgun pellets take a fraction each: ten
@@ -1937,7 +1937,7 @@ class Shell {
                             maxD * f * ((CONFIG && CONFIG.IMPULSE_BLAST) || 0.055),
                             {hop: f * ((CONFIG && CONFIG.IMPULSE_BLAST_HOP) || 1.1)});
         }
-        t.takeDamage(minD + (maxD - minD) * f, this.owner, game);
+        t.takeDamage(minD + (maxD - minD) * f, this.owner, game, false, !!this._fromSuper);
       }
       /* Base Defend bases take blast too, and by the same argument as the boxes
          below: a mortar that lands on the objective should be worth more than
