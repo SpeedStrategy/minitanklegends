@@ -1056,30 +1056,6 @@ class Game {
     }
   }
 
-  /* Rapier physics hooks, asked only about shell colliders (they opt in with
-     ActiveHooks.FILTER_CONTACT_PAIRS). A shell does not touch the tank that
-     fired it while it is leaving the barrel -- the same 0.30 s window
-     _onShellHitTank uses -- because the muzzle is inside that tank's hitbox. */
-  _physHooks(){
-    if(this._physHooksObj) return this._physHooksObj;
-    if(typeof RAPIER === 'undefined' || !RAPIER.SolverFlags) return undefined;
-    const keep = RAPIER.SolverFlags.COMPUTE_IMPULSES;
-    this._physHooksObj = {
-      filterContactPair: (h1, h2) => {
-        const pw = this.physicsWorld;
-        const c1 = pw && pw.getCollider(h1), c2 = pw && pw.getCollider(h2);
-        const d1 = c1 && c1.userData, d2 = c2 && c2.userData;
-        const shell = (d1 && d1.type === 'shell') ? d1.shell : (d2 && d2.type === 'shell') ? d2.shell : null;
-        const other = (shell && d1 && d1.shell === shell) ? d2 : d1;
-        if(shell && other && other.type === 'tank' && other.tank === shell.owner &&
-           shell.life > (shell.owner.def.shellRange / shell.speed) - 0.30) return null;
-        return keep;
-      },
-      filterIntersectionPair: () => true,
-    };
-    return this._physHooksObj;
-  }
-
   _onShellHitTank(shell, tank){
     if(shell.dead) return;
     if(tank === shell.owner && shell.life > (shell.owner.def.shellRange/shell.speed) - 0.30) return;
@@ -6649,6 +6625,7 @@ Net.sendJoinInfo(
       pool.length = 0;
     }
     this._clearSuperShocks();
+    if(typeof FogOfWar !== 'undefined') FogOfWar.clear(this);
     if(this._molotovFires){
       for(const m of this._molotovFires){
         this.scene.remove(m.mesh); this.scene.remove(m.innerMesh);
@@ -8012,7 +7989,7 @@ Net.sendJoinInfo(
           const physDt = Math.min(dt, PHYS_MAX_STEP * PHYS_MAX_SUB);
           const sub = Math.max(1, Math.ceil(physDt / PHYS_MAX_STEP - 1e-6));
           this.physicsWorld.timestep = physDt / sub;
-          for(let si = 0; si < sub; si++) this.physicsWorld.step(this._eventQueue, this._physHooks());
+          for(let si = 0; si < sub; si++) this.physicsWorld.step(this._eventQueue);
           if(this._eventQueue) this._eventQueue.drainCollisionEvents((h1, h2, started) => {
             if(!started) return;
             this._onCollision(h1, h2);
@@ -9788,6 +9765,9 @@ Net.sendJoinInfo(
       this._aimLineGlow = 0;
     }
     /* Cosmetic, so it may never take the rest of the frame down with it. */
+    if(typeof FogOfWar !== 'undefined'){
+      try { FogOfWar.update(this, dt); } catch(e){ if(!this._fogErrLogged){ this._fogErrLogged = true; console.warn('Fog:', e); } }
+    }
     try { this._updateAimLine(); } catch(e){ if(!this._aimErrLogged){ this._aimErrLogged = true; console.warn('Aim line:', e); } }
 
     // Visibility
@@ -11220,8 +11200,8 @@ _initMortarMarker(){
     } else {
       // Ricochet prediction — circle-ray intersection for exact entry point
       for(const enemy of this.tanks){
-        if(enemy === t || !enemy.alive || !enemy.def.armor) continue;
-        if(enemy === t || !enemy.alive || !enemy.def.armor) continue;
+        /* A tank in the fog must not give itself away through the aim line. */
+        if(enemy === t || !enemy.alive || !enemy.def.armor || enemy._fogHidden) continue;
         const rad = (Math.max(enemy.def.body.w, enemy.def.body.l)/2 + 0.4) * (enemy.hitScale || 1);
         const edx = startX - enemy.x, edz = startZ - enemy.z;
         const b = 2 * (edx * dir.x + edz * dir.z);
@@ -12396,7 +12376,9 @@ _initMortarMarker(){
     t._superFxAt = null;
     const y = this._groundY(at.x, at.z, t.root.position.y) + 0.3;
     const color = info.color || 0xffffff;
-    this._superShock(at.x, y, at.z, t.def.superType === 'nova' ? (t.def.novaRadius || 16) : 12, color);
+    /* A cast inside the fog is not advertised through it. */
+    const fogged = typeof FogOfWar !== 'undefined' && FogOfWar.isActive() && !FogOfWar.seen(at.x, at.z, 0);
+    if(!fogged) this._superShock(at.x, y, at.z, t.def.superType === 'nova' ? (t.def.novaRadius || 16) : 12, color);
     if(this.spawnBurst) this.spawnBurst(at.x, y + 1, at.z, { count: 18, tex: 'ember', speed: 12, size: 0.5, life: 0.6, rise: 4, gravity: 8, blend: 'add' });
     if(t === this.localTank){
       if(typeof Menu !== 'undefined' && Menu.toast && info.name) Menu.toast(info.name + '!');
@@ -15164,13 +15146,15 @@ spawnExplosion(x, y, z, color, count, style){
       ? this.spectateTarget
       : this.localTank;
     if(!me) return;
-    // TDM mode: no visibility filtering, show all tanks at all distances
+    // TDM mode: no visibility filtering, show all tanks at all distances --
+    // except the ones fog of war is hiding.
     if(this._tdmState){
       for(const t of this.tanks){
-        t.root.visible = true;
+        t.root.visible = !t._fogHidden;
       }
       return;
     }
+    if(typeof FogOfWar !== 'undefined' && FogOfWar.isActive()) return;
     const viewDist = me.viewRange || 120;
     // Build the occluder list once per frame. It used to be rebuilt with
     // walls.concat(covers) inside the loop, allocating a fresh array for every

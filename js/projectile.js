@@ -337,6 +337,16 @@ class Shell {
 
   _initPhysBody(){
     if(!this._physWorld || typeof RAPIER === 'undefined') return;
+    /* The muzzle can sit inside the firing tank's own hitbox, which would shove
+       the shell off course on its first physics step. So it starts just outside,
+       along its line of flight. (A contact-filter callback did this job once, but
+       JS callbacks inside the physics step left Rapier locked for good.) */
+    const own = this.owner;
+    if(own && own.hitTest2D && this.dir){
+      for(let i = 0; i < 60 && own.hitTest2D(this.x, this.z, this.radius + 0.4); i++){
+        this.x += this.dir.x * 0.5; this.z += this.dir.z * 0.5;
+      }
+    }
     try {
       var desc = RAPIER.RigidBodyDesc.dynamic()
         .setTranslation(this.x, this.y, this.z)
@@ -349,13 +359,6 @@ class Shell {
       );
       if(col && typeof col.setActiveEvents === 'function'){
         col.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
-      }
-      /* The muzzle sits inside the firing tank's own hitbox (the box reaches
-         the turret top), so without this the shell is shoved out of its own
-         tank on the first step and flies off at an angle. Game._physHooks
-         drops shell-vs-owner contacts while the round is leaving the barrel. */
-      if(col && typeof col.setActiveHooks === 'function' && RAPIER.ActiveHooks){
-        col.setActiveHooks(RAPIER.ActiveHooks.FILTER_CONTACT_PAIRS);
       }
       col.userData = {type:'shell', shell:this};
       /* Straight down the barrel. The `_inherit*` terms are still written so the

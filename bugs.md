@@ -120,6 +120,9 @@ myself are marked *(mine)*.
 
 | 73 | Sturmratte's escort panzers had no spawn point, so in Capture the Circle and Base Defend a dead one came back where it died, forever. They also had no team and could shoot their own side, and counted on the scoreboard. This is the likely cause of "tanks respawn where they died". | `js/game.js` | Fixed |
 
+| 74 | *(mine)* The contact-filter callback added for shells could leave Rapier locked ("recursive use of an object"), after which physics never stepped again. Removed; shells now start just outside the firing tank's hitbox. | `js/game.js`, `js/projectile.js` | Fixed |
+| 75 | "Too many active WebGL contexts": the tank screen and a menu preview released their renderer without freeing its context, so opening them repeatedly could cost the oldest one, possibly the game's. | `js/tank-menu.js`, `js/menu.js` | Fixed |
+
 ## Known limits (not bugs, but worth knowing)
 
 - On The Hill, only one team's spawn sits near a ramp, so captures there are lopsided.

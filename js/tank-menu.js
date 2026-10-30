@@ -1589,7 +1589,8 @@ window.TankMenu = (function(){
       _previewTank = null;
     }
     if(_loopId){ cancelAnimationFrame(_loopId); _loopId=null; }
-    if(_renderer){ _renderer.dispose(); _renderer=null; }
+    /* dispose() alone keeps the WebGL context; browsers only allow about 16. */
+    if(_renderer){ _renderer.dispose(); try { _renderer.forceContextLoss(); } catch(e){} _renderer=null; }
     _scene=null; _camera=null; _tankGroup=null;
     _dragging=false; _autoRotate=true; _zoom=0; _zoomTarget=0;
     window.removeEventListener('resize', onResize);

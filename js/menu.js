@@ -1658,6 +1658,7 @@ const Menu = {
     }
     if(this._previewRenderer){
       this._previewRenderer.dispose();
+      try { this._previewRenderer.forceContextLoss(); } catch(e){}
       this._previewRenderer = null;
     }
     this._previewScene = null;

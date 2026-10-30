@@ -288,6 +288,9 @@ const CONFIG = {
   /* Supers charge by DEALING DAMAGE: this much fills the bar on a tank with the
      default meter. superCdLeft still holds the meter, counted down by damage. */
   SUPER_CHARGE_DAMAGE: 300,
+  /* Fog of war (js/fog.js): how far a tank clears it = viewRange x this. */
+  FOG_OF_WAR: true,
+  FOG_VIEW_SCALE: 0.5,
   /* Pre-battle: seconds to choose a tank, then the animated VS card. */
   PICK_TIME: 15,
   VS_TIME: 3.5,
