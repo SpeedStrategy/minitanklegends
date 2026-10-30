@@ -1020,13 +1020,13 @@ const TANKS = {
        a glass cannon rather than a slow heavy. That is a big swing for one
        tank, and it is the reason to playtest it before shipping rather than
        assume 3x and 2.5x are independent. */
-    hp: 36,
-    speed: 11,                               /* slowest; Sturmratte is 13 */
+    hp: 100,
+    speed: 13.5,
     /* turn / turretTurn are authored at HALF the finished number: the handling
        pass below multiplies both by 2 for every tank. 0.45 -> 0.9 rad/s is
        still a third of Double's, which is the sluggish hull this roster had. */
     turn: 0.45,
-    turretTurn: 0.40,
+    turretTurn: 0.60,
     damage: 0,                               /* no direct hit at all — blast only */
     /* TRIPLED from 34 / 7 on request: 102 / 21.
 
@@ -1059,21 +1059,21 @@ const TANKS = {
        120 HP Ghost or a 200 HP Coolbuddy — two shells each, where it used to
        take six. It is a real one-shot threat on light targets. The 10 second
        reload is what pays for that. */
-    splashDamage: 102,                       /* ...but it lands on a whole group */
-    splashMinDamage: 21,
+    splashDamage: 115,                       /* ...but it lands on a whole group */
+    splashMinDamage: 24,
     /* HALVED from 15 on request: 7.5 is still the widest splash on the roster —
        the next widest thing in the game is a 4m airstrike bomb — but it is now a
        tight, precise circle rather than a field that swallows a convoy. It also
        widens the gap to artilleryMinRange (22m), so the shell cannot land on top
        of its own hull with even more room to spare. */
     splashRadius: 7.5,
-    reload: 10,                              /* ten seconds, as specified */
+    reload: 5,
     shellSpeed: 150,
     shellRange: 115,                         /* the longest reach on the roster */
     artilleryFlight: 1.9,                     /* seconds of flight, every shot */
     artilleryGravity: 34,                     /* MORTAR_GRAVITY in projectile.js */
     artilleryMinRange: 22,
-    accel: 6,
+    accel: 7.5,
     shellType:'mortar',
     mass: 58, viewRange: 80,                 /* cannot see far, cannot turn fast */
     model:'TL_mortar_fix', modelScale:0.62, modelYaw:-90,
@@ -1117,7 +1117,7 @@ const TANKS = {
        the shell leaves the tank sideways — see the note in Tank._loadModel. */
     muzzleAxis:'x',
     armor:{front:12, sides:20, back:8},      /* paper: it ricochets off things */
-    desc:'Artillery. Arcs over cover and splashes a whole group — but it has a 22m minimum range, a ten second reload, and the worst armour and traverse in the game.',
+    desc:'Artillery. Arcs over cover and splashes a whole group — but it has a 22m minimum range, a five second reload, and the worst armour and traverse in the game.',
     friction: 0.93,
     /* 90 HP, no direct hit and a ten second reload is not a tank that can trade
        shots, so a bot driving one goes and hides in foliage on its own side
