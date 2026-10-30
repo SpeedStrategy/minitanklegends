@@ -82,7 +82,7 @@ function glitchTextureUrl(){
   try{
     var S = 256, c = document.createElement('canvas');
     c.width = S; c.height = S;
-    var g = c.getContext('2d');
+    var g = c.getContext('2d', { willReadFrequently: true });
     g.fillStyle = '#3f9e26'; g.fillRect(0, 0, S, S);
     g.fillStyle = '#2b7419';
     for(var y = 0; y < S; y += 8) g.fillRect(0, y, S, 2);

@@ -175,6 +175,10 @@ class TouchJoystick {
     const onEnd = (e) => {
       for(let t of e.changedTouches){
         if(t.identifier === this.touchId){
+          /* Let go while aimed = fire. A short touch that never aimed does nothing. */
+          if(this.opts.turretFireMode === 'armedPress' && Math.hypot(this.dx, this.dy) >= (this.opts.aimThreshold || 0.35)){
+            this.releaseFire = true;
+          }
           this.active = false;
           this.touchId = -1;
 
@@ -204,7 +208,8 @@ class TouchJoystick {
   }
 
   getValue(){
-    return {x: this.dx, y: this.dy, firing: this.firing, relAngle: this.relAngle, armed: this.armed};
+    return {x: this.dx, y: this.dy, firing: this.firing, relAngle: this.relAngle, armed: this.armed,
+            aiming: this.active && Math.hypot(this.dx, this.dy) >= (this.opts.aimThreshold || 0.35)};
   }
 
   /* Force-clear any active touch and return the knob to center. Called when a
@@ -525,8 +530,11 @@ class Input {
       if(e.touches.length === 2 && (this.settings.pinchZoom !== false)){
         const t0 = document.elementFromPoint(e.touches[0].clientX, e.touches[0].clientY);
         const t1 = document.elementFromPoint(e.touches[1].clientX, e.touches[1].clientY);
-        // Both fingers must be on free space — never on the joysticks
-        if(!isControlSurface(t0) && !isControlSurface(t1)){
+        // Both fingers must be on free space — never on the joysticks. A finger
+        // that started on a stick and dragged off it is still driving, so no
+        // pinch while either stick is held.
+        const stickHeld = (this._moveJoystick && this._moveJoystick.active) || (this._turretJoystick && this._turretJoystick.active);
+        if(!stickHeld && !isControlSurface(t0) && !isControlSurface(t1)){
           this._pinchTouchIds = [e.touches[0].identifier, e.touches[1].identifier];
           const dx = e.touches[0].clientX - e.touches[1].clientX;
           const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -535,6 +543,10 @@ class Input {
       }
     }, {passive: true});
     document.addEventListener('touchmove', (e) => {
+      if(this._moveJoystick && this._moveJoystick.active || this._turretJoystick && this._turretJoystick.active){
+        this._pinchTouchIds = [];
+        return;
+      }
       if(this._pinchTouchIds.length === 2){
         const t1 = getTouchById(e.touches, this._pinchTouchIds[0]);
         const t2 = getTouchById(e.touches, this._pinchTouchIds[1]);
@@ -805,8 +817,12 @@ class Input {
     // - fire while armed = tank shoots continuously when at max distance
     const turretRelAngle = turret.relAngle || 0;
     const armed = !!turret.armed;
+    const releaseFire = !!(this._turretJoystick && this._turretJoystick.releaseFire);
+    if(this._turretJoystick) this._turretJoystick.releaseFire = false;
 
     return {
+      aiming: !!turret.aiming,
+      releaseFire,
       throttle,
       turn,
       turretRelAngle,

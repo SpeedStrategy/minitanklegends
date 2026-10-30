@@ -45,6 +45,8 @@ const Toon = (() => {
   }
 
   function mat(opts){
+    /* Toon shading has no flat mode; passing it only logs a warning per material. */
+    if(opts && 'flatShading' in opts){ opts = Object.assign({}, opts); delete opts.flatShading; }
     opts = opts || {};
     if(opts.flatShading){
       // three's MeshToonMaterial has no flatShading property at all (r155+

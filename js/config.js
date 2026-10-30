@@ -285,6 +285,12 @@ const CONFIG = {
   MODEL_VER:   8,
 
   // Supers
+  /* Supers charge by DEALING DAMAGE: this much fills the bar on a tank with the
+     default meter. superCdLeft still holds the meter, counted down by damage. */
+  SUPER_CHARGE_DAMAGE: 300,
+  /* Pre-battle: seconds to choose a tank, then the animated VS card. */
+  PICK_TIME: 15,
+  VS_TIME: 3.5,
   SUPER_COOLDOWN: 60,   // seconds between super uses
 
   // Networking
@@ -407,7 +413,7 @@ const TANKS = {
      desc:'Balanced all-rounder.',
      friction: 0.88,
      superType:'airstrike',
-     airstrikeBombs:3, airstrikeDelay:3, airstrikeRadius:4, airstrikeDamage:60,
+     airstrikeBombs:3, airstrikeDelay:3, airstrikeRadius:15, airstrikeDamage:70,
    },
 
   helix: {
@@ -427,7 +433,7 @@ const TANKS = {
     desc:'Flamethrower. Devastating up close. Overheats 25% faster.',
     friction: 0.85,
     superType:'molotov',
-    molotovRadius:7, molotovDuration:30, molotovDamage:5, molotovTick:0.3,
+    molotovRadius:24, molotovDuration:10, molotovDamage:16, molotovTick:0.3,
     overheatMult:1.25,
   },
 
@@ -468,7 +474,7 @@ const TANKS = {
     desc:'Glass cannon. Fast, long-range shells.',
     friction: 0.90,
     superType:'bush',
-    bushMax:3,
+    bushMax:3, bushScale:4,
   },
 
   ghost: {
@@ -709,8 +715,7 @@ const TANKS = {
     armor:{front:15, sides:25, back:15},
     desc:'No gun. Throws landmines up to 10m ahead that detonate on proximity or after 30s.',
     friction: 0.88,
-    superType:'airstrike',
-    airstrikeBombs:3, airstrikeDelay:3, airstrikeRadius:4, airstrikeDamage:60,
+    superType:'mine_dash', dashTime:1.3, dashSpeedMult:3, dashMineEvery:0.14,
   },
 
   /* ============================================================================
@@ -792,7 +797,7 @@ const TANKS = {
     armor:{front:0, sides:0, back:0},
     desc:'Splash shells, no armour. Direct fire that bursts on impact — deadly up close, and it dies to anything that shoots back.',
     friction: 0.9,
-    superType:'reload_boost', superReloadMult:0.5, superDuration:8, superCd:45,
+    superType:'big_shells', bigShellCount:3, bigShellRadiusMult:3, bigShellDamageMult:1.6,
   },
 
   /* ============================================================================
@@ -1302,7 +1307,7 @@ function loadSettings(){
          reset the 6-boxes-per-12-hours limit and re-ran the camera reset. */
       winBoxes:         (s.winBoxes && typeof s.winBoxes.start === 'number') ? { start: s.winBoxes.start, earned: s.winBoxes.earned || 0 } : null,
       brawlCamV1:       !!s.brawlCamV1,
-      camView:          s.camView === 'topdown' ? 'topdown' : 'angled',
+      camFollowHull:    !!s.camFollowHull,
     };
   }catch(e){
     return {binds:defaults(), selectedTank:'coolbuddy', playerName:generatePlayerName(), playerClan:'', cash:0, coins:0, gold:0,
@@ -1314,7 +1319,7 @@ function loadSettings(){
             clanWeekWins:0, clanWeekWinsBonus:false, clanWeekLoginXP:0, clanLastLoginDay:0, tlPlus:false,
             screenShake:100, muzzleFx:true, showFps:false, invertCamRot:false, cameraMode:'dynamic', cameraMouseRotate:false, cameraSensitivity:100,
             camTwoMode:true, cameraStage:2,
-            trophyOwnedIds:[], equippedTrophyId:null, trophyCount:0, winBoxes:null, brawlCamV1:false, camView:'angled'};
+            trophyOwnedIds:[], equippedTrophyId:null, trophyCount:0, winBoxes:null, brawlCamV1:false, camFollowHull:false};
   }
 }
 function saveSettings(s){
@@ -1588,9 +1593,12 @@ function grantWinBox(){
   }
   w.earned += 1;
   s.winBoxes = w;
-  addClanItem('box', { source: 'win' });
+  /* AUTOCOLLECTED: the box opens itself, its reward is yours on the results
+     screen. Nothing to go and open in Storage. */
+  let reward = null;
+  try { reward = Menu._collectBoxReward(); } catch(e){ addClanItem('box', { source: 'win' }); }
   if(typeof saveSettings === 'function') saveSettings(s);
-  return { granted: true, earned: w.earned, limit: WIN_BOX_LIMIT, resetsAt: w.start + WIN_BOX_WINDOW_MS };
+  return { granted: true, earned: w.earned, limit: WIN_BOX_LIMIT, resetsAt: w.start + WIN_BOX_WINDOW_MS, reward: reward };
 }
 
 function removeClanItem(index){

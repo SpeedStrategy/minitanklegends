@@ -439,7 +439,7 @@ const Audio = {
     const reportMissing = (why) => {
       if(this._missingReported[url]) return;
       this._missingReported[url] = true;
-      console.warn('[audio] missing or unreadable:', url, why);
+      console.debug('[audio] missing or unreadable:', url, why);
     };
     if(!res.ok){
       reportMissing('(HTTP ' + res.status + ')');

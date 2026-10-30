@@ -2625,7 +2625,7 @@ class Landmine {
       this.x = from.x; this.z = from.z; this.y = this._y0;
     } else {
       this._x0 = this._x1 = null;
-      this.x = pos.x; this.y = 0.18; this.z = pos.z;
+      this.x = pos.x; this.y = (pos.y != null ? pos.y : 0.18); this.z = pos.z;
     }
 
     this.damage = def.mineDamage || 65;
@@ -2736,7 +2736,7 @@ class Landmine {
         var dist = Math.sqrt(dx*dx + dz*dz);
         if(dist < 5.5){
           var falloff = 1 - dist / 5.5;
-          t.takeDamage(Math.round(dmg * falloff), this.owner, game);
+          t.takeDamage(Math.round(dmg * falloff), this.owner, game, false, !!this._fromSuper);
         }
       }
       if(game.localTank && game.localTank.alive){

@@ -129,13 +129,14 @@ class Tank {
     this._leanToken = 0;                      // last frame the lean was stepped on
 
     // Super ability state
-    this.superCdLeft = 0;
+    this.superCdLeft = 0;   /* filled below once the total is known: the bar starts empty */
     /* Super cool levels knock whole seconds off the cooldown; floor keeps
        the ability from becoming spammable by a maxed tree. */
     this.superCdTotal = Math.max(
       (window.Progression && window.Progression.KNOBS.SUPER_CD_FLOOR) || 8,
       ((CONFIG && CONFIG.SUPER_COOLDOWN) || 60) - (upStats ? upStats.superCoolS : 0)
     );
+    this.superCdLeft = def.superType ? this.superCdTotal : 0;
     this.superState = null;   // targeting|strike|windup|cloaked|panzer_drop|oil_fill|oil_burn
     this.superTimer = 0;
     this.superTarget = null;
@@ -3220,6 +3221,50 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     }
   }
 
+  /* HOW THIS TANK'S ENGINE AND TRACKS BEHAVE. A hull is described by separate
+     rates (power, braking, side grip, turn wind-up, turn braking). Derived from
+     each tank's own accel, turn and mass so every tank differs; a def may set any
+     of them directly. */
+  _engine(){
+    if(this._eng) return this._eng;
+    const d = this.def;
+    const heavy = Math.max(0, Math.min(1, ((d.mass || 30) - 14) / 46));   /* 0 light .. 1 heavy */
+    const turn = d.turn || 1.8, accel = d.accel || 18;
+    return (this._eng = {
+      power:     accel,
+      brake:     d.brakeAccel || accel * (3.2 - 1.2 * heavy),
+      coast:     d.coastDecel || accel * (1.3 - 0.5 * heavy),
+      sideGrip:  d.sideGrip   || (15 - 8 * heavy),
+      turnAccel: d.turnAccel  || turn * (9 - 5 * heavy),
+      turnBrake: d.turnBrake  || turn * (14 - 6 * heavy),
+    });
+  }
+
+  /* White chevron on the hull: which way is the front. */
+  _updateFrontMarker(){
+    if(!this.root || this.isDummy) return;
+    if(!this._frontMark){
+      const s = new THREE.Shape();
+      s.moveTo(-1, -0.7); s.lineTo(0, 0.7); s.lineTo(1, -0.7); s.lineTo(0.55, -0.7); s.lineTo(0, 0.05); s.lineTo(-0.55, -0.7); s.closePath();
+      const geo = new THREE.ShapeGeometry(s);
+      geo.rotateX(Math.PI / 2);   /* flat, its point toward +Z (the nose) */
+      const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, depthTest: false, transparent: true, toneMapped: false });
+      const m = new THREE.Mesh(geo, mat);
+      m.renderOrder = 990;
+      m.userData.noXray = true; m.userData.noStyle = true; m.userData.noSpray = true; m.userData.isOverlay = true;
+      this._frontMark = new THREE.Group();
+      this._frontMark.add(m);
+      this.root.add(this._frontMark);
+    }
+    const g = this._frontMark;
+    g.visible = !!(this.alive && !this.dying && this.camoFactor !== 0 && this.superState !== 'cloaked');
+    if(!g.visible) return;
+    g.rotation.y = this.heading || 0;
+    const m = g.children[0], k = Math.max(0.9, Math.min(1.7, (this.colHalfW || 3) * 0.32));
+    m.scale.setScalar(k);
+    m.position.set(this.colOffX || 0, (this.colOffY || 1) + (this.colHalfH || 1) + 0.4, (this.colOffZ || 0) + (this.colHalfL || 3) * 0.72);
+  }
+
   /* HITBOX = THE MODEL YOU SEE.
 
      The collider used to come from def.body (or the editor override) x 0.55 x
@@ -3357,6 +3402,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
        or the tab was hidden — the hull would then barely move at all. */
     this._frameDt = dt;
     this._frameToken = (this._frameToken || 0) + 1;
+    this._updateFrontMarker();
     if(this._animMixer) this._animMixer.update(dt);
     this._updateTrails(dt, game);
     this._updateRibbons(dt);
@@ -3371,6 +3417,14 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       return;
     }
     if(!this.alive) return;
+    /* Never alive at 0 HP: whatever got it here, the tank dies properly so the
+       spectate/respawn flow runs instead of leaving a gun that cannot fire. */
+    if(!(this.hp > 0) && !this.netDriven){
+      this.hp = 0; this.alive = false;
+      this._startDeath(game, null);
+      this._drawHp();
+      return;
+    }
 
     if(this.netDriven){
       // Position/heading come from host snapshots (interpolated every frame);
@@ -3420,10 +3474,11 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       this.drifting = true;
     }
 
-    const effThrottle = this.drifting ? 0 : (inp.throttle||0);
+    const effThrottle = this.superState === 'dashing' ? 1 : (this.drifting ? 0 : (inp.throttle||0));
     const speedCap = d.speed * (1 - Math.min(0.35, (this.mass-18)/120))
       /* Overdrive (upgrade tree): +30% top speed for a few seconds after a kill. */
-      * ((this._overdriveUntil && performance.now() < this._overdriveUntil) ? 1.3 : 1);
+      * ((this._overdriveUntil && performance.now() < this._overdriveUntil) ? 1.3 : 1)
+      * (this.superState === 'dashing' ? (d.dashSpeedMult || 3) : 1);
     /* ONE REVERSE FACTOR, READ INSTEAD OF WRITTEN.
 
        The old code carried a literal 0.5 in two places, and the two were not
@@ -3441,23 +3496,38 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       + (this.upStats && this.upStats.reverseKmh
           ? this.upStats.reverseKmh / Math.max(6, (this.def && this.def.speed) || 22)
           : 0);
-    const target = effThrottle * speedCap * (effThrottle < 0 ? REVERSE_FRAC : 1);
+    /* Steering scrubs a little speed off through the tracks. */
+    const _turnDrag = hasTurn ? 1 - 0.1 * Math.min(1, Math.abs(inp.turn)) : 1;
+    const target = effThrottle * speedCap * _turnDrag * (effThrottle < 0 ? REVERSE_FRAC : 1);
 
     if(this._physBody){
       const fwdX = Math.sin(this.heading);
       const fwdZ = Math.cos(this.heading);
       var speedDeficit = target - this.speed;
       speedDeficit = Math.max(-speedCap * 2, Math.min(speedCap * 2, speedDeficit));
-      const reversing = target < 0 && this.speed > 0;
+      /* THE ENGINE. Three separate rates instead of one: pulling power, the hard
+         braking of pressing the opposite direction, and rolling to a stop when
+         nothing is pressed. See _engine(): every tank's come from its own stats. */
+      const eng = this._engine();
       var slopeMul = this._allowFall ? 2.5 : 1.0;
-      const accel = d.accel * slopeMul * (reversing ? 3 : 1);
+      const opposing = (target < -0.01 && this.speed > 0.05) || (target > 0.01 && this.speed < -0.05);
+      const accel = slopeMul * (opposing ? eng.brake
+        : (Math.abs(target) < 0.01 || Math.abs(this.speed) > Math.abs(target)) ? eng.coast : eng.power);
       const maxDelta = accel * dt;
       var clampedDeficit = Math.max(-maxDelta, Math.min(maxDelta, speedDeficit));
       var desiredSpeed = this.speed + clampedDeficit;
       desiredSpeed = Math.max(-speedCap * REVERSE_FRAC, Math.min(speedCap, desiredSpeed));
       const curVel = this._physBody.linvel();
-      const newVelX = fwdX * desiredSpeed;
-      const newVelZ = fwdZ * desiredSpeed;
+      /* MOMENTUM. The velocity used to be rewritten to lie exactly along the hull
+         every frame, so a tank went wherever its nose pointed at once. Sideways
+         motion now survives and is only worn away by the tracks' grip, so a fast
+         light hull slides a little through a turn and a shove carries. */
+      const _rightX = fwdZ, _rightZ = -fwdX;
+      const _latGrip = this.drifting ? eng.sideGrip * 0.2 : eng.sideGrip;
+      let _lat = (curVel.x - (this._extVX || 0)) * _rightX + (curVel.z - (this._extVZ || 0)) * _rightZ;
+      _lat = Math.max(-speedCap, Math.min(speedCap, _lat)) * Math.exp(-_latGrip * dt);
+      const newVelX = fwdX * desiredSpeed + _rightX * _lat;
+      const newVelZ = fwdZ * desiredSpeed + _rightZ * _lat;
       /* IMPACT PHYSICS: the drive's own velocity, then whatever a shell or a
          blast shoved in earlier in the frame. Added AFTER this loop's write —
          the whole reason pushImpact routes through _extVX/_extVZ instead of
@@ -3514,7 +3584,13 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
         (CONFIG && CONFIG.TURN_SPEED_MIN_GRIP) != null ? CONFIG.TURN_SPEED_MIN_GRIP : 0.35,
         1 - ((CONFIG && CONFIG.TURN_SPEED_PENALTY) || 0) * _spdFrac);
       const effectiveTurn = turnRate * (this.drifting ? 1 : _grip);
-      const targetAngVel = hasTurn ? inp.turn * effectiveTurn : 0;
+      /* The hull winds up into a turn and is stopped by the opposite track, not
+         snapped: a heavy tank takes visibly longer than a light one. */
+      const _wantYaw = hasTurn ? inp.turn * effectiveTurn : 0;
+      const _yaw0 = this._yawVel || 0;
+      const _yawRate = (!hasTurn || _wantYaw * _yaw0 < 0) ? eng.turnBrake : eng.turnAccel;
+      const _yawStep = _yawRate * dt;
+      const targetAngVel = this._yawVel = _yaw0 + Math.max(-_yawStep, Math.min(_yawStep, _wantYaw - _yaw0));
       const curAng = this._physBody.angvel();
       /* IMPACT PHYSICS: a hit is not just a slide — the shell's sideways
          component whips the nose. Arrives as _extWobble from pushImpact,
@@ -3684,9 +3760,9 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
          passive charge adds whole percent-of-total per second, so the bar
          crawls up by itself even while you sit behind cover. */
       const sp = this.upStats;
-      let drain = dt * (sp ? sp.chargeMult : 1);
-      if (sp && sp.passiveRate > 0) drain += dt * sp.passiveRate * this.superCdTotal;
-      this.superCdLeft -= drain;
+      /* Damage dealt fills the meter (_chargeSuper); only the bought passive
+         upgrade still ticks by itself. */
+      if (sp && sp.passiveRate > 0) this.superCdLeft = Math.max(0, this.superCdLeft - dt * sp.passiveRate * this.superCdTotal);
     }
 
     if(this.magReloadLeft > 0){
@@ -3841,6 +3917,14 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
 
   hasSuper(){ return !!this.def.superType; }
 
+  /* Dealing damage is what charges a super. */
+  _chargeSuper(amount){
+    if(!this.def.superType || this.superCdLeft <= 0 || !(amount > 0)) return;
+    const need = ((CONFIG && CONFIG.SUPER_CHARGE_DAMAGE) || 300) * (this.superCdTotal / ((CONFIG && CONFIG.SUPER_COOLDOWN) || 60));
+    const mult = this.upStats ? (this.upStats.chargeMult || 1) : 1;
+    this.superCdLeft = Math.max(0, this.superCdLeft - amount / need * this.superCdTotal * mult);
+  }
+
   activateSuper(){
     /* 'done' is a finished super, not a running one. Nothing ever cleared it,
        so a super could be used ONCE per match and never again. */
@@ -3871,6 +3955,17 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     } else if(t === 'landfield'){
       this.superState = 'targeting';
       this.superTarget = null;
+    } else if(t === 'big_shells'){
+      /* Grom: the next shots burst far wider. Game.spawnShot spends them. */
+      this._bigShots = this.def.bigShellCount || 3;
+      this.superState = 'done';
+      this.superCdLeft = this.superCdTotal;
+    } else if(t === 'mine_dash'){
+      /* Demolisher: lunge forward, seeding mines. Game._tickSuper drops them. */
+      this.superState = 'dashing';
+      this.superTimer = this.def.dashTime || 1.3;
+      this._dashMineT = 0;
+      this.superCdLeft = this.superCdTotal;
     } else if(t === 'reload_boost'){
       this.superState = 'reload_boosting';
       this.superTimer = this.def.superDuration || 8;
@@ -4781,7 +4876,8 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     this.healBy(this.maxHp * us.regenPctS / 100 * dt);
   }
 
-  takeDamage(amount, fromTank, game, accumulate){
+  takeDamage(amount, fromTank, game, accumulate, noCharge){
+    if(!isFinite(amount)) return;
     if(!this.alive || this.dying) return;
     if(this._spawnInvuln && this._spawnInvuln > 0) return;
     /* THE HIT FLASH -- a white pop for 0.2s, driven from the damage event
@@ -4817,6 +4913,8 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     if(atk && atk.lifestealPct && fromTank.alive) fromTank.healBy(amount * atk.lifestealPct / 100);
     if(fromTank && fromTank !== this){
       fromTank.damageDealt += amount;
+      /* A super's own damage does not refill it, or the big ones would loop. */
+      if(!noCharge) fromTank._chargeSuper(amount);
       /* REMEMBER WHO HIT ME, so an assist can be paid out when I die.
 
          This is the World of Tanks definition: an assist is awarded to everyone
@@ -5187,6 +5285,11 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     this.turretAngle = this.heading;
     this.hp = this.maxHp; this.alive = true;
     this.dying = false; this.deathT = 0;
+    /* A super cut short by death must not come back with the tank: a cloak would
+       leave it invisible, a dash would launch it. Charge is kept. */
+    if(this.superState === 'cloaked' && this._applyCloakVisual) this._applyCloakVisual(false);
+    this.superState = null; this.superTimer = 0; this._bigShots = 0;
+    this._yawVel = 0; this._overdriveUntil = 0;
     this.removeAt = -1;
     this._notifiedDeath = false;
     this.speed = 0; this.vx = 0; this.vz = 0; this.reloadLeft = 0;

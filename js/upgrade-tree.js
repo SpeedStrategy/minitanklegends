@@ -187,7 +187,7 @@ window.Progression = (function () {
     },
     supercool: {
       name: 'Super cool', col: 'damage', row: 3, gx: 3.5, gy: 2,
-      max: 5, cost: 1, desc: '- 1s super cool',
+      max: 5, cost: 1, desc: 'Super needs 5 less damage to charge',
       /* towerturn×2 OR pen×1 — Mobility and Firepower merge here */
       req: [
         { id: 'towerturn', lvl: 2 },

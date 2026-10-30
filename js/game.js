@@ -323,7 +323,7 @@ class Game {
     this.renderer.setPixelRatio(this._maxPixelRatio);
     this.renderer.setSize(innerWidth, innerHeight);
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
@@ -1610,7 +1610,7 @@ class Game {
        its biggest size and the trails get more segments. */
     this.isUltra = q === 'ultra';
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
@@ -6965,7 +6965,7 @@ Net.sendJoinInfo(
     t.makeViewRangeCircle();
     if(!t.isLocal) t.viewCircle.visible = false;
     t.setViewRangeStyle(this.settings.viewRangeOpacity, this.settings.viewRangeColor);
-    if(t.isLocal && t.hasSuper()){
+    if(t.hasSuper()){
       t._onBushSuper = () => this._deployBush(t);
     }
     return t;
@@ -7095,7 +7095,7 @@ Net.sendJoinInfo(
     this._lastRafAt = this._last;
     this._startLoopFallback();
     this._matchStartDelay = 0;
-    this._matchCdShown = false;
+    this._matchCdShown = false; this._vsShown = false;
     /* THE LOADING SCREEN COMES DOWN HERE, AND ONLY HERE.
 
        _begin() is the last step of every start path, after the map is loaded,
@@ -7528,7 +7528,8 @@ Net.sendJoinInfo(
     document.getElementById('bigmap').classList.add('hidden');
     var _mc = document.getElementById('match-cd');
     if(_mc) _mc.classList.add('hidden');
-    this._matchStartDelay = 0; this._matchCdShown = false;
+    this._matchStartDelay = 0; this._matchCdShown = false; this._vsShown = false;
+    if(window.TankPick) TankPick.hideVs();
     this._cinematicPhase = false; this._cinematicTimer = 0;
     this._lastCdNum = undefined;
     // Reset HUD visibility and remove game-active so menu buttons work again
@@ -7890,7 +7891,8 @@ Net.sendJoinInfo(
         if(this._cinematicTimer >= this._cinematicDuration){
           // Cinematic done — start countdown phase
           this._cinematicPhase = false;
-          this._matchStartDelay = 10;
+          this._matchStartDelay = (CONFIG.PICK_TIME || 15) + (CONFIG.VS_TIME || 3.5);
+          this._vsShown = false;
           this._matchCdShown = false;
           // Release pointer lock so cursor is visible for tank selection
           try { document.exitPointerLock(); } catch(e){}
@@ -7907,8 +7909,18 @@ Net.sendJoinInfo(
       // Match start countdown: freeze input for 10s
       if(!this._cinematicPhase && this._matchStartDelay > 0){
         this._matchStartDelay -= rawDt;
+        /* The picks are final: the VS card plays out the last seconds. */
+        if(this._tdmState && !this._vsShown && this._matchStartDelay <= (CONFIG.VS_TIME || 3.5)){
+          this._vsShown = true;
+          var mcv = document.getElementById('match-cd');
+          if(mcv) mcv.classList.add('hidden');
+          var tspv = document.getElementById('tank-switch-panel');
+          if(tspv) tspv.classList.add('hidden');
+          if(window.TankPick) TankPick.showVs(this);
+        }
         if(this._matchStartDelay <= 0){
           this._matchStartDelay = 0;
+          if(window.TankPick) TankPick.hideVs();
           var mc = document.getElementById('match-cd');
           if(mc) mc.classList.add('hidden');
           var tsp = document.getElementById('tank-switch-panel');
@@ -7923,7 +7935,8 @@ Net.sendJoinInfo(
           } catch(e){}
         } else {
           // Bot tank switching every 1.5s during countdown
-          if(this._matchStartDelay > 0.5){
+          if(window.TankPick && !this._vsShown) TankPick.refreshTeam();
+          if(this._matchStartDelay > (CONFIG.VS_TIME || 3.5) + 0.5){
             this._botSwitchTimer = (this._botSwitchTimer || 0) + rawDt;
             if(this._botSwitchTimer > 1.5){
               this._botSwitchTimer = 0;
@@ -7944,7 +7957,7 @@ Net.sendJoinInfo(
           }
           if(num){
             if(this._matchStartDelay > 0.5){
-              const newNum = Math.ceil(this._matchStartDelay);
+              const newNum = Math.ceil(Math.max(0, this._matchStartDelay - (CONFIG.VS_TIME || 3.5)));
               const prevNum = this._lastCdNum;
               num.textContent = newNum;
               num.style.display = '';
@@ -8392,6 +8405,7 @@ Net.sendJoinInfo(
 
   /* ---- Tank switch during countdown ---- */
   _populateTankSwitchList(){
+    if(window.TankPick && this._tdmState){ TankPick.open(this); return; }
     const panel = document.getElementById('tank-switch-panel');
     const grid = document.getElementById('tank-switch-grid');
     const countEl = document.getElementById('ts-count');
@@ -8470,7 +8484,7 @@ Net.sendJoinInfo(
   }
 
   _switchLocalTank(newTankId){
-    if(!this.localTank || (this._matchStartDelay <= 0 && !this._cinematicPhase)) return;
+    if(!this.localTank || (this._matchStartDelay <= 0 && !this._cinematicPhase) || this._vsShown) return;
     const newDef = TANKS[newTankId];
     if(!newDef || newDef.id === this.localTank.def.id) return;
     // Save camera state before switch
@@ -8711,6 +8725,7 @@ Net.sendJoinInfo(
 
   _endCountdownPhase(){
     this._matchStartDelay = 0;
+    if(window.TankPick) TankPick.hideVs();
     const mc = document.getElementById('match-cd');
     if(mc) mc.classList.add('hidden');
     const tsp = document.getElementById('tank-switch-panel');
@@ -8886,7 +8901,21 @@ Net.sendJoinInfo(
         }
 
         // Fire only when knob is dragged to max distance (armed)
-        fire = !!touchInput.armed;
+        /* Mobile fire rule: dragging only aims. Letting go while aimed fires one
+           shot, held for a moment if the gun is still reloading. The flamethrower
+           is a stream, so it burns for as long as you aim. */
+        if(this.localTank.def.shellType === 'flame'){
+          fire = !!touchInput.aiming;
+        } else {
+          const nowMs = performance.now();
+          if(touchInput.releaseFire) this._touchFireUntil = nowMs + 700;
+          fire = false;
+          if(this._touchFireUntil && nowMs < this._touchFireUntil &&
+             !(this.localTank.reloadLeft > 0) && !(this.localTank.magReloadLeft > 0)){
+            fire = true;
+            this._touchFireUntil = 0;
+          }
+        }
         handbrake = false;
       } else {
         // Desktop: tank-relative controls
@@ -9379,8 +9408,7 @@ Net.sendJoinInfo(
             if(m.owner.team && o.team && m.owner.team === o.team) continue;
             const dd = Math.hypot(o.x - m.x, o.z - m.z);
             if(dd < m.radius){
-              o.takeDamage(m.damage, m.owner, this);
-              this.spawnDamageLabel(o.x, o.def.turret.h + o.def.body.h + 3.6, o.z, m.damage);
+              o.takeDamage(m.damage, m.owner, this, false, true);
             }
           }
         }
@@ -9580,6 +9608,12 @@ Net.sendJoinInfo(
         }
         // Use the fixed strategic camera angle - doesn't change with tank heading
         // This keeps the camera stable while you aim with the mouse
+        /* Settings > Camera > Follow hull: swing behind the hull as it turns. */
+        if(this.settings && this.settings.camFollowHull){
+          const want = t.heading + Math.PI;
+          const da = Math.atan2(Math.sin(want - this._strategicCamAngle), Math.cos(want - this._strategicCamAngle));
+          this._strategicCamAngle += da * Math.min(1, dt * 4);
+        }
         this.camAngle = this._strategicCamAngle;
       } else if(this.cameraMode === 'automatic'){
         const currentCamAngleDeg = this._getCameraAngle(this.camDist) * 180 / Math.PI;
@@ -9747,7 +9781,8 @@ Net.sendJoinInfo(
     } else {
       this._aimLineGlow = 0;
     }
-    this._updateAimLine();
+    /* Cosmetic, so it may never take the rest of the frame down with it. */
+    try { this._updateAimLine(); } catch(e){ if(!this._aimErrLogged){ this._aimErrLogged = true; console.warn('Aim line:', e); } }
 
     // Visibility
     this._updateVisibility();
@@ -11168,6 +11203,9 @@ _initMortarMarker(){
       const tanHalf = t.def.fireConeHalfAngle || 0.12;
       const halfW = endDist * tanHalf;
       const perpX = -dir.z, perpZ = dir.x;
+      /* These were never declared: every frame an Inferno was alive threw here
+         and skipped the rest of the match update -- camera, HUD, deaths, input. */
+      const endX = startX + dir.x * endDist, endZ = startZ + dir.z * endDist;
       // cone OUTLINE: muzzle -> left -> right -> muzzle
       pts.push({x:startX, y:y0, z:startZ, d:0});
       pts.push({x:endX + perpX*halfW, y:yEnd, z:endZ + perpZ*halfW, d:endDist});
@@ -11877,9 +11915,26 @@ _initMortarMarker(){
   _groundPoint(ndcX, ndcY){
     const ray = new THREE.Raycaster();
     ray.setFromCamera(new THREE.Vector2(ndcX, ndcY), this.camera);
-    const plane = new THREE.Plane(new THREE.Vector3(0,1,0), 0);
+    /* At the tank's own level: the map floor is rarely at world height 0. */
+    const lt = this.localTank;
+    const plane = new THREE.Plane(new THREE.Vector3(0,1,0), -(lt && lt.root ? lt.root.position.y : 0));
     const hit = new THREE.Vector3();
     return ray.ray.intersectPlane(plane, hit) ? hit : null;
+  }
+
+  /* Height of the map under (x,z), looking down from a little above refY so a
+     sky dome or roof far overhead is not mistaken for the ground. */
+  _groundY(x, z, refY){
+    const pw = this.physicsWorld, ref = refY != null ? refY : (this.localTank && this.localTank.root ? this.localTank.root.position.y : 0);
+    if(pw && typeof RAPIER !== 'undefined' && RAPIER.Ray){
+      try {
+        const top = ref + 30;
+        const notActor = (c) => { const u = c && c.userData; return !(u && (u.type === 'tank' || u.type === 'shell')); };
+        const hit = pw.castRay(new RAPIER.Ray({ x, y: top, z }, { x: 0, y: -1, z: 0 }), 200, true, undefined, undefined, undefined, undefined, notActor);
+        if(hit){ const t = hit.timeOfImpact != null ? hit.timeOfImpact : hit.toi; if(t != null) return top - t; }
+      } catch(e){}
+    }
+    return ref;
   }
 
   _makeGroundRing(x, z, r, color, opacity){
@@ -11916,7 +11971,70 @@ _initMortarMarker(){
     this._tickStrikeBombs(dt);
   }
 
+  /* The mobile super button is a joystick: dragging it places the strike around
+     your tank, letting go casts. Bound once from _updateSuperSlot. */
+  _wireSuperStick(btn){
+    if(btn._stickWired) return;
+    btn._stickWired = true;
+    const reach = (t) => {
+      const ty = t.def.superType;
+      return ty === 'airstrike' ? 70 : ty === 'molotov' ? 60 : 14;
+    };
+    const point = (t) => {
+      const s = this._superStick;
+      const mag = Math.min(1, Math.hypot(s.dx, s.dy) / 70);
+      const ang = (this.camAngle || Math.PI) + Math.PI - Math.atan2(s.dx, -s.dy);
+      return { x: t.x + Math.sin(ang) * reach(t) * mag, z: t.z + Math.cos(ang) * reach(t) * mag };
+    };
+    const ringFor = (t) => t.def.superType === 'airstrike' ? (t.def.airstrikeRadius || 4)
+      : t.def.superType === 'molotov' ? (t.def.molotovRadius || 7) : 4;
+    btn.addEventListener('touchstart', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const t = this.localTank;
+      if(!t || !t.alive) return;
+      if(t.superState === 'targeting'){ /* already aiming: keep it */ }
+      else if(!t.activateSuper()) return;
+      if(t.superState !== 'targeting') return;   /* instant super: the tap was enough */
+      const f = e.changedTouches[0];
+      this._superStick = { id: f.identifier, sx: f.clientX, sy: f.clientY, dx: 0, dy: 0 };
+      if(this._superAimRing) this.scene.remove(this._superAimRing);
+      const p = point(t);
+      this._superAimRing = this._makeGroundRing(p.x, p.z, ringFor(t), 0xffffff, 0.8);
+      this._superAimRing.position.y = t.root.position.y + 0.3;
+    }, { passive: false });
+    btn.addEventListener('touchmove', (e) => {
+      const s = this._superStick, t = this.localTank;
+      if(!s || !t) return;
+      e.preventDefault();
+      for(const f of e.changedTouches){
+        if(f.identifier !== s.id) continue;
+        s.dx = f.clientX - s.sx; s.dy = f.clientY - s.sy;
+        const p = point(t);
+        if(this._superAimRing) this._superAimRing.position.set(p.x, this._groundY(p.x, p.z, t.root.position.y) + 0.3, p.z);
+      }
+    }, { passive: false });
+    const end = (e) => {
+      const s = this._superStick, t = this.localTank;
+      if(!s) return;
+      e.preventDefault();
+      if(t && t.superState === 'targeting'){
+        /* A tap without a drag aims ahead of the gun instead of on yourself. */
+        if(Math.hypot(s.dx, s.dy) < 12){
+          const r = reach(t) * 0.5;
+          t._touchSuperPick = { x: t.x + Math.sin(t.turretAngle) * r, z: t.z + Math.cos(t.turretAngle) * r };
+        } else {
+          t._touchSuperPick = point(t);
+        }
+      }
+      this._superStick = null;
+      if(this._superAimRing){ this.scene.remove(this._superAimRing); this._superAimRing = null; }
+    };
+    btn.addEventListener('touchend', end, { passive: false });
+    btn.addEventListener('touchcancel', end, { passive: false });
+  }
+
   _superPick(t){
+    if(t._touchSuperPick){ const p = t._touchSuperPick; t._touchSuperPick = null; return p; }
     if(t !== this.localTank){
       const p = t._botSuperPick || null;
       t._botSuperPick = null;
@@ -11958,6 +12076,7 @@ _initMortarMarker(){
         t.superCdLeft = t.superCdTotal;
         if(t._strikeRing) this.scene.remove(t._strikeRing);
         t._strikeRing = this._makeGroundRing(picked.x, picked.z, r, 0xffffff, 0.9);
+        t._strikeRing.position.y = this._groundY(picked.x, picked.z, t.root.position.y) + 0.2;
         t._superWarned = false;
       }
     } else if(st === 'strike'){
@@ -12085,7 +12204,7 @@ _initMortarMarker(){
             var mr = 1.5 + Math.random() * 1.5;
             var mx = picked.x + Math.cos(ma) * mr;
             var mz = picked.z + Math.sin(ma) * mr;
-            var mine = new Landmine(t, {x:mx, y:0.18, z:mz}, d);
+            var mine = new Landmine(t, {x:mx, y:this._groundY(mx, mz, t.root.position.y) + 0.18, z:mz}, d);
             mine.attach(this.scene); this.projectiles.push(mine);
           }
           t.superState = 'done';
@@ -12100,7 +12219,7 @@ _initMortarMarker(){
       var picked = this._superPick(t);
       if(picked){
         var pd = Math.hypot(picked.x - t.x, picked.z - t.z);
-        if(pd > 20){
+        if(pd > 70){
           if(t === this.localTank && typeof Menu !== 'undefined' && Menu.toast) Menu.toast('Too far!');
         } else {
           this._spawnMolotov(t, picked.x, picked.z);
@@ -12109,6 +12228,23 @@ _initMortarMarker(){
           t.superCdLeft = t.superCdTotal;
         }
       }
+    }
+
+    // --- Demolisher: dash forward, seeding mines behind it ---
+    else if(st === 'dashing'){
+      t.superTimer -= dt;
+      t._dashMineT = (t._dashMineT || 0) - dt;
+      if(t._dashMineT <= 0){
+        t._dashMineT = d.dashMineEvery || 0.14;
+        const side = (Math.random() - 0.5) * (t.colHalfW || 3) * 3;
+        const mx = t.x - Math.sin(t.heading) * (t.colHalfL || 4) * 1.2 + Math.cos(t.heading) * side;
+        const mz = t.z - Math.cos(t.heading) * (t.colHalfL || 4) * 1.2 - Math.sin(t.heading) * side;
+        const md = Object.create(d); md.mineFlight = 0; md._mineFrom = null;
+        const mine = new Landmine(t, { x: mx, y: this._groundY(mx, mz, t.root.position.y) + 0.18, z: mz }, md);
+        mine._fromSuper = true;
+        mine.attach(this.scene); this.projectiles.push(mine);
+      }
+      if(t.superTimer <= 0){ t.superState = 'done'; t.superTimer = 0; }
     }
 
     // --- Predator: reload boost circle ---
@@ -12148,22 +12284,22 @@ _initMortarMarker(){
         b.mesh.position.set(b.x, b.y, b.z);
         b.mesh.rotation.x += 3 * dt;
         b.mesh.rotation.z += 2 * dt;
-        if(b.y <= 0.5 && !b.hit){
+        if(b.y <= (b.gy || 0) + 0.5 && !b.hit){
           b.hit = true;
-          this.spawnExplosion(b.x, 1.2, b.z, 0xffaa33, 10);
           const rad = b.radius, dmg = b.damage;
+          this._bigBlast(b.x, (b.gy || 0) + 0.6, b.z, rad);
           for(const o of this.tanks){
             if(!o.alive || o === b.owner) continue;
             const ddx = o.x - b.x, ddz = o.z - b.z;
             if(ddx*ddx + ddz*ddz < rad*rad){
-              o.takeDamage(dmg, b.owner, this);
-              this.spawnDamageLabel(o.x, o.def.turret.h + o.def.body.h + 3.6, o.z, dmg);
+              if(b.owner && b.owner.team && o.team === b.owner.team) continue;
+              o.takeDamage(dmg, b.owner, this, false, true);
             }
           }
         }
       });
       this._strikeBombs = this._strikeBombs.filter(b => {
-        if(b.hit && b.y <= -2){
+        if(b.hit && b.y <= (b.gy || 0) - 2){
           this.scene.remove(b.mesh);
           b.mesh.geometry.dispose();
           b.mesh.material.dispose();
@@ -12187,11 +12323,22 @@ _initMortarMarker(){
       const mesh = new THREE.Mesh(geo, mat);
       mesh.castShadow = true;
       const x = cx + Math.cos(a) * off, z = cz + Math.sin(a) * off;
-      const y = 46 + Math.random() * 4;
+      const gy = this._groundY(x, z, t.root.position.y);
+      const y = gy + 46 + Math.random() * 4;
       mesh.position.set(x, y, z);
       this.scene.add(mesh);
-      this._strikeBombs.push({ mesh, x, z, y, hit:false, owner:t, radius:r, damage:d.airstrikeDamage || 60, fallSpeed: 55 + Math.random()*15 });
+      this._strikeBombs.push({ mesh, x, z, y, gy, hit:false, owner:t, radius:r, damage:d.airstrikeDamage || 60, fallSpeed: 55 + Math.random()*15 });
     }
+  }
+
+  /* A blast drawn at its real size: the damage radius. */
+  _bigBlast(x, y, z, r){
+    let drawn = false;
+    if(typeof MortarBlast !== 'undefined' && MortarBlast.spawn){
+      try { MortarBlast.spawn(this.scene, x, y, z, r); drawn = true; } catch(e){}
+    }
+    if(!drawn) this.spawnExplosion(x, y + 0.6, z, 0xffaa33, Math.max(10, r));
+    if(this.addShake) this.addShake(0.5);
   }
 
   _deployBush(t){
@@ -12202,7 +12349,8 @@ _initMortarMarker(){
       this.world.removePlayerBush(oldest);
     }
     const a = Math.random() * Math.PI * 2;
-    const entry = this.world.addPlayerBush(t.x + Math.cos(a) * 1.2, t.z + Math.sin(a) * 1.2);
+    const bx = t.x + Math.cos(a) * 1.2, bz = t.z + Math.sin(a) * 1.2;
+    const entry = this.world.addPlayerBush(bx, bz, d.bushScale || 1, this._groundY(bx, bz, t.root.position.y));
     t.myBushes.push(entry);
     this.spawnExplosion(t.x, 0.5, t.z, 0x55aa55, 4, 'bush');
     this.spawnBurst(t.x, 0.5, t.z, {count: 6, tex: 'shard', color: 0x55aa55, speed: 4, size: 0.4, life: 0.5, rise: 2, gravity: 8, blend: 'normal', spin: 8});
@@ -12241,18 +12389,19 @@ _initMortarMarker(){
     geo.rotateX(-Math.PI / 2);
     const mat = new THREE.MeshBasicMaterial({ color: 0xff4400, transparent: true, opacity: 0.0, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(x, 0.12, z);
+    const gy = this._groundY(x, z, t.root.position.y);
+    mesh.position.set(x, gy + 0.3, z);
     this.scene.add(mesh);
 
     const innerGeo = new THREE.CircleGeometry(radius * 0.7, 48);
     innerGeo.rotateX(-Math.PI / 2);
     const innerMat = new THREE.MeshBasicMaterial({ color: 0xffaa00, transparent: true, opacity: 0.0, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
     const innerMesh = new THREE.Mesh(innerGeo, innerMat);
-    innerMesh.position.set(x, 0.14, z);
+    innerMesh.position.set(x, gy + 0.34, z);
     this.scene.add(innerMesh);
 
-    this.spawnExplosion(x, 0.4, z, 0xff6600, 8, 'burn');
-    this.spawnBurst(x, 0.6, z, { count: 16, tex: 'ember', speed: 10, size: 0.4, life: 0.8, rise: 5, gravity: 8, blend: 'add' });
+    this.spawnExplosion(x, gy + 0.4, z, 0xff6600, 8, 'burn');
+    this.spawnBurst(x, gy + 0.6, z, { count: 16, tex: 'ember', speed: 10, size: 0.4, life: 0.8, rise: 5, gravity: 8, blend: 'add' });
 
     this._molotovFires.push({
       owner: t, x, z, radius, damage, tick,
@@ -12296,26 +12445,29 @@ _initMortarMarker(){
     const has = !!(t && t.hasSuper());
     wrap.classList.toggle('hidden', !has);
     if(!has || !t) return;
+    if(document.body.classList.contains('is-mobile')) this._wireSuperStick(btn);
     if(!btn._wired){
       btn._wired = true;
       btn.onclick = () => { Audio && Audio.click && Audio.click(); if(this.localTank) this.localTank.activateSuper(); };
     }
     const info = t.superInfo();
-    const icons = { airstrike:'?', cloak:'??', bush:'??', panzers:'?', oil:'??' };
-    btn.querySelector('.super-icon').textContent = icons[info.type] || '?';
+    const icons = { airstrike:'\u2708', molotov:'\u{1F525}', cloak:'\u{1F47B}', bush:'\u{1F33F}', panzers:'\u{1F6E1}', big_shells:'\u{1F4A5}', mine_dash:'\u{1F4A3}', landfield:'\u{1F4A3}', reload_boost:'\u26A1', oil:'\u{1F6E2}' };
+    btn.querySelector('.super-icon').textContent = icons[info.type] || '\u2605';
     const label = btn.querySelector('.super-label');
     const frac = info.cdTotal > 0 ? Math.min(1, info.cd / info.cdTotal) : 0;
     btn.style.setProperty('--cd', frac.toFixed(3));
-    btn.classList.toggle('ready', info.ready && !info.state);
-    btn.classList.toggle('active', !!info.state);
+    const running = !!info.state && info.state !== 'done';
+    btn.classList.toggle('ready', info.ready && !running);
+    btn.classList.toggle('active', running);
     if(info.state === 'targeting'){
       label.textContent = 'TARGET';
-    } else if(info.state && info.timer > 0){
+    } else if(running && info.timer > 0){
       label.textContent = Math.ceil(info.timer) + 's';
     } else if(info.ready){
       label.textContent = 'READY';
     } else {
-      label.textContent = Math.ceil(info.cd) + 's';
+      /* Charged by dealing damage, so this is a fill, not a countdown. */
+      label.textContent = Math.floor((1 - frac) * 100) + '%';
     }
     if(hint){
       if(info.state === 'targeting'){
@@ -13735,7 +13887,7 @@ _initMortarMarker(){
         var mineZ = tank.z + fwdZ * mineMaxRange;
         var mdef = Object.create(tank.def);
         mdef._mineFrom = { x: pos.x, y: y, z: pos.z };
-        var m = new Landmine(tank, {x:mineX, y:0.18, z:mineZ}, mdef);
+        var m = new Landmine(tank, {x:mineX, y:this._groundY(mineX, mineZ, tank.root.position.y) + 0.18, z:mineZ}, mdef);
         m.attach(this.scene); this.projectiles.push(m);
       } else if(tank.def.shellType === 'shotgun'){
         /* Both key spellings are honoured. Burst declares `pellets` /
@@ -13802,7 +13954,13 @@ _initMortarMarker(){
           ? new Shell(tank, new THREE.Vector3(pos.x, y, pos.z), dir,
                       Object.assign({}, tank.def, {_launchVel: this._mortarAim(tank, pos).vel}),
                       null, null)
-          : new Shell(tank, new THREE.Vector3(pos.x, y, pos.z), dir, tank.def, this.physicsWorld, tank.getWorldVelocity());
+          : new Shell(tank, new THREE.Vector3(pos.x, y, pos.z), dir,
+              /* Grom's super: the next shots carry a far wider, harder burst. */
+              (tank._bigShots > 0) ? Object.assign({}, tank.def, {
+                splashRadius: (tank.def.splashRadius || 5) * (tank.def.bigShellRadiusMult || 3),
+                splashDamage: (tank.def.splashDamage || 26) * (tank.def.bigShellDamageMult || 1.6),
+              }) : tank.def, this.physicsWorld, tank.getWorldVelocity());
+        if(tank._bigShots > 0) tank._bigShots--;
         p.attach(this.scene); this.projectiles.push(p);
         /* No trail spawned. The shell is the bullet model now and the streak
            behind it is gone, so there is nothing to start. */

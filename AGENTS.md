@@ -713,3 +713,17 @@ local matches.
    children with their mesh. The old "tank under a roof = all x-ray stripes" look
    is the **Glitch** style in `tank-styles.js` (texture painted on a canvas,
    `boxUv: true`, shared texture twitches via `startGlitchJitter`).
+
+---
+
+## 2026-10-30, twelfth pass (Claude Code) — PICK/VS SCREENS, DAMAGE-CHARGED SUPERS, DRIVING MODEL
+
+1. **Drive model** (`Tank._engine`, tank.js update): separate power / brake / coast rates, side grip
+   (velocity is no longer rewritten along the hull), turn wind-up and braking, all derived from each
+   tank's accel/turn/mass; a def can override `brakeAccel, coastDecel, sideGrip, turnAccel, turnBrake`.
+2. **Supers charge by damage**: `superCdLeft` is still the meter, `Tank._chargeSuper` fills it,
+   `CONFIG.SUPER_CHARGE_DAMAGE`; a super's own damage passes `noCharge`. New types `big_shells`, `mine_dash`.
+3. **js/tank-pick.js**: pick screen (one shared WebGL context) and VS card; countdown is
+   `CONFIG.PICK_TIME + CONFIG.VS_TIME`. Use `_groundY(x,z,ref)` for anything placed on the map.
+4. Mobile rules live at the end of css/style.css. A forced `display` under `body.is-mobile` MUST be
+   scoped with `:not(.hidden)`, or it reveals hidden screens (this blacked out the match once).

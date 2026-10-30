@@ -262,10 +262,11 @@
            12-hour allowance is used up the panel says so instead. */
         (tpAward.box
           ? '<div class="res-reward">' +
-              '<img class="res-reward-icon" src="assets/ui/mystery-crate.webp" alt="">' +
+              '<img class="res-reward-icon" src="assets/rewards/woodbox.webp" alt="">' +
               '<span class="res-reward-val">' + (tpAward.box.granted ? '+1' : '0') + '</span>' +
               '<span class="res-reward-cap">' + (tpAward.box.granted
-                ? 'BOX ' + tpAward.box.earned + '/' + tpAward.box.limit
+                ? 'BOX ' + tpAward.box.earned + '/' + tpAward.box.limit +
+                  (tpAward.box.reward ? ' \u00b7 +' + tpAward.box.reward.amount + ' ' + tpAward.box.reward.name : '')
                 : 'BOXES ' + tpAward.box.limit + '/' + tpAward.box.limit + ' USED') + '</span>' +
             '</div>'
           : '') +
@@ -1171,7 +1172,7 @@
       }
       if(renderer.shadowMap){
         renderer.shadowMap.enabled = !lowSpec;
-        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.shadowMap.type = THREE.PCFShadowMap;
         /* Enabling the shadow map is only half of it. three.js renders a shadow
            for a mesh that has `castShadow` set, into a map that a mesh with
            `receiveShadow` set samples — and neither flag was set on anything on

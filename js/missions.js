@@ -585,7 +585,9 @@ window.Missions = (function(){
     var claimed = !!s.claimed;
     var modeTag = q.modes ? ('<span class="ms-mission-mode">' +
                     (q.modes.length === 1 ? q.modes[0] : 'TEAM') + '</span>') : '';
-    return '<div class="ms-mission-card' + (claimed ? ' completed' : '') +
+    /* `claimed` is the flipped state and `completed` turns the animation off: a
+       card claimed earlier just IS flipped when you come back, until new missions. */
+    return '<div class="ms-mission-card' + (claimed ? ' completed claimed' : '') +
              (done && !claimed ? ' ready' : '') + (q.modes ? ' mode-gated' : '') +
            '" data-ms-claim="' + q.id + '" data-ms-bucket="' + bucket + '"' +
            (done && !claimed ? ' tabindex="0" role="button"' : '') +

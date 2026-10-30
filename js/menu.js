@@ -146,6 +146,7 @@ const Menu = {
       }
     });
     try { this.show('menu-main'); } catch(e){ console.error('Menu.show(menu-main) failed:', e); }
+    try { this.settings.stats = this.settings.stats || {}; if(!this.settings.stats.createdAt){ this.settings.stats.createdAt = Date.now(); saveSettings(this.settings); } } catch(e){}
     console.log('[MENU] init() complete');
     // Auto-join from URL param ?room=CODE
     const params = new URLSearchParams(window.location.search);
@@ -921,6 +922,10 @@ const Menu = {
     const s = this.settings;
     s.stats = s.stats || {};
     if(!s.stats.createdAt) s.stats.createdAt = Date.now();
+    /* A signed-in account has a real date on the server. A guest's starts at
+       their first launch (stamped in init), not at the first look at this card. */
+    const authCreated = (window.Auth && Auth.user && Auth.user.createdAt) || 0;
+    if(authCreated && authCreated !== s.stats.createdAt){ s.stats.createdAt = authCreated; try { saveSettings(s); } catch(e){} }
     const nameEl = document.getElementById('pcard-name-text');
     const clanEl = document.getElementById('pcard-clan');
     const accEl = document.getElementById('pcard-account');
@@ -2826,12 +2831,27 @@ const Menu = {
     if(!wrap) return;
     const stage = (typeof this.settings.cameraStage === 'number') ? this.settings.cameraStage : 2;
     const names = ['Closest', 'Close', 'Default', 'Far', 'Farther', 'Widest'];
+    const follow = !!this.settings.camFollowHull;
     wrap.innerHTML = `
-      <label>Camera Zoom</label>
+      <label>Camera Rotation</label>
+      <div class="seg" style="display:grid; grid-template-columns:repeat(2,1fr); gap:4px;">
+        <div class="seg-opt${follow?'':' active'}" data-camfollow="0">Fixed</div>
+        <div class="seg-opt${follow?' active':''}" data-camfollow="1">Follow hull</div>
+      </div>
+      <div class="hint">Follow hull turns the view with your tank, so its front always points up the screen.</div>
+      <label style="margin-top:16px">Camera Zoom</label>
       <div class="seg" style="display:grid; grid-template-columns:repeat(3,1fr); gap:4px;">
         ${names.map((n, i) => `<div class="seg-opt${stage===i?' active':''}" data-camstage="${i}">${n}</div>`).join('')}
       </div>
       <div class="hint">The scroll wheel (or a two-finger pinch) changes this during a match.</div>`;
+    wrap.querySelectorAll('[data-camfollow]').forEach(el=>{
+      el.onclick = ()=>{
+        this.settings.camFollowHull = el.dataset.camfollow === '1';
+        saveSettings(this.settings);
+        if(this.game) this.game.applySettings(this.settings);
+        this._renderCameraSettings();
+      };
+    });
     wrap.querySelectorAll('[data-camstage]').forEach(el=>{
       el.onclick = ()=>{
         this.settings.cameraStage = +el.dataset.camstage;
@@ -3786,6 +3806,20 @@ const Menu = {
      pictures with nothing behind them. It now shows this window's six win
      boxes -- lit when earned -- and when the window resets; a click opens
      Storage, where the boxes are opened. */
+  /* One box's worth of reward, credited right now (win boxes open themselves). */
+  _collectBoxReward(){
+    const rw = this._rollBoxReward();
+    const amount = rw.amounts[Math.floor(Math.random() * rw.amounts.length)];
+    if(rw.key === 'up'){
+      if(window.Progression && Progression.addUp) Progression.addUp(amount);
+    } else {
+      this.settings[rw.key] = (this.settings[rw.key] || 0) + amount;
+    }
+    saveSettings(this.settings);
+    try { this._updateCurrencies(); } catch(e){}
+    return { name: rw.name, icon: rw.icon, amount, key: rw.key };
+  },
+
   _renderWinBoxes(){
     const wrap = document.getElementById('main-menu-crates');
     if(!wrap || typeof winBoxStatus !== 'function') return;
@@ -3793,7 +3827,7 @@ const Menu = {
     let slots = '';
     for(let i = 0; i < st.limit; i++){
       slots += '<div class="crate-slot' + (i < st.earned ? ' earned' : '') + '">' +
-        '<img src="assets/ui/mystery-crate.webp" alt=""></div>';
+        '<img src="assets/rewards/woodbox.webp" alt=""></div>';
     }
     let note = 'WIN TO EARN A BOX';
     if(st.resetsAt){
@@ -3803,8 +3837,7 @@ const Menu = {
     }
     wrap.innerHTML = '<div class="crate-head">WIN BOXES ' + st.earned + '/' + st.limit + '</div>' +
       '<div class="crate-grid">' + slots + '</div><div class="crate-note">' + note + '</div>';
-    wrap.title = 'Each win drops a box into Storage, up to ' + st.limit + ' every 12 hours';
-    wrap.onclick = () => this.show('menu-storage');
+    wrap.title = 'Each win opens a box for you automatically, up to ' + st.limit + ' every 12 hours';
   },
 
   _renderDeals(){

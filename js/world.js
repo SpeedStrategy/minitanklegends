@@ -545,6 +545,7 @@ class World {
      entire bush list twice over, once each. They share the spatial index now,
      so the work is proportional to the bushes actually nearby. */
   hidingIn(x, z){
+    if(this._inPlayerBush(x, z)) return 'bush';
     const r = CONFIG.BUSH_HIDE_RADIUS;
     const rr = r * r;
     if(!this.bushes.length) return null;
@@ -557,7 +558,15 @@ class World {
     });
     return hit ? 'bush' : null;
   }
+  /* Super bushes are far bigger than the fixed radius the spatial index assumes. */
+  _inPlayerBush(x, z){
+    for(const b of this.bushes){
+      if(b.isPlayerBush && Math.hypot(x - b.x, z - b.z) < (b.radius || 3.2)) return true;
+    }
+    return false;
+  }
   camoFactor(x, z){
+    if(this._inPlayerBush(x, z)) return 0;
     const r = CONFIG.BUSH_HIDE_RADIUS + 2;
     const rr = r * r;
     if(!this.bushes.length) return 1;
@@ -707,11 +716,11 @@ class World {
     return out;
   }
 
-  addPlayerBush(x, z){
+  addPlayerBush(x, z, scale, groundY){
     const bushMat = Toon.mat({ color: 0x2e7a36, flatShading: true });
     const grp = new THREE.Group();
     const cluster = new THREE.Group();
-    const sc = 1.3;
+    const sc = 1.3 * (scale || 1);
     const positions = [[0,0,0,1.1],[1.1,0.2,0.3,0.8],[-1.0,0.25,-0.4,0.75],[0.3,0.35,-1.0,0.7],[-0.2,0.15,1.0,0.8]];
     positions.forEach(p => {
       const s = new THREE.Mesh(new THREE.IcosahedronGeometry(p[3] * sc, 1), bushMat);
@@ -720,9 +729,9 @@ class World {
       cluster.add(s);
     });
     grp.add(cluster);
-    grp.position.set(x, 0, z);
+    grp.position.set(x, groundY || 0, z);
     this.scene.add(grp);
-    const entry = { x, z, mesh: grp, isPlayerBush: true };
+    const entry = { x, z, mesh: grp, isPlayerBush: true, radius: 3.2 * (scale || 1) };
     this.bushes.push(entry);
     return entry;
   }

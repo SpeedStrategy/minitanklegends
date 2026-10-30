@@ -240,7 +240,8 @@ window.TankMenu = (function(){
       add('SURVIVABILITY', 'Ricochet back', def.armor.back, def.armor.back + st.ricoBonus, '°');
     }
     var baseCD = (CONFIG && CONFIG.SUPER_COOLDOWN) || 60;
-    add('SYSTEMS', 'Super cooldown', baseCD, Math.max((window.Progression && Progression.KNOBS.SUPER_CD_FLOOR) || 8, baseCD - st.superCoolS), 's');
+    var chargeDmg = (CONFIG && CONFIG.SUPER_CHARGE_DAMAGE) || 300;
+    add('SYSTEMS', 'Super charge', chargeDmg, Math.round(chargeDmg * Math.max((window.Progression && Progression.KNOBS.SUPER_CD_FLOOR) || 8, baseCD - st.superCoolS) / baseCD), ' dmg');
     add('SYSTEMS', 'Super charge rate', 1, st.chargeMult, '×');
     add('SYSTEMS', 'Passive super charge', 0, Math.round(st.passiveRate * 1000) / 10, '% of bar /s');
     add('SYSTEMS', 'Penetration', 0, st.penPct, '% (vs ricochet angle)');
@@ -326,7 +327,7 @@ window.TankMenu = (function(){
      upgrade paths joined with arrows, ribbons fading at both ends. */
 
   var SUPER_UNLOCK_LVL = 5;   /* was the SUPER radio tab gate */
-  var SUPER_NAMES = { airstrike: 'Airstrike', molotov: 'Molotov', bush: 'Camouflage bush', cloak: 'Cloak', panzers: 'Panzer drop', reload_boost: 'Rapid reload', landfield: 'Minefield' };
+  var SUPER_NAMES = { big_shells: 'Big shells', mine_dash: 'Mine dash', airstrike: 'Airstrike', molotov: 'Molotov', bush: 'Camouflage bush', cloak: 'Cloak', panzers: 'Panzer drop', reload_boost: 'Rapid reload', landfield: 'Minefield' };
 
   function superChipHtml(tankId){
     var prog = window.Progression.xpProgress(tankId);
@@ -339,7 +340,7 @@ window.TankMenu = (function(){
     var effCd = Math.max(Progression.KNOBS.SUPER_CD_FLOOR, baseCD - st.superCoolS);
     var name = SUPER_NAMES[def.superType] || 'Super';
     return '<div class="tr-super open" title="Live in battle right now">' +
-      '⚡ ' + name.toUpperCase() + ' · <b>' + effCd.toFixed(0) + 's</b> cooldown' +
+      '⚡ ' + name.toUpperCase() + ' · charged by <b>' + Math.round(((CONFIG && CONFIG.SUPER_CHARGE_DAMAGE) || 300) * effCd / baseCD) + '</b> damage' +
       (st.chargeMult > 1 ? ' · ×' + st.chargeMult.toFixed(2) + ' charge' : '') +
       '</div>';
   }
@@ -1126,7 +1127,7 @@ window.TankMenu = (function(){
     _renderer.setSize(W, H);
     _renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     _renderer.shadowMap.enabled = true;
-    _renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    _renderer.shadowMap.type = THREE.PCFShadowMap;
     _renderer.toneMapping = THREE.ACESFilmicToneMapping;
     _renderer.toneMappingExposure = 1.0;
     _renderer.autoClear = true;

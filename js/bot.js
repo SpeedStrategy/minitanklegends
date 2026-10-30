@@ -1410,7 +1410,9 @@ const canSeeTarget = target ? !!pick.canSee : false;
   _detectIncomingShell(me, game){
     if(!game.projectiles) return null;
     for(const p of game.projectiles){
-      if(p.dead || p.owner === me) continue;
+      /* Mines, molotovs and panzer drops are projectiles with no direction;
+         reading p.dir.x on one stopped every bot's brain for the whole match. */
+      if(p.dead || p.owner === me || !p.dir) continue;
       if(p.owner && me.team && p.owner.team === me.team) continue;
       const dist = Math.hypot(p.x-me.x, p.z-me.z);
       if(dist > 25) continue;
@@ -1659,13 +1661,17 @@ const canSeeTarget = target ? !!pick.canSee : false;
       try { const v = target._physBody && target._physBody.linvel(); if(v){ vx = v.x; vz = v.z; } } catch(e){}
       const lead = (me.def.airstrikeDelay || 3) * 0.6;
       use = true; pick = { x: target.x + vx * lead, z: target.z + vz * lead };
-    } else if(type === 'molotov' && seen && dist < 19){
+    } else if(type === 'molotov' && seen && dist < 55){
       use = true; pick = { x: target.x, z: target.z };
     } else if(type === 'landfield' && seen && dist < 14){
       use = true; pick = { x: (me.x + target.x) / 2, z: (me.z + target.z) / 2 };
     } else if((type === 'cloak' || type === 'bush') && hurt && (seen || this._hitPanicTimer > 0)){
       use = true;
     } else if((type === 'panzers' || type === 'reload_boost') && seen && dist < 50){
+      use = true;
+    } else if(type === 'big_shells' && seen && dist < 45){
+      use = true;
+    } else if(type === 'mine_dash' && seen && dist < 40){
       use = true;
     } else if(type === 'oil' && seen && dist < 14){
       use = true;

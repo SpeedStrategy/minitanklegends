@@ -104,6 +104,20 @@ myself are marked *(mine)*.
 | 60 | A tank under a roof showed only as white x-ray stripes: the roof fade only checked one ray to the tank's centre and left the roof's outline shell solid. Now 5 rays (centre + hull corners) and outlines fade with their mesh. The look itself was kept as the **Glitch** skin (shop, 2500 gold). | `js/game.js` `_updateOccluders`, `js/tank-styles.js` | Fixed |
 | 61 | Camera: the angled view, the Settings > Camera View switch and the `/camera dynamic|strategic|tp` console commands are removed — top-down is the only camera. | `js/game.js`, `js/menu.js`, `js/config.js` | Done |
 
+## Found Oct 30
+
+| # | Bug | Where | Status |
+|---|-----|-------|--------|
+| 64 | `endX is not defined`: every frame an Inferno was alive, the aim line threw and skipped the rest of the match update. Camera, HUD, supers, deaths and input stopped updating: frozen camera, no shooting, HP stuck at 100, looking invincible. | `js/game.js` `_updateAimLine` | Fixed |
+| 65 | Bots read `p.dir.x` on every projectile; mines and other direction-less ones threw every frame, stopping the bot loop and everything after it. This was the "some supers crash the game" report. | `js/bot.js` `_detectIncomingShell` | Fixed |
+| 66 | A tank could stay alive at 0 HP. It now always goes through the normal death. | `js/tank.js` | Fixed |
+| 67 | A super cut short by death came back with the respawned tank (cloak, targeting). | `js/tank.js` `respawn` | Fixed |
+| 68 | Mines, molotov fire, bomb strikes and super bushes were placed at world height 0, under the ground on most maps. | `js/game.js` `_groundY` | Fixed |
+| 69 | "Account created" was the date you first opened the profile card. Signed-in accounts now use the server's date; guests use their first launch. | `js/menu.js` | Fixed |
+| 70 | Claimed mission cards flipped back when the menu was reopened. | `js/missions.js` | Fixed |
+| 71 | A finger that dragged off a joystick plus a second touch counted as a pinch, so driving changed the zoom. | `js/input.js` | Fixed |
+| 72 | Tank screen, Collections and win/lose screens overlapped or overflowed on phones. | `css/style.css` | Fixed |
+
 ## Known limits (not bugs, but worth knowing)
 
 - On The Hill, only one team's spawn sits near a ramp, so captures there are lopsided.

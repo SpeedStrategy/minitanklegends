@@ -12933,3 +12933,170 @@ body:has(#ui-layer.game-active) #mobile-back-btn { display: none; }
 .tm-research .tr-refund { margin-left: 8px; padding: 6px 12px; font-size: 13px; }
 .tm-research .tr-refund[disabled] { opacity: 0.45; cursor: default; }
 .tm-research .tr-refund.armed { background: #c0392b; color: #fff; }
+
+
+/* ============================================================
+   PRE-BATTLE TANK PICK (js/tank-pick.js)
+   ============================================================ */
+#tank-switch-panel.tank-switch-panel:not(.hidden){
+  position:fixed; inset:0; z-index:40; display:grid; pointer-events:auto;
+  grid-template-columns:230px 1fr; grid-template-rows:1fr 150px;
+  gap:10px; padding:70px 14px 14px; box-sizing:border-box; max-width:none; width:auto; height:auto;
+  left:0; right:0; top:0; bottom:0; transform:none; border:0; border-radius:0;
+  background:radial-gradient(ellipse at 60% 40%,rgba(40,48,60,.86),rgba(8,10,14,.96));
+}
+.tkp-team{grid-row:1;min-height:0;display:flex;flex-direction:column;background:rgba(0,0,0,.35);border:2px solid #000;border-radius:10px;padding:8px}
+.tkp-head{font-weight:900;letter-spacing:.14em;font-size:12px;color:#8fb8ff;margin-bottom:6px}
+.tkp-team-list{overflow-y:auto;min-height:0;display:flex;flex-direction:column;gap:6px}
+.tkp-mate{display:flex;align-items:center;gap:8px;background:rgba(60,110,220,.18);border:2px solid rgba(90,140,240,.35);border-radius:8px;padding:4px 6px;color:#fff}
+.tkp-mate.me{background:rgba(255,190,60,.2);border-color:#ffc94a}
+.tkp-mate img{width:58px;height:44px;object-fit:contain;flex:none}
+.tkp-mate b{display:block;font-size:12px;line-height:1.2}
+.tkp-mate span{display:block;font-size:11px;opacity:.75}
+.tkp-main{grid-row:1;grid-column:2;min-height:0;position:relative;display:flex}
+.tkp-stage{flex:1;min-width:0;cursor:grab;touch-action:none;position:relative}
+.tkp-stage:active{cursor:grabbing}
+.tkp-stage canvas{position:absolute;inset:0;width:100%!important;height:100%!important;display:block}
+.tkp-info{width:240px;align-self:center;color:#fff;flex:none}
+.tkp-name{font-size:30px;font-weight:900;letter-spacing:.04em;text-shadow:0 3px 0 #000}
+.tkp-desc{font-size:13px;opacity:.8;margin:6px 0 12px}
+.tkp-bar{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:800;margin:5px 0}
+.tkp-bar span{width:58px;opacity:.8}
+.tkp-bar i{flex:1;height:9px;background:#000;border-radius:5px;overflow:hidden}
+.tkp-bar b{display:block;height:100%;background:linear-gradient(90deg,#ffb12b,#ff7a14)}
+.tkp-strip{grid-column:1 / 3;grid-row:2;display:flex;gap:10px;overflow-x:auto;overflow-y:hidden;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;scrollbar-width:none;padding:4px 2px}
+.tkp-strip::-webkit-scrollbar{display:none}
+.tkp-strip.dragging{cursor:grabbing}
+.tkp-card{flex:0 0 150px;position:relative;background:linear-gradient(160deg,#2a303a,#171b22);border:3px solid #000;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#fff;box-shadow:0 4px 0 #000}
+.tkp-card.on{border-color:#ffc94a;box-shadow:0 0 0 2px #ffc94a,0 4px 0 #000}
+.tkp-card img{width:120px;height:90px;object-fit:contain;pointer-events:none}
+.tkp-card em{font-style:normal;font-weight:800;font-size:13px;pointer-events:none}
+.tkp-star{position:absolute;top:4px;right:7px;color:#566;font-size:17px}
+.tkp-star.on{color:#ffc94a}
+#match-cd:not(.hidden){z-index:41;pointer-events:none}
+@media (max-height:520px),(max-width:760px){
+  #tank-switch-panel.tank-switch-panel:not(.hidden){grid-template-columns:150px 1fr;grid-template-rows:1fr 92px;padding:40px 8px 8px;gap:6px}
+  .tkp-info{width:130px}.tkp-name{font-size:18px}.tkp-desc{display:none}
+  .tkp-mate img{width:36px;height:27px}.tkp-mate b{font-size:10px}.tkp-mate span{font-size:9px}
+  .tkp-card{flex-basis:96px}.tkp-card img{width:80px;height:56px}.tkp-card em{font-size:11px}
+}
+
+/* ---- animated VS card ---- */
+#vs-intro{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;pointer-events:none;overflow:hidden;background:#0a0c10;animation:vs-out .35s ease-in 3.15s forwards}
+.vs-row{flex:1;display:flex;align-items:center;justify-content:center;gap:10px;padding:10px;min-height:0}
+.vs-row.foes{background:linear-gradient(120deg,#6d1414,#c62b2b 55%,#7a1616)}
+.vs-row.mine{background:linear-gradient(300deg,#123a7a,#2b6fd6 55%,#143f85)}
+.vs-mid{height:0;position:relative;z-index:2;display:flex;justify-content:center}
+.vs-mid span{position:absolute;top:-52px;width:104px;height:104px;line-height:104px;text-align:center;border-radius:50%;background:#111;border:5px solid #fff;color:#ffc94a;font-size:52px;font-weight:900;font-style:italic;animation:vs-slam .45s cubic-bezier(.2,1.6,.4,1) .55s both}
+.vs-card{position:relative;flex:0 1 150px;min-width:0;background:rgba(0,0,0,.34);border:3px solid rgba(0,0,0,.65);border-radius:10px;padding:6px;text-align:center;color:#fff;animation:vs-in-r .4s ease-out both;animation-delay:calc(var(--i) * 60ms)}
+.vs-card.mate{animation-name:vs-in-l;animation-delay:calc(.9s + var(--i) * 60ms)}
+.vs-card img{width:100%;height:clamp(40px,14vh,110px);object-fit:contain}
+.vs-tank{font-weight:900;font-size:14px}
+.vs-player{font-size:11px;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vs-power{font-size:11px;margin-top:3px;font-weight:800;letter-spacing:.06em}
+.vs-power b{color:#ffc94a;font-size:15px}
+.vs-card.me{border-color:#ffc94a;background:rgba(255,190,60,.28);box-shadow:0 0 22px rgba(255,200,70,.85);transform-origin:center;animation:vs-in-l .4s ease-out .9s both,vs-me 1s ease-in-out 1.4s infinite alternate}
+.vs-you{position:absolute;top:-11px;left:50%;transform:translateX(-50%);background:#ffc94a;color:#000;font-size:11px;font-weight:900;border-radius:5px;padding:1px 9px;z-index:1}
+@keyframes vs-in-r{from{transform:translateX(70vw);opacity:0}to{transform:none;opacity:1}}
+@keyframes vs-in-l{from{transform:translateX(-70vw);opacity:0}to{transform:none;opacity:1}}
+@keyframes vs-slam{from{transform:scale(4);opacity:0}to{transform:scale(1);opacity:1}}
+@keyframes vs-me{from{box-shadow:0 0 12px rgba(255,200,70,.6)}to{box-shadow:0 0 30px rgba(255,200,70,1)}}
+@keyframes vs-out{to{opacity:0}}
+@media (max-height:520px){.vs-mid span{top:-32px;width:64px;height:64px;line-height:64px;font-size:30px;border-width:3px}.vs-tank{font-size:11px}.vs-player,.vs-power{font-size:9px}.vs-power b{font-size:11px}.vs-row{gap:5px;padding:5px}}
+
+/* Missions: a card claimed earlier is simply flipped, no replay of the turn. */
+.ms-mission-card.completed .ms-card-inner{transition:none!important;animation:none!important}
+
+/* ---- MOBILE CONTROLS ---- */
+body.is-mobile #minimap-btn,body.is-mobile #menu-btn{width:76px!important;height:76px!important;left:10px!important;border-radius:14px!important}
+body.is-mobile #minimap-btn{top:10px!important}
+body.is-mobile #menu-btn{top:94px!important}
+body.is-mobile #minimap-btn svg,body.is-mobile #menu-btn svg{width:42px!important;height:42px!important}
+/* The super is a third stick: above the aim stick, dragged to place the strike. */
+body.is-mobile #super-wrap:not(.hidden){display:block!important;left:auto!important;right:34px!important;bottom:206px!important;width:92px!important;height:92px!important;touch-action:none}
+body.is-mobile #super-btn{touch-action:none}
+body.is-mobile #super-btn .super-label{font-size:13px}
+@media (max-height:430px){body.is-mobile #super-wrap{bottom:150px!important;right:20px!important;width:76px!important;height:76px!important}}
+
+/* The countdown sits above the pick screen instead of across the tank. */
+body.tkp-open #match-cd:not(.hidden){position:fixed;top:6px;left:50%;right:auto;bottom:auto;transform:translateX(-50%);width:auto;height:auto;background:none}
+body.tkp-open .match-cd-box{padding:0;background:none;border:0;box-shadow:none;display:flex;align-items:center;gap:12px}
+body.tkp-open .match-cd-num{font-size:44px;line-height:1}
+body.tkp-open #strategic-reticle,body.tkp-open #crosshair{display:none!important}
+
+/* ---- MOBILE: collections fit the screen ---- */
+body.is-mobile .collection-card{padding:8px 10px;gap:6px}
+body.is-mobile .collection-label{font-size:12px;letter-spacing:2px;margin-bottom:0}
+body.is-mobile .tank-row{gap:8px;padding-left:0;justify-content:center}
+body.is-mobile .tank-slot{width:clamp(96px,27vw,170px);height:clamp(84px,27vh,120px);border-radius:12px}
+body.is-mobile .tank-slot .lock-icon{font-size:28px}
+body.is-mobile .tank-slot .lock-icon img,body.is-mobile .tank-slot .lock-icon svg{max-width:36px;max-height:36px}
+body.is-mobile .tank-slot .tank-name{font-size:12px;margin-top:4px;padding:2px 6px}
+body.is-mobile .tank-slot-body{width:60px;height:26px;margin-bottom:4px}
+body.is-mobile .tank-slot-turret{width:30px;height:14px;margin-bottom:3px}
+body.is-mobile .tank-slot-barrel{width:24px;height:5px;margin-bottom:0}
+body.is-mobile #collections-bottom-bar{margin:4px auto;padding:4px 10px}
+
+/* ---- MOBILE: tank screen. The model on the left stays put, everything else is
+   one scrolling column on the right, instead of panels stacked on each other. ---- */
+body.is-mobile #menu-tank:not(.hidden){display:flex!important;flex-direction:column;align-items:stretch;justify-content:flex-start;padding:8px 8px 20px calc(42vw + 8px)!important;overflow-y:auto!important;overflow-x:hidden;box-sizing:border-box;-webkit-overflow-scrolling:touch;touch-action:pan-y}
+body.is-mobile #menu-tank .tm-viewer{position:fixed!important;left:0;top:0;bottom:0;right:auto;width:42vw!important;height:100%!important;touch-action:none}
+body.is-mobile #menu-tank .tm-overlay-top-left{position:fixed!important;left:8px;top:8px;width:calc(42vw - 16px);z-index:3;pointer-events:none}
+body.is-mobile #menu-tank .tm-back{pointer-events:auto;padding:9px 14px}
+body.is-mobile #menu-tank .tm-tank-name{font-size:20px;margin:6px 0 0}
+body.is-mobile #menu-tank .tm-tank-desc{display:none}
+body.is-mobile #menu-tank .tm-overlay-bottom{position:static!important;order:1;height:auto!important;width:auto!important;transform:none!important;flex:none;background:none;padding:0}
+body.is-mobile #menu-tank .tm-overlay-right{position:static!important;order:2;width:auto!important;max-height:none!important;height:auto!important;flex:none;overflow:visible!important;margin-top:8px}
+body.is-mobile #menu-tank .tm-overlay-right .tm-panel{max-height:none!important;overflow:visible!important;margin-bottom:8px}
+body.is-mobile #menu-tank .tm-bottom-actions{display:block;padding:0;height:auto}
+body.is-mobile #menu-tank .tm-left-col{display:grid;grid-template-columns:1fr 1fr;gap:6px;width:auto;margin-bottom:6px}
+body.is-mobile #menu-tank .tm-btn{min-height:46px;width:100%;margin:0;padding:6px;font-size:13px}
+body.is-mobile #menu-tank .tm-xp-col{width:auto;margin:0 0 6px;height:auto}
+body.is-mobile #menu-tank .tm-cosmetics-bar{position:static;height:auto;max-height:none;margin-top:4px;border-radius:10px}
+body.is-mobile #menu-tank .tm-cosmo-tab{min-height:40px;padding:4px;font-size:12px}
+body.is-mobile #menu-tank .tm-cosmo-body{height:auto;max-height:none;overflow:visible}
+body.is-mobile #menu-tank .tm-tooltip{display:none!important}
+@media (orientation:portrait){
+  body.is-mobile #menu-tank{padding:calc(36vh + 8px) 8px 20px 8px!important}
+  body.is-mobile #menu-tank .tm-viewer{width:100%!important;right:0;bottom:auto;height:36vh!important}
+  body.is-mobile #menu-tank .tm-overlay-top-left{width:calc(100% - 16px)}
+}
+
+/* ---- MOBILE: upgrade research ---- */
+body.is-mobile .tm-research .tr-head{padding:4px 8px;gap:6px;flex-wrap:wrap;min-height:0}
+body.is-mobile .tm-research .tr-titlewrap{display:none}
+body.is-mobile .tm-research .tr-meta{flex:1;min-width:0}
+body.is-mobile .tm-research .tr-chips{flex-wrap:wrap;gap:4px;justify-content:flex-end}
+body.is-mobile .tm-research .tr-chip{font-size:10px;padding:3px 6px}
+body.is-mobile .tm-research .tr-super,body.is-mobile .tm-research .tr-foot,body.is-mobile .tm-research .tr-ribbon{display:none}
+body.is-mobile .tm-research .tr-back{padding:8px 12px;min-height:38px}
+body.is-mobile .tm-research .tr-refund{min-height:32px;padding:3px 8px;font-size:11px}
+body.is-mobile .tm-research .tr-rows{overflow:auto!important;touch-action:pan-x pan-y;-webkit-overflow-scrolling:touch;flex:1;min-height:0}
+body.is-mobile .tm-research .tp-buy{min-height:36px}
+
+/* ---- MOBILE: results ---- */
+body.is-mobile #results-overlay{overflow-y:auto!important;-webkit-overflow-scrolling:touch;touch-action:pan-y}
+
+body.is-mobile .tm-research{position:fixed!important;inset:0}
+
+/* Phone results: one readable scrolling column over a dimmed scene, the boards
+   below the summary, and CONTINUE always on screen. */
+body.is-mobile #results-overlay:not(.hidden){display:flex!important;flex-direction:column;padding:6px 8px 64px;box-sizing:border-box}
+body.is-mobile #results-overlay .res-backdrop,body.is-mobile #results-overlay .res-canvas{position:fixed!important;inset:0;width:100%!important;height:100%!important}
+body.is-mobile #results-overlay .res-canvas{opacity:.28;pointer-events:none}
+body.is-mobile #results-overlay .res-fog,body.is-mobile #results-overlay .res-floats,body.is-mobile #results-overlay .res-hint{display:none!important}
+body.is-mobile #results-overlay .res-centre{position:relative!important;order:1;display:flex;flex-direction:column;align-items:stretch;height:auto!important;min-height:0;flex:none;z-index:2;padding:0!important;margin:0!important;transform:none!important}
+body.is-mobile #results-overlay .res-banner{width:auto!important;min-height:0;height:auto;margin:0 0 6px!important;padding:6px 10px!important;transform:none!important}
+body.is-mobile #results-overlay .res-mainrow{width:auto!important;margin:0!important;display:block}
+body.is-mobile #results-overlay .res-stats{width:auto!important;margin:0 0 6px!important;gap:6px}
+body.is-mobile #results-overlay .res-rewards{width:auto!important;margin:0 0 6px!important}
+body.is-mobile #results-overlay .res-foot{position:fixed!important;right:8px;bottom:6px;left:auto;margin:0!important;width:auto!important;z-index:6;padding:0!important}
+body.is-mobile #results-overlay .res-continue{min-height:48px;min-width:170px;margin:0!important}
+body.is-mobile #results-overlay .res-top{position:relative!important;order:2;inset:auto;width:auto!important;height:auto!important;display:grid;grid-template-columns:1fr 1fr;gap:6px;flex:none;z-index:2;margin:0;padding:0}
+body.is-mobile #results-overlay .res-board{position:relative!important;left:auto;right:auto;top:auto;width:auto!important;height:auto!important;max-height:none!important;overflow:visible!important;margin:0!important}
+body.is-mobile #results-overlay .res-board-title,body.is-mobile #results-overlay .res-row-head{position:static!important}
+@media (orientation:portrait){body.is-mobile #results-overlay .res-top{grid-template-columns:1fr}}
+
+body.tkp-open .joystick-container{display:none!important}
+body.is-mobile #results-overlay .res-centre{left:0!important;top:0!important;right:auto!important;bottom:auto!important;width:auto!important}
+body.is-mobile #results-overlay .res-backdrop{background:rgba(9,11,15,.9)!important}
