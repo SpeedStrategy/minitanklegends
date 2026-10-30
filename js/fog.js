@@ -24,7 +24,7 @@ const FogOfWar = (() => {
   let _views = [];                /* [{x, z, reach:Float32Array}] */
 
   function rangeOf(t){
-    return (t.viewRange || t.def.viewRange || 80) * ((CONFIG && CONFIG.FOG_VIEW_SCALE) || 0.5);
+    return (t.viewRange || t.def.viewRange || 80) * ((CONFIG && CONFIG.FOG_VIEW_SCALE) || 0.875);
   }
 
   function isAlly(me, t){
@@ -91,7 +91,7 @@ const FogOfWar = (() => {
     _tex.generateMipmaps = false;
     const geo = new THREE.PlaneGeometry(span, span);
     geo.rotateX(-Math.PI / 2);
-    const mat = new THREE.MeshBasicMaterial({ color: 0x010204, alphaMap: _tex, transparent: true, opacity: 0.98, depthTest: false, depthWrite: false, toneMapped: false, fog: false });
+    const mat = new THREE.MeshBasicMaterial({ color: 0x010204, alphaMap: _tex, transparent: true, opacity: 0.9, depthTest: false, depthWrite: false, toneMapped: false, fog: false });
     _mesh = new THREE.Mesh(geo, mat);
     _mesh.renderOrder = 900;
     _mesh.frustumCulled = false;

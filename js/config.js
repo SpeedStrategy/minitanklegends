@@ -290,7 +290,7 @@ const CONFIG = {
   SUPER_CHARGE_DAMAGE: 300,
   /* Fog of war (js/fog.js): how far a tank clears it = viewRange x this. */
   FOG_OF_WAR: true,
-  FOG_VIEW_SCALE: 0.5,
+  FOG_VIEW_SCALE: 0.875,
   /* Pre-battle: seconds to choose a tank, then the animated VS card. */
   PICK_TIME: 15,
   VS_TIME: 3.5,
