@@ -13104,3 +13104,20 @@ body.is-mobile #results-overlay .res-backdrop{background:rgba(9,11,15,.9)!import
 .tkp-super{font-size:12px;margin-top:10px;opacity:.9;line-height:1.3}
 .tkp-super b{display:block;color:#ffc94a;font-size:13px;margin-bottom:2px}
 @media (max-height:520px),(max-width:760px){.tkp-super{font-size:10px;margin-top:4px}.tkp-super b{font-size:11px}}
+
+
+/* Impact crosshair: four sticks where the shell really ends (game.js). */
+#impact-reticle{position:fixed;width:34px;height:34px;margin:-17px 0 0 -17px;pointer-events:none;z-index:59;display:none}
+#impact-reticle i{position:absolute;background:#fff;box-shadow:0 0 0 1.5px rgba(0,0,0,.75)}
+#impact-reticle .n,#impact-reticle .s{left:15.5px;width:3px;height:10px}
+#impact-reticle .w,#impact-reticle .e{top:15.5px;height:3px;width:10px}
+#impact-reticle .n{top:0}#impact-reticle .s{bottom:0}#impact-reticle .w{left:0}#impact-reticle .e{right:0}
+#impact-reticle.blocked i{background:#ffb12b}
+body:has(.menu:not(.hidden)) #impact-reticle,body.tkp-open #impact-reticle{display:none!important}
+
+/* Mobile fire stick: lit while aimed, red in the centre cancel zone. */
+#joystick-turret.stick-aim .joystick-outer{border-color:#ffb12b;box-shadow:0 0 16px rgba(255,177,43,.7)}
+#joystick-turret.stick-cancel .joystick-outer{border-color:#ff5b5b;background:rgba(255,60,60,.14)}
+
+/* The trajectory line is always dashed now, so its style picker is gone. */
+#aim-settings label:has(+ .aim-styles-btn),#aim-styles-btn,#aim-styles-panel{display:none!important}

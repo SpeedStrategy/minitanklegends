@@ -1224,6 +1224,9 @@ class Game {
   _updateAimChevrons(endPos, glow){
     const list = this._aimChevrons;
     if(!list) return;
+    /* The arrow stream is retired: the dashed line and the impact crosshair say it. */
+    list.forEach(s => { s.visible = false; });
+    return;
     if(!endPos || this.cameraMode !== 'strategic' || !this.aimLine || !this.aimLine.visible){
       list.forEach(s => { s.visible = false; });
       return;
@@ -1368,14 +1371,14 @@ class Game {
     const pos = geo.attributes.position.array;
     const col = geo.attributes.color.array;
     const MAX = this._aimMaxSeg || 480;
-    const style = styleOverride || (this.settings && this.settings.aimLineStyle) || 'fade';
+    const style = styleOverride || 'dashes';
     const cam = this.camera;
     const cssH = (this.renderer && this.renderer.domElement && this.renderer.domElement.clientHeight)
                  || window.innerHeight || 900;
     const tanHalf = Math.tan((cam.fov || 50) * Math.PI / 360);
     // Thickness in screen pixels, per aim-line style. Scaled to 1/1.5 of the
     // old widths on request: the line reads as a guide, not a road marking.
-    const BASE_PX = { fade:1.6, breakup:1.6, taper:3, dots:2.3, zigzag:1.6, wedge:3.3, pulse:2, mortar:7.5 };
+    const BASE_PX = { dashes:2.6, fade:1.6, breakup:1.6, taper:3, dots:2.3, zigzag:1.6, wedge:3.3, pulse:2, mortar:7.5 };
     const basePx = BASE_PX[style] || 3.3;
     const R = Math.max(1, range);
     const cpx = cam.position;
@@ -1383,6 +1386,11 @@ class Game {
     // alpha + width multiplier for a point `d` metres down the line
     const styleAt = (d) => {
       if(d < 0) return {a:1, w:1};
+      if(style === 'dashes'){                      /* - - - - - -  */
+        const ph = d % 3.4;
+        if(ph > 2) return {a:0, w:1};
+        return {a: Math.min(1, ph / 0.12, (2 - ph) / 0.12), w:1};
+      }
       if(style === 'breakup'){
         if(d <= 50) return {a:1, w:1};
         const k = Math.min(1, (d - 50) / 15);
@@ -10938,6 +10946,7 @@ _initMortarMarker(){
        three are drawn from the tank's gun, so hiding one and not the others
        would leave the worst of it on screen. */
     if(this._endCine){
+      this._updateImpactReticle(null);
       this.aimLine.visible = false;
       if(this.aimMarkers) this.aimMarkers.visible = false;
       this._updateMortarMarker(null);
@@ -10952,7 +10961,12 @@ _initMortarMarker(){
       this._spreadEdges.visible = false;
       this._spreadAimOwner = null;
     }
-    if(!t || !t.alive){
+    /* Brawl-style on a phone: nothing is drawn unless the fire stick is aimed, so
+       dragging back to the centre visibly cancels the shot. */
+    const stickNotAiming = document.body.classList.contains('is-mobile') && this.input && this.input._turretJoystick &&
+      !this.input._turretJoystick.getValue().aiming;
+    if(!t || !t.alive || stickNotAiming || this._cinematicPhase || this._matchStartDelay > 0){
+      this._updateImpactReticle(null);
       this.aimLine.visible = false; if(this.aimMarkers) this.aimMarkers.visible = false;
       this._updateMortarMarker(null);      /* also hides the range rings */
       this._mortarAimLast = null;          /* so respawning redraws immediately */
@@ -10971,6 +10985,10 @@ _initMortarMarker(){
         t.def.shellType !== 'mortar'){
        dir = this._pitchDir(muz.dir, this._aimPitch);
      }
+    if(t.def.shellType !== 'mortar'){
+      const hit = this._aimImpact(t, pos, dir, true);
+      this._updateImpactReticle({ x: hit.x, y: hit.y, z: hit.z }, hit.blocked);
+    }
     /* MODE 1: the centre crosshair rides the pitch on screen, so "mouse up" is
        visibly the crosshair moving up, not the camera tilting. */
     const chEl = document.getElementById('crosshair');
@@ -11020,6 +11038,7 @@ _initMortarMarker(){
          on screen and the curve in the air cannot disagree. */
       const aim = this._mortarAim(t, pos);
       const p = aim ? aim.point : null;
+      this._updateImpactReticle(p ? { x: p.x, y: t.root.position.y + 1, z: p.z } : null, !!(aim && aim.blocked));
       const prev = this._mortarAimLast;
       if(prev && p && prev.px === p.x && prev.pz === p.z && prev.d === aim.dist){
         this._aimStale = false;
@@ -11081,7 +11100,7 @@ _initMortarMarker(){
     }
     this._strategicGlow = glow;
     if(this.cameraMode === 'strategic'){
-      const mop = this.settings.aimLineOpacity || 0.3;
+      const mop = Math.max(0.6, this.settings.aimLineOpacity || 0.6);
       if(!this._aimGlowActive){ this._aimGlowBaseOp = this.aimLine.material.opacity;
                                 this._aimGlowActive = true; }
       this.aimLine.material.opacity = Math.min(1, mop * (1 + 1.8 * glow));
@@ -11136,36 +11155,15 @@ _initMortarMarker(){
     const V_SPEED = t.def.shellSpeed * Math.sin(pitch);
     const N = 96;
     const T_STEP = flightT / N;
-    let endT = flightT;
-    let blocked = false;
-    for(let i=0;i<=N;i++){
-      const T = i * T_STEP;
-      const sx = pos.x + Math.sin(yaw) * H_SPEED * T;
-      const sz = pos.z + Math.cos(yaw) * H_SPEED * T;
-      const sy = pos.y + V_SPEED * T - 0.5 * grav * T * T;
-      if(this.world.collidesWallsOnly(sx, sz, 0.3)){
-        const wh = this._wallHeadroom(this.world, sx, sz);
-        if(sy <= wh){
-          endT = T;           /* the shell dies HERE — include the point and stop */
-          blocked = true;
-          break;
-        }
-        /* Above the wall crest: carries on, keep sampling. */
-      }
-    }
+    /* The line runs to where the shell really stops: the same physics ray the
+       impact crosshair uses, at the height shells fly. */
+    const wallHit = this._aimImpact(t, pos, dir, false);
+    let endT = H_SPEED > 0 ? wallHit.dist / H_SPEED : flightT;
     /* THE LINE ENDS AT THE CURSOR (strategic/top-down camera, mouse aim).
        It used to run the gun's full range along the turret, so its end sat in
        the same place wherever the cursor went -- it read as a line stuck to
        the tank. Now it stops where you point, never past the gun's range and
        never through a wall (a wall still ends it first). Touch has no cursor. */
-    if(this.cameraMode === 'strategic' && !this.spectate && !isCone && H_SPEED > 0 &&
-       !document.body.classList.contains('is-mobile')){
-      const cp = this._cursorGroundPoint(pos.y);
-      if(cp){
-        const cT = Math.max(T_STEP * 3, Math.hypot(cp.x - pos.x, cp.z - pos.z) / H_SPEED);
-        if(cT < endT){ endT = cT; blocked = false; }
-      }
-    }
     const endDist = H_SPEED * endT;
     const endY = pos.y + V_SPEED * endT - 0.5 * grav * endT * endT;
     const pts = [];                 // polyline the ribbon is drawn along
@@ -11184,7 +11182,7 @@ _initMortarMarker(){
        reading anything. Anything not blocked is drawn to the end of flight
        with no X at all, so an open shot and a blocked shot look different
        at a glance. */
-    this._updateWallHitMark(blocked, ricoX, endY, ricoZ);
+    this._updateWallHitMark(false, ricoX, endY, ricoZ);   /* the impact crosshair does this job now */
     if(isCone){
       const tanHalf = t.def.fireConeHalfAngle || 0.12;
       const halfW = endDist * tanHalf;
@@ -11780,23 +11778,20 @@ _initMortarMarker(){
     this._occRay = this._occRay || new THREE.Raycaster();
     this._occTo = this._occTo || new THREE.Vector3();
     this._occDir = this._occDir || new THREE.Vector3();
-    const from = this.camera.position;
-    const ty = (t.root ? t.root.position.y : (t.y || 0)) + (t.colOffY || 1.2);
-    /* The centre and the four hull corners. One ray to the centre left any
-       roof edge over the front or back of the tank opaque, and the x-ray pass
-       then drew the whole covered part as white stripes. */
-    const hw = (t.colHalfW || 2) * 0.9, hl = (t.colHalfL || 3) * 0.9;
+    const ty = (t.root ? t.root.position.y : (t.y || 0)) + (t.colOffY || 1) + (t.colHalfH || 1) + 1;
+    /* Only what is DIRECTLY OVERHEAD fades: straight-down rays over the hull. They
+       used to run from the camera to the hull corners, and from a raised camera
+       such a ray clips the top of any wall the tank is touching, so that wall
+       vanished until the tank moved away. */
+    const hw = (t.colHalfW || 2) * 0.6, hl = (t.colHalfL || 3) * 0.6;
     const ch = Math.cos(t.heading || 0), sh = Math.sin(t.heading || 0);
     const pts = [[0, 0], [hw, hl], [-hw, hl], [hw, -hl], [-hw, -hl]];
     const hitSet = new Set();
     for(const [lx, lz] of pts){
-      this._occTo.set(t.x + lx * ch + lz * sh, ty, t.z - lx * sh + lz * ch);
-      this._occDir.copy(this._occTo).sub(from);
-      const len = this._occDir.length();
-      if(!(len > 2)) continue;
-      this._occDir.multiplyScalar(1 / len);
-      this._occRay.set(from, this._occDir);
-      this._occRay.far = len - 2.5;
+      this._occTo.set(t.x + lx * ch + lz * sh, ty + 80, t.z - lx * sh + lz * ch);
+      this._occDir.set(0, -1, 0);
+      this._occRay.set(this._occTo, this._occDir);
+      this._occRay.far = 80;
       for(const h of this._occRay.intersectObjects(list, false)) hitSet.add(h.object);
     }
     /* A faded mesh takes its outline shell (a child mesh) with it; a solid
@@ -11824,6 +11819,65 @@ _initMortarMarker(){
     let i = 2;
     while(used.has(base + ' ' + i)) i++;
     return base + ' ' + i;
+  }
+
+  /* Where a shell fired now stops: the first wall (and, for the crosshair, the
+     first enemy you can see) along its flat path, else the end of its range.
+     Allies are skipped because shells pass them; fogged tanks are skipped so the
+     crosshair cannot be used to find them. */
+  _aimImpact(t, pos, dir, withTanks){
+    const y = (t.root ? t.root.position.y : pos.y) + (t.colOffY || 0);
+    const len = Math.hypot(dir.x, dir.z) || 1, dx = dir.x / len, dz = dir.z / len;
+    const R = t.def.shellRange || 60;
+    let dist = R, blocked = false;
+    const pw = this.physicsWorld;
+    if(pw && typeof RAPIER !== 'undefined' && RAPIER.Ray){
+      const pred = (c) => {
+        const u = c && c.userData;
+        if(!u) return true;
+        if(u.type === 'shell') return false;
+        if(u.type === 'tank'){
+          const o = u.tank;
+          if(!withTanks || !o || o === t || !o.alive || o._fogHidden) return false;
+          return !(t.team && o.team === t.team);
+        }
+        return true;
+      };
+      try {
+        const hit = pw.castRay(new RAPIER.Ray({ x: pos.x, y, z: pos.z }, { x: dx, y: 0, z: dz }), R, true, undefined, undefined, undefined, undefined, pred);
+        const toi = hit && (hit.timeOfImpact != null ? hit.timeOfImpact : hit.toi);
+        if(toi != null){ dist = Math.min(R, toi); blocked = true; }
+      } catch(e){}
+    }
+    /* Mouse aim: with nothing in the way before the cursor, line and crosshair end
+       at the cursor. A gun's full range is usually off-screen. */
+    if(t.def.shellType !== 'flame' && !document.body.classList.contains('is-mobile')){
+      const cp = this._cursorGroundPoint(y);
+      if(cp){
+        const cd = Math.hypot(cp.x - pos.x, cp.z - pos.z);
+        if(cd < dist){ dist = cd; blocked = false; }
+      }
+    }
+    return { x: pos.x + dx * dist, y, z: pos.z + dz * dist, dist, blocked };
+  }
+
+  /* The second crosshair: four sticks at the spot the shell will actually end. */
+  _updateImpactReticle(p, blocked){
+    let el = this._impactReticle;
+    if(!el){
+      el = this._impactReticle = document.createElement('div');
+      el.id = 'impact-reticle';
+      el.innerHTML = '<i class="n"></i><i class="s"></i><i class="w"></i><i class="e"></i>';
+      document.body.appendChild(el);
+    }
+    if(!p){ el.style.display = 'none'; return; }
+    this._ivec = this._ivec || new THREE.Vector3();
+    this._ivec.set(p.x, p.y, p.z).project(this.camera);
+    if(this._ivec.z > 1){ el.style.display = 'none'; return; }
+    el.style.display = 'block';
+    el.style.left = ((this._ivec.x * 0.5 + 0.5) * window.innerWidth) + 'px';
+    el.style.top = ((-this._ivec.y * 0.5 + 0.5) * window.innerHeight) + 'px';
+    el.classList.toggle('blocked', !!blocked);
   }
 
   /* Where the mouse cursor meets the horizontal plane at height y, or null. */

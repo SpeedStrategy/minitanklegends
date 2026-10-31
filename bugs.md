@@ -123,6 +123,8 @@ myself are marked *(mine)*.
 | 74 | *(mine)* The contact-filter callback added for shells could leave Rapier locked ("recursive use of an object"), after which physics never stepped again. Removed; shells now start just outside the firing tank's hitbox. | `js/game.js`, `js/projectile.js` | Fixed |
 | 75 | "Too many active WebGL contexts": the tank screen and a menu preview released their renderer without freeing its context, so opening them repeatedly could cost the oldest one, possibly the game's. | `js/tank-menu.js`, `js/menu.js` | Fixed |
 
+| 76 | *(mine)* Walls vanished while you touched them: the roof fade cast rays from the raised camera to the hull corners, which clipped the top of any wall beside the tank. It now only fades what is directly overhead. | `js/game.js` `_updateOccluders` | Fixed |
+
 ## Known limits (not bugs, but worth knowing)
 
 - On The Hill, only one team's spawn sits near a ramp, so captures there are lopsided.

@@ -14,14 +14,15 @@
    Bots keep their own line-of-sight rules; this is only what the player sees.
    ============================================================ */
 const FogOfWar = (() => {
-  const RAYS = 120;
-  const UPDATE_EVERY = 0.08;      /* seconds between vision updates */
+  const RAYS = 160;
+  const BAND = 0.16;              /* half-fog ring, as a share of the view radius */
   const WALL_PEEK = 2.5;          /* a wall's own face stays visible */
-  const SIZE_OK = 512, SIZE_PHONE = 320;
+  const SIZE_OK = 768, SIZE_PHONE = 512;
 
   let _mesh = null, _ctx = null, _tex = null, _span = 0, _size = 0;
   let _timer = 0, _active = false;
-  let _views = [];                /* [{x, z, reach:Float32Array}] */
+  let _views = [];                /* [{t, x, z, reach, band}] */
+  let _next = 0;                  /* whose rays are refreshed this tick */
 
   function rangeOf(t){
     return (t.viewRange || t.def.viewRange || 80) * ((CONFIG && CONFIG.FOG_VIEW_SCALE) || 0.875);
@@ -38,14 +39,15 @@ const FogOfWar = (() => {
 
   function castView(game, t){
     const R = rangeOf(t);
-    const reach = new Float32Array(RAYS);
+    const reach = new Float32Array(RAYS), band = new Float32Array(RAYS);
+    const edge = R * (1 + BAND);
     const pw = game.physicsWorld;
     /* Above the roof: a nearby slope should not blind it, a real wall still blocks. */
     const y = t.root.position.y + (t.colOffY || 1) + (t.colHalfH || 1) + 1;
     let ray = null;
     if(pw && typeof RAPIER !== 'undefined' && RAPIER.Ray) ray = new RAPIER.Ray({ x: t.x, y, z: t.z }, { x: 0, y: 0, z: 1 });
     for(let i = 0; i < RAYS; i++){
-      let r = R;
+      let r = R, b = edge;
       if(ray){
         const a = i / RAYS * Math.PI * 2;
         ray.dir = { x: Math.sin(a), y: 0, z: Math.cos(a) };
@@ -53,13 +55,14 @@ const FogOfWar = (() => {
           const hit = pw.castRay(ray, R, true, undefined, undefined, undefined, undefined, notActor);
           if(hit){
             const toi = hit.timeOfImpact != null ? hit.timeOfImpact : hit.toi;
-            if(toi != null) r = Math.min(R, toi + WALL_PEEK);
+            /* Behind a wall there is no half-fog either: the wall stops it all. */
+            if(toi != null){ r = Math.min(R, toi + WALL_PEEK); b = r + 0.5; }
           }
         } catch(e){}
       }
-      reach[i] = r;
+      reach[i] = r; band[i] = b;
     }
-    return { x: t.x, z: t.z, reach };
+    return { t, x: t.x, z: t.z, reach, band };
   }
 
   /* Is a point inside anyone's current view? pad = the tank's own size, so one
@@ -100,25 +103,27 @@ const FogOfWar = (() => {
 
   function paint(){
     const s = _size / _span, h = _span / 2, g = _ctx;
-    g.filter = 'none';
-    g.globalCompositeOperation = 'source-over';
+    /* TOON: three flat steps with hard edges. Solid fog, a ring of half fog (still
+       fog: nothing in it is seen), and clear. All bands first, so one tank's
+       ring never paints over a teammate's clear area. */
+    const pass = (key, style) => {
+      g.fillStyle = style;
+      for(const v of _views){
+        const arr = v[key];
+        g.beginPath();
+        for(let i = 0; i < RAYS; i++){
+          const a = i / RAYS * Math.PI * 2, r = arr[i];
+          const px = (v.x + Math.sin(a) * r + h) * s, py = (v.z + Math.cos(a) * r + h) * s;
+          if(i) g.lineTo(px, py); else g.moveTo(px, py);
+        }
+        g.closePath();
+        g.fill();
+      }
+    };
     g.fillStyle = '#fff';
     g.fillRect(0, 0, _size, _size);
-    /* Soft edge: blur survives where the canvas supports it and is harmless
-       where it does not. */
-    g.filter = 'blur(' + Math.max(1, Math.round(_size / 170)) + 'px)';
-    g.fillStyle = '#000';
-    for(const v of _views){
-      g.beginPath();
-      for(let i = 0; i < RAYS; i++){
-        const a = i / RAYS * Math.PI * 2, r = v.reach[i];
-        const px = (v.x + Math.sin(a) * r + h) * s, py = (v.z + Math.cos(a) * r + h) * s;
-        if(i) g.lineTo(px, py); else g.moveTo(px, py);
-      }
-      g.closePath();
-      g.fill();
-    }
-    g.filter = 'none';
+    pass('band', '#8c8c8c');
+    pass('reach', '#000');
     _tex.needsUpdate = true;
   }
 
@@ -156,8 +161,20 @@ const FogOfWar = (() => {
     _mesh.position.y = me.root.position.y + 1;
     _timer -= dt;
     if(_timer > 0) return;
-    _timer = UPDATE_EVERY;
-    _views = sources.map(t => castView(game, t));
+    _timer = document.body.classList.contains('is-mobile') ? 0.05 : 0.033;
+    /* A hard edge shows every step, so the circles are redrawn often and follow
+       the tanks' live positions. Rays are the cost: your own every tick, one
+       teammate per tick round-robin. */
+    const old = _views;
+    _next++;
+    const others = sources.filter(t => t !== me);
+    const turn = others.length ? others[_next % others.length] : null;
+    _views = sources.map(t => {
+      const prev = old.find(v => v.t === t);
+      if(!prev || t === me || t === turn) return castView(game, t);
+      prev.x = t.x; prev.z = t.z;
+      return prev;
+    });
     paint();
     for(const t of game.tanks){
       if(!t || !t.root || t.isDummy) continue;

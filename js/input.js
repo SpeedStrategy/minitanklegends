@@ -164,10 +164,13 @@ class TouchJoystick {
       if(this.opts.turretFireMode === 'armedPress'){
         // joystick "up" is negative dy (screen coords), so angle relative to up:
         // relAngle = atan2(x, -y)
-        const ang = Math.atan2(this.dx, -this.dy);
-        this.relAngle = ang;
-
         const mag = Math.min(1, Math.hypot(this.dx, this.dy));
+        /* Inside the centre zone is "cancel": the gun holds its last aim and
+           letting go fires nothing. */
+        const aimed = mag >= (this.opts.aimThreshold || 0.3);
+        if(aimed) this.relAngle = Math.atan2(this.dx, -this.dy);
+        this.container.classList.toggle('stick-aim', aimed);
+        this.container.classList.toggle('stick-cancel', !aimed);
         this.armed = mag >= this.opts.armedThreshold;
       }
     };
@@ -176,9 +179,10 @@ class TouchJoystick {
       for(let t of e.changedTouches){
         if(t.identifier === this.touchId){
           /* Let go while aimed = fire. A short touch that never aimed does nothing. */
-          if(this.opts.turretFireMode === 'armedPress' && Math.hypot(this.dx, this.dy) >= (this.opts.aimThreshold || 0.35)){
+          if(this.opts.turretFireMode === 'armedPress' && Math.hypot(this.dx, this.dy) >= (this.opts.aimThreshold || 0.3)){
             this.releaseFire = true;
           }
+          this.container.classList.remove('stick-aim', 'stick-cancel');
           this.active = false;
           this.touchId = -1;
 
@@ -209,7 +213,7 @@ class TouchJoystick {
 
   getValue(){
     return {x: this.dx, y: this.dy, firing: this.firing, relAngle: this.relAngle, armed: this.armed,
-            aiming: this.active && Math.hypot(this.dx, this.dy) >= (this.opts.aimThreshold || 0.35)};
+            aiming: this.active && Math.hypot(this.dx, this.dy) >= (this.opts.aimThreshold || 0.3)};
   }
 
   /* Force-clear any active touch and return the knob to center. Called when a
@@ -226,6 +230,8 @@ class TouchJoystick {
     this.armed = false;
     this.firePulse = false;
     this.firing = false;
+    this.releaseFire = false;
+    if(this.container) this.container.classList.remove('stick-aim', 'stick-cancel');
     this._updateKnob(0, 0);
   }
 }
