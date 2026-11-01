@@ -145,6 +145,9 @@ const CONFIG = {
      the same for all of them; only the pitch changes. Index 0..4. */
   CAM_PITCH_OPTIONS: [45, 50, 60, 80, 85],
 
+  /* How far up or down a shell can leave a level gun. The gun model never tilts. */
+  SHOT_PITCH_DEG: 15,
+
   // Mode 1 crosshair pitch: mouse-Y moves the CROSSHAIR, not the camera.
   AIM_PITCH_UP_DEG:   18,      // how far the aim can rise above horizontal
   AIM_PITCH_DOWN_DEG: 8,       // how far it can dig below horizontal

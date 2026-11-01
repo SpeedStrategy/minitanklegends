@@ -344,7 +344,7 @@ class Shell {
     const own = this.owner;
     if(own && own.hitTest2D && this.dir){
       for(let i = 0; i < 60 && own.hitTest2D(this.x, this.z, this.radius + 0.4); i++){
-        this.x += this.dir.x * 0.5; this.z += this.dir.z * 0.5;
+        this.x += this.dir.x * 0.5; this.y += this.dir.y * 0.5; this.z += this.dir.z * 0.5;
       }
     }
     try {
@@ -1625,9 +1625,11 @@ class Shell {
       var t = this._physBody.translation();
       this.x = t.x; this.y = t.y; this.z = t.z;
       // Kill if below world
-      if(this.y < -10){ this.dead = true; return; }
-      // Defensive wall check (fallback if Rapier collision event missed)
-      if(world.collidesWallsOnly(this.x, this.z, this.radius)){
+      if(this.y < (this.owner && this.owner.root ? this.owner.root.position.y : 0) - 80){ this.dead = true; return; }
+      // Defensive wall check (fallback if Rapier collision event missed).
+      // A shell climbing over a wall's top edge has not hit it.
+      if(world.collidesWallsOnly(this.x, this.z, this.radius) &&
+         !(game._wallHeadroom && this.dir.y > 0 && this.y > game._wallHeadroom(world, this.x, this.z))){
         this.dead = true;
         game.spawnExplosion(this.x, 1.0, this.z, 0xffaa33, 6, 'wall');
         game.spawnBurst && game.spawnBurst(this.x, 1.0, this.z, {count: 3, tex: 'dust', speed: 3.5, size: 0.9, life: 0.4, rise: 1.2, gravity: 5, blend: 'normal', fade: 0.7});
@@ -1715,7 +1717,9 @@ class Shell {
          around with is a box shrunk to 0.55 of the body. Two shapes, two sizes,
          and a gap between them you could get shot through while standing in
          clear space. Tank.hitTest2D is now the single source for both. */
-      if(t.hitTest2D(this.x, this.z, this.radius)){
+      /* Shells fly up and down now, so one passing over or under a tank misses it. */
+      const tMid = (t.root ? t.root.position.y : 0) + (t.colOffY || 0), tH = (t.colHalfH || 1) + this.radius + 0.6;
+      if(Math.abs(this.y - tMid) <= tH && t.hitTest2D(this.x, this.z, this.radius)){
         const armor = t.def.armor;
         if(armor && !this._isShotgunPellet && this._tryRicochet(t, game)){ continue; }
         /* A splash round bursts on the tank rather than drawing only from it —

@@ -1313,7 +1313,7 @@ class Game {
     for(let i = 0; i <= N; i++){
       const f = i / N;
       pts.push({ x: pos.x + (t.muzzle().dir.x * R) * f,
-                 y: pos.y,
+                 y: this._shotOrigin(t) + Math.tan(this._tankPitch(t)) * R * f,
                  z: pos.z + (t.muzzle().dir.z * R) * f,
                  d: R * f });
     }
@@ -8305,6 +8305,105 @@ Net.sendJoinInfo(
     }
   }
 
+  /* SHELLS FLY UP OR DOWN, THE GUN STAYS LEVEL.
+
+     A shell leaves the hitbox centre and climbs or dives toward what you aim at,
+     but never more than CONFIG.SHOT_PITCH_DEG from level. A target outside that
+     wedge cannot be hit from here: the shell flies the wedge's edge and you have
+     to back up until the target is inside it. */
+  _shotOrigin(t){ return (t.root ? t.root.position.y : 0) + (t.colOffY || 0); }
+
+  /* Upper part of the hull: a shot at the centre of a low tank on a ledge clips the
+     ledge's corner on the way up. */
+  _tankAimY(o){ return (o.root ? o.root.position.y : 0) + (o.colOffY || 1) + (o.colHalfH || 1) * 0.7; }
+
+  _pitchToward(t, x, y, z){
+    const d = Math.hypot(x - t.x, z - t.z);
+    if(d < 5) return { pitch: 0, clamped: false };
+    const want = Math.atan2(y - this._shotOrigin(t), d);
+    const max = (CONFIG.SHOT_PITCH_DEG || 15) * Math.PI / 180;
+    return { pitch: Math.max(-max, Math.min(max, want)), clamped: Math.abs(want) > max };
+  }
+
+  _tankPitch(t){
+    const ty = t.def && t.def.shellType;
+    if(ty === 'mortar' || ty === 'flame' || ty === 'vortex_mine') return 0;
+    const p = (t._input && t._input.aimPitch) || 0;
+    const max = (CONFIG.SHOT_PITCH_DEG || 15) * Math.PI / 180;
+    return Math.max(-max, Math.min(max, p));
+  }
+
+  _isVisibleEnemy(t, o){
+    if(!o || o === t || !o.alive || o.dying || o._fogHidden || o.camoFactor <= 0) return false;
+    if(t.team && o.team === t.team) return false;
+    return !((t.allyId && o.id === t.allyId) || (o.allyId && o.allyId === t.id));
+  }
+
+  /* What the player's aim is pointing at. Mouse: the first thing under the cursor.
+     Stick: an enemy along the stick's line, else the ground ahead. Ground counts as
+     a tank's height above it, so level ground gives a level shot that still flies
+     on past the cursor. Tanks hidden by fog are ignored, so this cannot find them. */
+  _solveShotAim(t, touch, yawIn){
+    const ty = t.def && t.def.shellType;
+    this._cursorAim = null;
+    if(ty === 'mortar' || ty === 'flame' || ty === 'vortex_mine') return { pitch: 0, yaw: null };
+    const lift = t.colOffY || 1;
+    const R = t.def.shellRange || 60;
+    if(touch){
+      const yaw = (yawIn !== undefined && yawIn !== null) ? yawIn : t.turretAngle;
+      let best = null, bd = R;
+      for(const o of this.tanks){
+        if(!this._isVisibleEnemy(t, o)) continue;
+        const d = Math.hypot(o.x - t.x, o.z - t.z);
+        const off = Math.atan2(o.x - t.x, o.z - t.z) - yaw;
+        if(d < bd && Math.abs(Math.atan2(Math.sin(off), Math.cos(off))) < 0.14 + 3 / Math.max(3, d)){ bd = d; best = o; }
+      }
+      if(best){
+        const a = this._pitchToward(t, best.x, this._tankAimY(best), best.z);
+        this._aimClamped = a.clamped;
+        return { pitch: a.pitch, yaw: null };
+      }
+      const d = Math.min(R * 0.6, 45), gx = t.x + Math.sin(yaw) * d, gz = t.z + Math.cos(yaw) * d;
+      const a = this._pitchToward(t, gx, this._groundY(gx, gz, t.root.position.y) + lift, gz);
+      this._aimClamped = false;
+      return { pitch: a.pitch, yaw: null };
+    }
+    this._cgpRay = this._cgpRay || new THREE.Raycaster();
+    this._cgpVec = this._cgpVec || new THREE.Vector2();
+    this._cgpVec.set(this.input.mouse.ndcX || 0, this.input.mouse.ndcY || 0);
+    this._cgpRay.setFromCamera(this._cgpVec, this.camera);
+    const o = this._cgpRay.ray.origin, d = this._cgpRay.ray.direction;
+    const pw = this.physicsWorld;
+    this._aimClamped = false;
+    if(!pw || typeof RAPIER === 'undefined' || !RAPIER.Ray || d.y >= -0.01) return { pitch: 0, yaw: null };
+    /* Start below the sky: maps carry domes in their collision mesh. */
+    const startY = Math.min(o.y, t.root.position.y + 45);
+    const k = (startY - o.y) / d.y;
+    const pred = (c) => {
+      const u = c && c.userData;
+      if(!u) return true;
+      if(u.type === 'shell') return false;
+      if(u.type === 'tank') return this._isVisibleEnemy(t, u.tank);
+      return true;
+    };
+    let hit = null;
+    try {
+      hit = pw.castRay(new RAPIER.Ray({ x: o.x + d.x * k, y: startY, z: o.z + d.z * k }, { x: d.x, y: d.y, z: d.z }), 500, true, undefined, undefined, undefined, undefined, pred);
+    } catch(e){}
+    const toi = hit && (hit.timeOfImpact != null ? hit.timeOfImpact : hit.toi);
+    if(toi == null) return { pitch: 0, yaw: null };
+    const px = o.x + d.x * k + d.x * toi, py = startY + d.y * toi, pz = o.z + d.z * k + d.z * toi;
+    let tx = px, ty2 = py + lift, tz = pz;
+    let hitTank = null;
+    try { const c = hit.collider; hitTank = c && c.userData && c.userData.type === 'tank' ? c.userData.tank : null; } catch(e){}
+    if(hitTank){ tx = hitTank.x; ty2 = this._tankAimY(hitTank); tz = hitTank.z; }
+    const a = this._pitchToward(t, tx, ty2, tz);
+    this._aimClamped = a.clamped;
+    this._cursorAim = { x: tx, z: tz };
+    const far = Math.hypot(tx - t.x, tz - t.z) > 3;
+    return { pitch: a.pitch, yaw: far ? Math.atan2(tx - t.x, tz - t.z) : null };
+  }
+
   /* Pitch a horizontal shot direction `pitch` radians without changing its
      heading: horizontal part scales by cos(pitch), vertical becomes
      sin(pitch). Same helper the aim line and the spawned shell use, so what
@@ -9168,7 +9267,9 @@ Net.sendJoinInfo(
         this.localTank._applyAimPitch(visPitch);
       }
 
-      const input = {throttle, turn, turretWorldAngle:turretAngle, fire, handbrake};
+      const shotAim = this._solveShotAim(this.localTank, !!(touchInput && touchInput.isTouch), turretAngle);
+      if(shotAim.yaw !== null && !(touchInput && touchInput.isTouch)) turretAngle = shotAim.yaw;
+      const input = {throttle, turn, turretWorldAngle:turretAngle, fire, handbrake, aimPitch: shotAim.pitch};
       /* OWN ALTITUDE RIDES THE INPUT MESSAGE. The host carries remote players as
          input-driven kinematic tanks with no physics body, so nothing on the
          host else knows the height the owner's own body is riding — this is the
@@ -11302,8 +11403,9 @@ _initMortarMarker(){
     let ricoX = pos.x + Math.sin(yaw) * endDist, ricoZ = pos.z + Math.cos(yaw) * endDist, ricoEndX = ricoX, ricoEndZ = ricoZ;
     let ricoEntryDist = endDist, ricoRemaining = 0;
     let rDirX = 0, rDirZ = 0, ricoTarget = null;    
-    const y0 = pos.y;
+    const y0 = this._shotOrigin(t);
     const yEnd = endY;
+    const shotSlope = Math.tan(this._tankPitch(t));
     /* WALL-HIT INDICATOR, the piece the request asked for by name.
 
        `blocked` is true only when the ballistic sample dips below a wall's
@@ -11389,8 +11491,8 @@ _initMortarMarker(){
         ricoTarget = enemy;
         break;
       }
-      const ricoY = y0 + dir.y * ricoEntryDist;
-      const ricoEndY = ricoY + dir.y * ricoRemaining;
+      const ricoY = y0 + shotSlope * ricoEntryDist;
+      const ricoEndY = ricoY + shotSlope * ricoRemaining;
       pts.push({x:startX, y:y0, z:startZ, d:0});
       pts.push({x:ricoX, y:ricoY, z:ricoZ, d:ricoEntryDist});
       if(ricoRemaining > 0.01){
@@ -11961,6 +12063,7 @@ _initMortarMarker(){
     const y = (t.root ? t.root.position.y : pos.y) + (t.colOffY || 0);
     const len = Math.hypot(dir.x, dir.z) || 1, dx = dir.x / len, dz = dir.z / len;
     const R = t.def.shellRange || 60;
+    const pitch = this._tankPitch(t), cosP = Math.cos(pitch), sinP = Math.sin(pitch), tanP = sinP / cosP;
     let dist = R, blocked = false;
     const pw = this.physicsWorld;
     if(pw && typeof RAPIER !== 'undefined' && RAPIER.Ray){
@@ -11976,21 +12079,23 @@ _initMortarMarker(){
         return true;
       };
       try {
-        const hit = pw.castRay(new RAPIER.Ray({ x: pos.x, y, z: pos.z }, { x: dx, y: 0, z: dz }), R, true, undefined, undefined, undefined, undefined, pred);
+        const hit = pw.castRay(new RAPIER.Ray({ x: pos.x, y, z: pos.z }, { x: dx * cosP, y: sinP, z: dz * cosP }), R, true, undefined, undefined, undefined, undefined, pred);
         const toi = hit && (hit.timeOfImpact != null ? hit.timeOfImpact : hit.toi);
-        if(toi != null){ dist = Math.min(R, toi); blocked = true; }
+        if(toi != null){ dist = Math.min(R, toi) * cosP; blocked = true; }
       } catch(e){}
     }
     /* Mouse aim: with nothing in the way before the cursor, line and crosshair end
        at the cursor. A gun's full range is usually off-screen. */
     if(t.def.shellType !== 'flame' && !document.body.classList.contains('is-mobile')){
-      const cp = this._cursorGroundPoint(y);
+      const cp = (t === this.localTank && this._cursorAim) || this._cursorGroundPoint(y);
       if(cp){
         const cd = Math.hypot(cp.x - pos.x, cp.z - pos.z);
         if(cd < dist){ dist = cd; blocked = false; }
       }
     }
-    return { x: pos.x + dx * dist, y, z: pos.z + dz * dist, dist, blocked };
+    /* Orange too when the target is outside the wedge: the shot will not reach it. */
+    if(t === this.localTank && this._aimClamped) blocked = true;
+    return { x: pos.x + dx * dist, y: y + tanP * dist, z: pos.z + dz * dist, dist, blocked };
   }
 
   /* The second crosshair: four sticks at the spot the shell will actually end. */
@@ -14321,6 +14426,8 @@ _initMortarMarker(){
         tank.def.shellType !== 'mortar' && tank.def.shellType !== 'flame'){
        dir = this._pitchDir(muz.dir, this._aimPitch);
      }
+     const shotPitch = this._tankPitch(tank);
+     if(shotPitch) dir = this._pitchDir(dir, shotPitch);
      /* Guard: a NaN/zero direction would make the shell tracer render as a
         giant white line to map centre and hide the real bullet. Fall back to
         the tank's heading so the shot always flies. */
@@ -14387,7 +14494,7 @@ _initMortarMarker(){
         for(var pi = 0; pi < pellets; pi++){
           var angleOff = (Math.random() - 0.5) * spread * 2;
           var a = halfAngle + angleOff;
-          var sd = new THREE.Vector3(Math.sin(a), (Math.random()-0.5)*0.08, Math.cos(a));
+          var sd = new THREE.Vector3(Math.sin(a), Math.tan(shotPitch) + (Math.random()-0.5)*0.08, Math.cos(a));
           /* _isShotgunPellet goes in the DEF, not on the shell afterwards: Shell
              builds its mesh inside the constructor, so a flag set on the line
              after this arrives would come too late to have any effect. */

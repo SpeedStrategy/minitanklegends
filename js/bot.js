@@ -499,7 +499,7 @@ class BotBrain {
     }
 
     try { this._maybeSuper(me, target, canSee, game); } catch(e){}
-    return this._clamp({ throttle: out.throttle, turn: out.turn, turretWorldAngle: out.turretAngle, fire: out.fire });
+    return this._clamp({ throttle: out.throttle, turn: out.turn, turretWorldAngle: out.turretAngle, fire: out.fire, aimPitch: out.aimPitch || 0 });
   }
 
   /* The frames between thinks: keep driving the plan, and let the turret track a
@@ -513,6 +513,7 @@ class BotBrain {
       turretWorldAngle: live ? Math.atan2(t.x - me.x, t.z - me.z) + (this._aimErr || 0) : plan.turretWorldAngle,
       fire: plan.fire,
       handbrake: plan.handbrake,
+      aimPitch: plan.aimPitch || 0,
     };
   }
 
@@ -606,6 +607,15 @@ class BotBrain {
     this._aimErr = amp * Math.sin(now * 1.7 + this._phase) + amp * 0.5 * Math.sin(now * 4.3 + this._phase * 2);
     const aim = Math.atan2(t.x + lead.x - me.x, t.z + lead.z - me.z) + this._aimErr;
     out.turretAngle = aim;
+    /* The shell can only leave within the wedge. A target above or below it cannot
+       be hit from here: back away until it is inside, like a player has to. */
+    const aimAt = game._pitchToward(me, t.x, game._tankAimY(t), t.z);
+    out.aimPitch = aimAt.pitch;
+    if(aimAt.clamped){
+      const away = Math.atan2(me.x - t.x, me.z - t.z);
+      this._backOff(me, out, me.x + Math.sin(away) * 20, me.z + Math.cos(away) * 20, game);
+      return;
+    }
     const range = me.def.shellRange || 60;
     if(dist > range * (0.8 + 0.2 * this.person.aggr)) return;
     if(now < (this._fireReadyAt || 0)) return;
@@ -1425,6 +1435,7 @@ class PanzerBrain extends BotBrain {
       turn = Math.max(-1, Math.min(1, this._angleDiff(this.wanderHeading, me.heading)));
       throttle = 0.7;
     }
-    return this._clamp({throttle, turn, turretWorldAngle: turretAngle, fire});
+    const aimPitch = target ? game._pitchToward(me, target.x, game._tankAimY(target), target.z).pitch : 0;
+    return this._clamp({throttle, turn, turretWorldAngle: turretAngle, fire, aimPitch});
   }
 }
