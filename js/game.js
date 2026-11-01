@@ -6484,6 +6484,44 @@ Net.sendJoinInfo(
      a map). Anything that has left the scene is released after each reset. This is
      always safe: three uploads a disposed geometry or texture again if it is drawn
      later, so a cached tank model only costs a re-upload. */
+  /* Everyone starts square to the map, facing the enemy side, and the camera sits
+     straight behind you: your tank points up the screen. Map spawn markers carry
+     stray rotations, and the old camera aimed at the map centre, so both tanks and
+     the whole view started crooked. Runs throughout the countdown because tanks
+     appear late (async maps) and can be swapped on the pick screen. */
+  _alignSpawns(){
+    const me = this.localTank;
+    if(!me || !(this._tdmState || this.glad) || !this.tanks || !this.tanks.length) return;
+    const snap = (a) => Math.round(a / (Math.PI / 2)) * (Math.PI / 2);
+    const mid = (list) => {
+      let x = 0, z = 0, n = 0;
+      for(const t of list){ const p = t._spawnPos || t; x += p.x; z += p.z; n++; }
+      return n ? { x: x / n, z: z / n } : null;
+    };
+    const box = this.world && this.world._tdmBox;
+    const c = box ? { x: (box.min.x + box.max.x) / 2, z: (box.min.z + box.max.z) / 2 } : { x: 0, z: 0 };
+    const real = this.tanks.filter(t => t && !t.isDummy && !t.isPanzer);
+    const facing = {};
+    for(const team of ['blue', 'red']){
+      const a = mid(real.filter(t => t.team === team));
+      const b = mid(real.filter(t => t.team && t.team !== team));
+      if(a && b) facing[team] = snap(Math.atan2(b.x - a.x, b.z - a.z));
+    }
+    for(const t of real){
+      const p = t._spawnPos || t;
+      const h = (t.team && facing[t.team] !== undefined) ? facing[t.team] : snap(Math.atan2(c.x - p.x, c.z - p.z));
+      t._spawnHeading = h;
+      t.heading = h;
+      t.turretAngle = h;
+      if(t._physBody){
+        try { t._physBody.setRotation({ x: 0, y: Math.sin(h / 2), z: 0, w: Math.cos(h / 2) }, true); } catch(e){}
+      }
+    }
+    this._strategicCamAngle = me.heading + Math.PI;
+    this.camAngle = this._strategicCamAngle;
+    if(this._matchStartDelay <= 0 && !this._cinematicPhase) this._spawnsAligned = true;
+  }
+
   _noteSceneAssets(){
     const pool = this._assetPool || (this._assetPool = new Set());
     if(!this.scene) return;
@@ -6731,6 +6769,7 @@ Net.sendJoinInfo(
     this._dynTurretTarget = undefined;
     this._crosshairAngle = undefined;
     this._strategicCamAngle = undefined;
+    this._spawnsAligned = false;
     this._battleRecorded = false;
     try { this._clearOccluders(); } catch(e){}
     this._occRoot = null; this._occList = null;
@@ -8106,6 +8145,7 @@ Net.sendJoinInfo(
         }
       }
 
+      if(this._matchStartDelay > 0 || this._cinematicPhase || !this._spawnsAligned) this._alignSpawns();
       if(this._matchStartDelay <= 0 && !this._cinematicPhase){
         /* NOTHING IN _step IS ALLOWED TO LEAVE A FROZEN PICTURE.
 
@@ -8987,7 +9027,8 @@ Net.sendJoinInfo(
       } else {
         // Desktop: tank-relative controls
         throttle = (this.input.pressed('forward')?1:0) - (this.input.pressed('backward')?1:0);
-        turn = (this.input.pressed('right')?1:0) - (this.input.pressed('left')?1:0);
+        /* Positive turn raises heading, which is counter-clockwise from above. */
+        turn = (this.input.pressed('left')?1:0) - (this.input.pressed('right')?1:0);
 
         // In Automatic (Turret) mode, camera follows turret - use stable reference for raycasting
         if(this.cameraMode === 'automatic'){

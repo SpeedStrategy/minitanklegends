@@ -149,3 +149,5 @@ myself are marked *(mine)*.
 | 82 | GPU memory leak: every map stayed in video memory after leaving (398 to 1397 geometries in 6 matches). Now freed after each match. | Fixed |
 | 83 | Capture the Circle flag: its loader had no Draco decoder, so a compressed flag model failed to load. Uses the shared loader now. | Fixed |
 | 84 | Panzers ignored walls: `_wallAvoid` result was thrown away. | Fixed |
+| 85 | PC steering inverted: D turned the hull counter-clockwise (left), A clockwise. Phones were already correct. | Fixed |
+| 86 | Tanks spawned at stray angles from map markers, red facing away from the enemy, and the camera sat crooked. `_alignSpawns` squares everyone to the map facing the enemy side, camera straight behind. | Fixed |
