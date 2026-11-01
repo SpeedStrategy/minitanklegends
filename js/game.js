@@ -94,6 +94,17 @@ function _webgpuUsable(){
    across the phases so the saving is spread evenly rather than arriving as one
    spike every fourth frame. */
 const BOT_THINK_EVERY = 4;
+/* Per-frame HUD code goes through these: writing a class or text that is already
+   there still dirties the element for the browser's style pass. */
+const _ASSET_MAPS = ['map','alphaMap','normalMap','emissiveMap','roughnessMap','metalnessMap','aoMap'];
+const _collectAssets = (o, into) => {
+  if(o.geometry) into.add(o.geometry);
+  if(o.isInstancedMesh) into.add(o);
+  const ms = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
+  for(const m of ms) for(const k of _ASSET_MAPS) if(m[k] && m[k].isTexture) into.add(m[k]);
+};
+const _setHidden = (el, on) => { if(el.classList.contains('hidden') !== on) el.classList.toggle('hidden', on); };
+const _setText = (el, v) => { if(el.textContent !== v) el.textContent = v; };
 
 /* ============================================================================
    OUTLINES: TANKS ONLY
@@ -472,7 +483,10 @@ class Game {
       }).catch(()=>{});
     }
 
-    addEventListener('resize', ()=> this._onResize());
+    addEventListener('resize', ()=>{
+      clearTimeout(this._resizeTimer);
+      this._resizeTimer = setTimeout(()=> this._onResize(), 80);
+    });
     this._loop = this._loop.bind(this);
     this._step = this._step.bind(this);
     requestAnimationFrame(this._loop);
@@ -814,6 +828,10 @@ class Game {
   _updatePerfOverlay(now){
     if (now - this._perfLastThrottle < 350) return;
     this._perfLastThrottle = now;
+    if (this._perfOverlay && this._perfOverlay.style.display === 'none'){
+      this._perfGpuLoadSamples.length = 0;
+      return;
+    }
 
     // FPS: rolling average over last 30 frames
     var fps = 0;
@@ -1373,6 +1391,10 @@ class Game {
     const MAX = this._aimMaxSeg || 480;
     const style = styleOverride || 'dashes';
     const cam = this.camera;
+    const pA = pts[0], pB = pts[pts.length - 1];
+    const ribbonKey = style + '|' + pts.length + '|' + pA.x.toFixed(2) + '|' + pA.y.toFixed(2) + '|' + pA.z.toFixed(2) + '|' + pB.x.toFixed(2) + '|' + pB.y.toFixed(2) + '|' + pB.z.toFixed(2) + '|' + cam.position.x.toFixed(1) + '|' + cam.position.y.toFixed(1) + '|' + cam.position.z.toFixed(1);
+    if(style !== 'pulse' && ribbonKey === this._ribbonKey) return;
+    this._ribbonKey = ribbonKey;
     const cssH = (this.renderer && this.renderer.domElement && this.renderer.domElement.clientHeight)
                  || window.innerHeight || 900;
     const tanHalf = Math.tan((cam.fov || 50) * Math.PI / 360);
@@ -1384,12 +1406,13 @@ class Game {
     const cpx = cam.position;
 
     // alpha + width multiplier for a point `d` metres down the line
+    const dashOut = { a: 1, w: 1 };
     const styleAt = (d) => {
       if(d < 0) return {a:1, w:1};
       if(style === 'dashes'){                      /* - - - - - -  */
         const ph = d % 3.4;
-        if(ph > 2) return {a:0, w:1};
-        return {a: Math.min(1, ph / 0.12, (2 - ph) / 0.12), w:1};
+        dashOut.a = ph > 2 ? 0 : Math.min(1, ph / 0.12, (2 - ph) / 0.12);
+        return dashOut;
       }
       if(style === 'breakup'){
         if(d <= 50) return {a:1, w:1};
@@ -1548,6 +1571,8 @@ class Game {
   }
 
   _onResize(){
+    const sz = this.renderer.getSize(new THREE.Vector2());
+    if(sz.x === innerWidth && sz.y === innerHeight) return;
     this.renderer.setSize(innerWidth, innerHeight);
     this.camera.aspect = innerWidth/innerHeight;
     this.camera.updateProjectionMatrix();
@@ -1598,7 +1623,7 @@ class Game {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
-    this._maxPixelRatio = Math.min(devicePixelRatio, this.isUltra ? 3 : (this.isFancy ? 2 : 1.5));
+    this._maxPixelRatio = Math.min(devicePixelRatio, document.body.classList.contains('is-mobile') ? 1.5 : (this.isUltra ? 3 : (this.isFancy ? 2 : 1.5)));
     this.renderer.setPixelRatio(this._maxPixelRatio);
     this._applyParticlePolicy();
     if(this.world) this.world.setQuality(q);
@@ -6454,7 +6479,47 @@ Net.sendJoinInfo(
     cell.classList.add('bump');
   }
 
+  /* GPU buffers are only freed by dispose(), never by removing a mesh, so every map
+     played stayed in video memory for the rest of the session (about 300 geometries
+     a map). Anything that has left the scene is released after each reset. This is
+     always safe: three uploads a disposed geometry or texture again if it is drawn
+     later, so a cached tank model only costs a re-upload. */
+  _noteSceneAssets(){
+    const pool = this._assetPool || (this._assetPool = new Set());
+    if(!this.scene) return;
+    /* Maps also build and throw away meshes while loading, too fast to be seen in
+       the scene at any check, so everything removed from anywhere is noted as well. */
+    if(!THREE.Object3D.prototype._poolHooked){
+      const proto = THREE.Object3D.prototype, remove = proto.remove;
+      proto._poolHooked = true;
+      proto.remove = function(...objs){
+        for(const o of objs) if(o && o.isObject3D) o.traverse(c => _collectAssets(c, pool));
+        return remove.apply(this, objs);
+      };
+    }
+    this.scene.traverse(o => _collectAssets(o, pool));
+  }
+
+  _freeUnusedAssets(){
+    const pool = this._assetPool;
+    if(!pool || !this.scene) return;
+    const inUse = new Set();
+    this.scene.traverse(o => _collectAssets(o, inUse));
+    for(const a of pool){
+      if(inUse.has(a)) continue;
+      try { if(a.dispose) a.dispose(); } catch(e){}
+      pool.delete(a);
+    }
+  }
+
   _resetArena(){
+    this._noteSceneAssets();
+    this._resetArenaInner();
+    this._noteSceneAssets();
+    this._freeUnusedAssets();
+  }
+
+  _resetArenaInner(){
     this._clearGladState();
     /* Team radio is per-battle. Carrying it across matches would let a fresh
        round's bots "remember" contacts that belonged to the previous map, and
@@ -7418,6 +7483,7 @@ Net.sendJoinInfo(
   }
 
   leaveToMenu(){
+    this._noteSceneAssets();
     // Hide touch joysticks FIRST — nothing below may run (throws, early
     // returns, async) while leaving the joysticks visible over the menus.
     if(this.input && this.input.setJoysticksVisible){
@@ -7532,6 +7598,7 @@ Net.sendJoinInfo(
     if (this._perfOverlay) this._perfOverlay.style.display = 'none';
     if(Menu.escOpen) Menu.escOpen = false;
     Menu.show(window.__PLATOON_BATTLE ? 'menu-platoon' : 'menu-main');
+    this._freeUnusedAssets();
     // Clean up orientation poll timer if any
     Menu._stopOrientationPoll();
     // Remove in-game portrait warning
@@ -8134,7 +8201,8 @@ Net.sendJoinInfo(
     if(_rsm.enabled){
       _rsm.autoUpdate = false;
       this._shadowFrame = (this._shadowFrame | 0) + 1;
-      if(this._shadowDirty || this._shadowFrame <= 2 || (this._shadowFrame & 1) === 0){
+      const shadowEvery = document.body.classList.contains('is-mobile') ? 3 : 2;
+      if(this._shadowDirty || this._shadowFrame <= 2 || (this._shadowFrame % shadowEvery) === 0){
         _rsm.needsUpdate = true;
         this._shadowDirty = false;
       }
@@ -12784,29 +12852,30 @@ _initMortarMarker(){
     }
     const info = t.superInfo();
     const sInfo = (typeof SUPER_INFO !== 'undefined' && SUPER_INFO[info.type]) || null;
-    btn.querySelector('.super-icon').textContent = sInfo ? sInfo.icon : '\u2605';
+    _setText(btn.querySelector('.super-icon'), sInfo ? sInfo.icon : '\u2605');
     const label = btn.querySelector('.super-label');
     const frac = info.cdTotal > 0 ? Math.min(1, info.cd / info.cdTotal) : 0;
-    btn.style.setProperty('--cd', frac.toFixed(3));
+    const cdStr = frac.toFixed(3);
+    if(btn._cdStr !== cdStr){ btn._cdStr = cdStr; btn.style.setProperty('--cd', cdStr); }
     const running = !!info.state && info.state !== 'done';
     btn.classList.toggle('ready', info.ready && !running);
     btn.classList.toggle('active', running);
     if(info.state === 'targeting'){
-      label.textContent = 'TARGET';
+      _setText(label, 'TARGET');
     } else if(running && info.timer > 0){
-      label.textContent = Math.ceil(info.timer) + 's';
+      _setText(label, Math.ceil(info.timer) + 's');
     } else if(info.ready){
-      label.textContent = 'READY';
+      _setText(label, 'READY');
     } else {
       /* Charged by dealing damage, so this is a fill, not a countdown. */
-      label.textContent = Math.floor((1 - frac) * 100) + '%';
+      _setText(label, Math.floor((1 - frac) * 100) + '%');
     }
     if(hint){
       if(info.state === 'targeting'){
-        hint.classList.remove('hidden');
-        hint.textContent = 'Click / tap the ground to pick the strike point  (F / right-click to cancel)';
+        _setHidden(hint, false);
+        _setText(hint, 'Click / tap the ground to pick the strike point  (F / right-click to cancel)');
       } else {
-        hint.classList.add('hidden');
+        _setHidden(hint, true);
       }
     }
   }
@@ -14969,7 +15038,10 @@ spawnExplosion(x, y, z, color, count, style){
     }
   }
 
-  /* Pooled muzzle light — reused between shots, capped at 6 active */
+  /* Every lit pixel pays for every point light in the scene, even a dark one. */
+  _muzzleLightMax(){ return document.body.classList.contains('is-mobile') ? 1 : 2; }
+
+  /* Pooled muzzle light — reused between shots */
   _ensureMuzzleLights(){
     // Adding a PointLight mid-fight changes `numPointLights`, which forces
     // three.js to recompile and relink EVERY shader in the scene — a visible
@@ -14977,7 +15049,7 @@ spawnExplosion(x, y, z, color, count, style){
     // (dark) so the count never changes again during the battle. Every shot
     // gets one, on every quality level.
     if(!this._muzzleLights) this._muzzleLights = [];
-    while(this._muzzleLights.length < 4){
+    while(this._muzzleLights.length < this._muzzleLightMax()){
       const pl = new THREE.PointLight(0xffc07a, 0, 12, 2);
       this.scene.add(pl);
       this._muzzleLights.push({light: pl, active: false, life: 0, maxLife: 0.1});
@@ -14988,7 +15060,7 @@ spawnExplosion(x, y, z, color, count, style){
     if(!this._muzzleLights) this._muzzleLights = [];
     let l = this._muzzleLights.find(v => !v.active);
     if(!l){
-      if(this._muzzleLights.length >= 4) return null;
+      if(this._muzzleLights.length >= this._muzzleLightMax()) return null;
       const pl = new THREE.PointLight(0xffc07a, 0, 12, 2);
       this.scene.add(pl);
       l = {light: pl, active: false, life: 0, maxLife: 0.1, anchor: null};
@@ -15520,11 +15592,11 @@ spawnExplosion(x, y, z, color, count, style){
     const drownBar = el('drown-bar');
     if(drownWrap && drownBar){
       if(t._drowning){
-        drownWrap.classList.remove('hidden');
+        _setHidden(drownWrap, false);
         const w = Math.min(100, (t._drownTimer / 10) * 100) + '%';
         if(drownBar.style.width !== w) drownBar.style.width = w;
       } else {
-        drownWrap.classList.add('hidden');
+        _setHidden(drownWrap, true);
         if(drownBar.style.width !== '0%') drownBar.style.width = '0%';
       }
     }
@@ -15545,7 +15617,7 @@ spawnExplosion(x, y, z, color, count, style){
     const heatBar = document.getElementById('heat-bar');
     const heatText = document.getElementById('heat-text');
     if(heatWrap && heatBar && heatText){
-      heatWrap.classList.add('hidden');
+      _setHidden(heatWrap, true);
     }
 
     // Reload indicator: bullet-shaped icon at 45°, filled by reload progress,
@@ -15663,7 +15735,7 @@ spawnExplosion(x, y, z, color, count, style){
       const tdmLb = document.getElementById('tdm-lb');
       const lbDiv = document.getElementById('leaderboard');
       if(tdmLb){
-        tdmLb.classList.remove('hidden');
+        _setHidden(tdmLb, false);
         if(lbDiv) lbDiv.style.display = 'none';
         this._lbTimer = (this._lbTimer || 0) + dt;
         if(this._lbTimer > 0.33){
@@ -15699,7 +15771,7 @@ spawnExplosion(x, y, z, color, count, style){
       }
     } else {
       const tdmLb = document.getElementById('tdm-lb');
-      if(tdmLb) tdmLb.classList.add('hidden');
+      if(tdmLb) _setHidden(tdmLb, true);
       const lbDiv = document.getElementById('leaderboard');
       if(lbDiv) lbDiv.style.display = '';
     }
@@ -15716,14 +15788,13 @@ spawnExplosion(x, y, z, color, count, style){
           if(arr[i].damageDealt > 0) this._lbBuf.push(arr[i]);
         }
         this._lbBuf.sort((a,b)=> b.damageDealt - a.damageDealt);
-        lb.innerHTML = '';
         const end = Math.min(5, this._lbBuf.length);
+        let lbHtml = '';
         for(let i=0;i<end;i++){
           const o=this._lbBuf[i];
-          const li = document.createElement('li');
-          li.innerHTML = '<span class="lname">'+o.name+'</span><span class="ldmg">'+Math.round(o.damageDealt)+'</span>';
-          lb.appendChild(li);
+          lbHtml += '<li><span class="lname">'+o.name+'</span><span class="ldmg">'+Math.round(o.damageDealt)+'</span></li>';
         }
+        if(this._lbHtml !== lbHtml || lb.childElementCount !== end){ this._lbHtml = lbHtml; lb.innerHTML = lbHtml; }
       }
     }
 
@@ -15753,7 +15824,7 @@ if(g.phase === 'grace') txt = 'Zone warning in ' + Math.ceil(g.phaseTimer) + 's'
           }
         }
         be.textContent = txt;
-        be.classList.remove('hidden');
+        _setHidden(be, false);
       }
     }
 
@@ -15764,9 +15835,9 @@ if(g.phase === 'grace') txt = 'Zone warning in ' + Math.ceil(g.phaseTimer) + 's'
       const isPortrait = window.innerHeight > window.innerWidth;
       const orientPortrait = screen.orientation && screen.orientation.type && screen.orientation.type.startsWith('portrait');
       if(isMobile && (isPortrait || orientPortrait)){
-        pw.classList.remove('hidden');
+        _setHidden(pw, false);
       } else {
-        pw.classList.add('hidden');
+        _setHidden(pw, true);
       }
     }
 

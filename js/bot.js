@@ -1130,7 +1130,10 @@ class BotBrain {
          previous path ran out. Re-planning on every tick is what turns path
          following into a frame-rate problem. */
       const goalMoved = !this._pathGoal || Math.hypot(gx - this._pathGoal.x, gz - this._pathGoal.z) > 8;
-      if(!direct && goalMoved && window.BotNav){
+      /* One path search a frame across all bots; the rest wait for their next think. */
+      const frame = game._frameNo || 0;
+      if(!direct && goalMoved && window.BotNav && game._navFrame !== frame){
+        game._navFrame = frame;
         const p = window.BotNav.plan(game.world, me.x, me.z, gx, gz);
         this._path = p;
         this._pathGoal = { x: gx, z: gz };
@@ -1408,7 +1411,9 @@ class PanzerBrain extends BotBrain {
       else if(dist < idealDist - 5) throttle = -0.6;
       else throttle = 0.2 * Math.sin(game.time * 0.7 + me.x);
 
-      this._wallAvoid(me, {turn, throttle}, game);
+      const steer = { turn, throttle };
+      this._wallAvoid(me, steer, game);
+      turn = steer.turn; throttle = steer.throttle;
 
       const turDiff = Math.abs(this._angleDiff(turretAngle, me.turretAngle));
       if(turDiff < 0.15 && dist < me.def.shellRange && me.reloadLeft <= 0){

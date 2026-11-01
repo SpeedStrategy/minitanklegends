@@ -743,8 +743,9 @@ const CaptureCircle = (() => {
     try { L = (typeof THREE !== 'undefined' && THREE.GLTFLoader) || window.GLTFLoader; } catch(e){}
     if(typeof GLTFLoader !== 'undefined' && !L) L = GLTFLoader;
     if(!L){ console.warn('[capture] GLTFLoader unavailable'); return; }
-    let loader;
-    try { loader = new L(); } catch(e){ console.warn('[capture] loader failed', e); return; }
+    /* The shared loader has the Draco decoder; a bare one throws on compressed models. */
+    let loader = (window.Models && Models.loader) ? Models.loader() : null;
+    try { if(!loader) loader = new L(); } catch(e){ console.warn('[capture] loader failed', e); return; }
 
     /* CAPTURED NOW, BECAUSE THIS CALLBACK RUNS LATER.
 

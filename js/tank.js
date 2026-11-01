@@ -3072,7 +3072,9 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
          reads perfectly well at 20 redraws a second instead of 60, and each
          tank starts on a different phase so they never bunch up. */
       this._hpAcc = (this._hpAcc === undefined ? -(this._hpPhase * 0.01) : this._hpAcc) + dt;
-      if(this._hpAcc >= 0.05){ this._hpAcc = 0; this._drawHp(); }
+      /* Your own plate at 20 a second, everyone else's at 10. */
+      const isMine = window._game && window._game.localTank === this;
+      if(this._hpAcc >= (isMine ? 0.05 : 0.1)){ this._hpAcc = 0; this._drawHp(); }
     }
   }
 
@@ -4350,6 +4352,8 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
 
   /** Scale sprites and outlines based on distance from camera */
   updateDistanceScaling(cameraPos, camDist){
+    /* Nothing of a tank hidden by fog is on screen, so nothing here is worth doing. */
+    if(this._fogHidden) return;
     this._stepHpBar(performance.now());
     const dx = this.x - cameraPos.x;
     const dz = this.z - cameraPos.z;
@@ -4370,7 +4374,12 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     if(camDist){
       const outlineS = Math.min(1.8, Math.max(1.0, 0.4 + camDist * 0.01));
       const outlineScale = 1 + (outlineS - 1) * 0.2;
-      this._applyOutlineScale(outlineScale);
+      const outN = this._outlineList ? this._outlineList.length : 0;
+      if(this._outlineScaleAt !== outlineScale || this._outlineCountAt !== outN){
+        this._outlineScaleAt = outlineScale;
+        this._outlineCountAt = outN;
+        this._applyOutlineScale(outlineScale);
+      }
     }
   }
   _applyOutlineScale(scale){

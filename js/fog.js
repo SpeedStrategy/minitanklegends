@@ -17,12 +17,15 @@ const FogOfWar = (() => {
   const RAYS = 180;
   const BAND = 0.16;              /* half-fog ring, as a share of the view radius */
   const WALL_PEEK = 2.5;          /* a wall's own face stays visible */
-  const SIZE_OK = 1024, SIZE_PHONE = 640;
-  const FOG_RGB = '1,2,4', FOG_ALPHA = 0.9, HALF_ALPHA = 0.5;
+  const SIZE_OK = 768, SIZE_PHONE = 512;
+  const FOG_RGB = '1,2,4', FOG_ALPHA = 0.72, HALF_ALPHA = 0.38;   /* you can see the map through it */
   const OUTLINE = '#4b4f55', OUTLINE_W = 1.5;   /* world units */
 
   let _mesh = null, _ctx = null, _tex = null, _span = 0, _size = 0;
-  let _timer = 0, _active = false;
+  let _timer = 0, _active = false, _dirty = true;
+  let _paintX = 0, _paintZ = 0, _paintY = 0;
+  let _ray = null;
+  const _dir = { x: 0, y: 0, z: 1 };
   let _views = [];                /* [{t, x, z, reach, band}] */
   let _next = 0;                  /* whose rays are refreshed this tick */
 
@@ -39,20 +42,26 @@ const FogOfWar = (() => {
   /* Maps blocks, not units: tanks and shells never stop a line of sight. */
   const notActor = (c) => { const u = c && c.userData; return !(u && (u.type === 'tank' || u.type === 'shell')); };
 
-  function castView(game, t){
+  /* Fills prev's arrays when it has them, so a moving tank makes no garbage. */
+  function castView(game, t, prev){
     const R = rangeOf(t);
-    const reach = new Float32Array(RAYS), band = new Float32Array(RAYS);
+    const reach = prev ? prev.reach : new Float32Array(RAYS), band = prev ? prev.band : new Float32Array(RAYS);
     const edge = R * (1 + BAND);
     const pw = game.physicsWorld;
     /* Above the roof: a nearby slope should not blind it, a real wall still blocks. */
     const y = t.root.position.y + (t.colOffY || 1) + (t.colHalfH || 1) + 1;
     let ray = null;
-    if(pw && typeof RAPIER !== 'undefined' && RAPIER.Ray) ray = new RAPIER.Ray({ x: t.x, y, z: t.z }, { x: 0, y: 0, z: 1 });
+    if(pw && typeof RAPIER !== 'undefined' && RAPIER.Ray){
+      if(!_ray) _ray = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, _dir);
+      ray = _ray;
+      ray.origin = { x: t.x, y, z: t.z };
+      ray.dir = _dir;
+    }
     for(let i = 0; i < RAYS; i++){
       let r = R, b = edge;
       if(ray){
         const a = i / RAYS * Math.PI * 2;
-        ray.dir = { x: Math.sin(a), y: 0, z: Math.cos(a) };
+        _dir.x = Math.sin(a); _dir.z = Math.cos(a);
         try {
           const hit = pw.castRay(ray, R, true, undefined, undefined, undefined, undefined, notActor);
           if(hit){
@@ -64,7 +73,9 @@ const FogOfWar = (() => {
       }
       reach[i] = r; band[i] = b;
     }
-    return { t, x: t.x, z: t.z, reach, band };
+    const v = prev || { t, reach, band };
+    v.x = t.x; v.z = t.z; v.castX = t.x; v.castZ = t.z; v.castAt = game.time || 0; v.R = R;
+    return v;
   }
 
   /* Is a point inside anyone's current view? pad = the tank's own size, so one
@@ -100,6 +111,7 @@ const FogOfWar = (() => {
     geo.rotateX(-Math.PI / 2);
     const mat = new THREE.MeshBasicMaterial({ map: _tex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false, fog: false });
     _mesh = new THREE.Mesh(geo, mat);
+    _dirty = true;
     _mesh.renderOrder = 900;
     _mesh.frustumCulled = false;
     game.scene.add(_mesh);
@@ -179,7 +191,7 @@ const FogOfWar = (() => {
       _mesh.geometry.dispose(); _mesh.material.dispose();
       if(_tex) _tex.dispose();
     }
-    _mesh = null; _ctx = null; _tex = null; _span = 0; _views = [];
+    _mesh = null; _ctx = null; _tex = null; _span = 0; _views = []; _dirty = true; _ray = null;
   }
 
   function update(game, dt){
@@ -209,13 +221,31 @@ const FogOfWar = (() => {
     _next++;
     const others = sources.filter(t => t !== me);
     const turn = others.length ? others[_next % others.length] : null;
+    if(old.length !== sources.length) _dirty = true;
+    const now = game.time || 0;
     _views = sources.map(t => {
       const prev = old.find(v => v.t === t);
-      if(!prev || t === me || t === turn) return castView(game, t);
-      prev.x = t.x; prev.z = t.z;
+      if(!prev){ _dirty = true; return castView(game, t); }
+      /* A tank that has not moved sees what it saw: no rays, no repaint. Checked
+         again now and then in case something moved around it. */
+      const movedSinceCast = Math.hypot(t.x - prev.castX, t.z - prev.castZ) > 0.3;
+      if((t === me || t === turn) && (movedSinceCast || now - prev.castAt > 0.5)){
+        const before = prev.reach[0] + prev.reach[45] + prev.reach[90] + prev.reach[135];
+        castView(game, t, prev);
+        if(movedSinceCast || before !== prev.reach[0] + prev.reach[45] + prev.reach[90] + prev.reach[135]) _dirty = true;
+      } else if(Math.abs(prev.x - t.x) + Math.abs(prev.z - t.z) > 0.05){
+        prev.x = t.x; prev.z = t.z;
+        _dirty = true;
+      }
       return prev;
     });
-    paint(game);
+    const cam = game.camera;
+    if(cam && (Math.abs(cam.position.x - _paintX) > 0.5 || Math.abs(cam.position.z - _paintZ) > 0.5 || Math.abs(cam.position.y - _paintY) > 0.5)) _dirty = true;
+    if(_dirty){
+      paint(game);
+      _dirty = false;
+      if(cam){ _paintX = cam.position.x; _paintZ = cam.position.z; _paintY = cam.position.y; }
+    }
     for(const t of game.tanks){
       if(!t || !t.root || t.isDummy) continue;
       const hide = !isAlly(me, t) && !seen(t.x, t.z, Math.max(t.colHalfW || 3, t.colHalfL || 3));

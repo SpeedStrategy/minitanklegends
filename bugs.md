@@ -146,3 +146,6 @@ myself are marked *(mine)*.
 | 79 | Bot timers ran off `game.dt` but bots think every 4th frame, so they ran about 4x slow. New brain uses `game.time`. | Fixed |
 | 80 | Phone profile screen: top of the card was cut off with no way to scroll to it. | Fixed |
 | 81 | Phone store: sidebar took half the screen and BACK was clipped. Trophy road: X scrolled off screen when horizontal. | Fixed |
+| 82 | GPU memory leak: every map stayed in video memory after leaving (398 to 1397 geometries in 6 matches). Now freed after each match. | Fixed |
+| 83 | Capture the Circle flag: its loader had no Draco decoder, so a compressed flag model failed to load. Uses the shared loader now. | Fixed |
+| 84 | Panzers ignored walls: `_wallAvoid` result was thrown away. | Fixed |

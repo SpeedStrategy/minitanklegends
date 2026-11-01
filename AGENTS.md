@@ -737,3 +737,4 @@ local matches.
 3. **Phone menus**: `#mobile-back-btn` is ALWAYS shown off the main menu and each screen's own back button is hidden by CSS (`_ownBack` still finds and clicks it).
 4. **fog.js**: the canvas covers only the camera's view (uv repeat/offset on a map-sized plane) and carries colour, not alpha. Its border must stay solid: clamp-to-edge stretches it over the rest of the map.
 5. Removing a body from a world it does not belong to panics Rapier and wedges that world. Clear any stored body handle in `_resetPhysics`.
+6. **Performance rules**: per-frame HUD code writes through `_setHidden`/`_setText` (game.js top), never directly. Anything removed from a scene is released at the next reset (`_noteSceneAssets`, `_freeUnusedAssets`); dispose is safe because three re-uploads on next draw. Fog only recasts and repaints when a view or the camera moved.

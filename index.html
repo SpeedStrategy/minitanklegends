@@ -2412,7 +2412,7 @@
          and falls back to a plain solid bar if the module is not there yet. The
          style preview page loads this same file to render the five options. */
       'js/hpbar-styles.js?v=20261006a',
-      'js/tank.js?v=20261101a',
+      'js/tank.js?v=20261101g',
       'js/tank-sprays.js?v=20261012b',
       /* Styles (cosmetics): tank.js calls TankStyles.apply once the model is
          on, so the module has to exist by the tank build — place it with the
@@ -2422,7 +2422,7 @@
       'js/bullet-trail.js?v=20260929a',
       'js/input.js?v=20261101a',
       'js/bot-nav.js?v=20261026f',
-      'js/bot.js?v=20261101f',
+      'js/bot.js?v=20261101g',
       /* net.js BEFORE matchmaking.js. matchmaking.js binds itself to Net's
          callbacks, and it used to be listed first, so at load time Net did not
          exist and the binding silently never happened. matchmaking.js also
@@ -2454,7 +2454,7 @@
       'js/tank-editor.js?v=20261010y',
       'js/map-importer.js?v=20260908a',
       'js/graphics-settings.js?v=20260915a',
-      'js/capture-circle.js?v=20261024a',
+      'js/capture-circle.js?v=20261101g',
       /* Base Defend. Must load BEFORE game.js: the mode starter calls
          BaseDefend.init(), and every file here is a plain script tag with no
          module resolution, so load order is the only dependency ordering there
@@ -2465,8 +2465,8 @@
       'js/default-map.js?v=1787330007',
       'js/gladiator-map.js?v=1787330007',
       'js/boot-watchdog.js?v=20261008a',
-      'js/fog.js?v=20261101a',
-      'js/game.js?v=20261101e',
+      'js/fog.js?v=20261101g',
+      'js/game.js?v=20261101j',
       'js/results.js?v=20261030h',
       'js/auth.js?v=1787330007',
       /* Real-money store. After auth.js because the return trip calls into Auth,
