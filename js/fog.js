@@ -43,7 +43,8 @@ const FogOfWar = (() => {
   const notActor = (c) => { const u = c && c.userData; return !(u && (u.type === 'tank' || u.type === 'shell')); };
 
   /* Fills prev's arrays when it has them, so a moving tank makes no garbage. */
-  function castView(game, t, prev){
+  function castView(game, t, prev, every){
+    const stepBy = every || 1;
     const R = rangeOf(t);
     const reach = prev ? prev.reach : new Float32Array(RAYS), band = prev ? prev.band : new Float32Array(RAYS);
     const edge = R * (1 + BAND);
@@ -57,7 +58,7 @@ const FogOfWar = (() => {
       ray.origin = { x: t.x, y, z: t.z };
       ray.dir = _dir;
     }
-    for(let i = 0; i < RAYS; i++){
+    for(let i = 0; i < RAYS; i += stepBy){
       let r = R, b = edge;
       if(ray){
         const a = i / RAYS * Math.PI * 2;
@@ -73,9 +74,49 @@ const FogOfWar = (() => {
       }
       reach[i] = r; band[i] = b;
     }
+    /* Teammates cast every other ray; the gaps take the shorter neighbour, so a wall
+       is never seen through. */
+    if(stepBy > 1){
+      for(let i = 1; i < RAYS; i += stepBy){
+        const a = (i + RAYS - 1) % RAYS, c = (i + 1) % RAYS;
+        reach[i] = Math.min(reach[a], reach[c]);
+        band[i] = Math.min(band[a], band[c]);
+      }
+    }
     const v = prev || { t, reach, band };
     v.x = t.x; v.z = t.z; v.castX = t.x; v.castZ = t.z; v.castAt = game.time || 0; v.R = R;
     return v;
+  }
+
+  /* What is DRAWN is a smoothed copy of the rays; what is SEEN still uses them raw.
+     A median over three neighbours removes the single rays that slip past a post or
+     a tree for one tick. Small changes then apply at once, so the edge stays tight
+     on walls while you drive; a big jump (a gap opening) grows over a few ticks
+     instead of popping. Returns true while the drawn shape is still changing. */
+  function settle(v){
+    const R = v.reach, B = v.band;
+    const fresh = !v.shownR;
+    if(fresh){ v.shownR = new Float32Array(RAYS); v.shownB = new Float32Array(RAYS); }
+    const SR = v.shownR, SB = v.shownB;
+    let moving = false, changed = fresh;
+    for(let i = 0; i < RAYS; i++){
+      const p = i ? i - 1 : RAYS - 1, q = i + 1 < RAYS ? i + 1 : 0;
+      let x = R[p], y = R[i], z = R[q];
+      let r = Math.max(Math.min(x, y), Math.min(Math.max(x, y), z));
+      x = B[p]; y = B[i]; z = B[q];
+      let c = Math.max(Math.min(x, y), Math.min(Math.max(x, y), z));
+      if(!fresh){
+        let d = r - SR[i];
+        if(d > 1.5 || d < -1.5){ moving = true; r = SR[i] + d * 0.25; }
+        d = c - SB[i];
+        if(d > 1.5 || d < -1.5){ moving = true; c = SB[i] + d * 0.25; }
+        if(c < r + 0.5) c = r + 0.5;
+        if(r !== SR[i] || c !== SB[i]) changed = true;
+      }
+      SR[i] = r; SB[i] = c;
+    }
+    v.settling = moving;
+    return changed;
   }
 
   /* Is a point inside anyone's current view? pad = the tank's own size, so one
@@ -125,9 +166,12 @@ const FogOfWar = (() => {
     const y = cam ? Math.max(20, cam.position.y - _mesh.position.y) : 60;
     const tan = Math.tan(((cam && cam.fov) || 55) * Math.PI / 360);
     const seenW = y * tan * 2 * Math.max(1, (cam && cam.aspect) || 1.8);
-    const W = Math.min(_span, Math.max(180, seenW * 1.35));
-    const cx = cam ? cam.position.x : game.localTank.x, cz = cam ? cam.position.z : game.localTank.z;
-    const s = _size / W, g = _ctx;
+    /* Canvas size and centre sit on a fixed grid. Sliding the canvas by fractions of
+       a pixel with the camera made every edge shimmer. */
+    const W = Math.min(_span, Math.ceil(Math.max(180, seenW * 1.35) / 24) * 24);
+    const s = _size / W, g = _ctx, texel = W / _size;
+    const cx = Math.round((cam ? cam.position.x : game.localTank.x) / texel) * texel;
+    const cz = Math.round((cam ? cam.position.z : game.localTank.z) / texel) * texel;
     const toX = x => (x - cx + W / 2) * s, toY = z => (z - cz + W / 2) * s;
     const trace = (key) => {
       g.beginPath();
@@ -159,15 +203,15 @@ const FogOfWar = (() => {
     g.lineJoin = 'round';
     g.lineWidth = OUTLINE_W * 2 * s;
     g.strokeStyle = OUTLINE;
-    trace('band');
+    trace('shownB');
     g.stroke();
-    cut('band');
-    trace('band');
+    cut('shownB');
+    trace('shownB');
     g.fillStyle = 'rgba(' + FOG_RGB + ',' + HALF_ALPHA + ')';
     g.fill('nonzero');
-    trace('reach');
+    trace('shownR');
     g.stroke();
-    cut('reach');
+    cut('shownR');
     /* The border pixels are what clamp-to-edge stretches across the rest of the map. */
     g.lineWidth = 4;
     g.strokeStyle = 'rgba(' + FOG_RGB + ',' + FOG_ALPHA + ')';
@@ -213,25 +257,32 @@ const FogOfWar = (() => {
     _mesh.position.y = me.root.position.y + 1;
     _timer -= dt;
     if(_timer > 0) return;
-    _timer = document.body.classList.contains('is-mobile') ? 0.05 : 0.033;
-    /* A hard edge shows every step, so the circles are redrawn often and follow
-       the tanks' live positions. Rays are the cost: your own every tick, one
-       teammate per tick round-robin. */
+    /* Added, not assigned, so ticks stay evenly spaced whatever the frame times do. */
+    _timer = Math.max(-0.05, _timer) + (document.body.classList.contains('is-mobile') ? 0.05 : 0.033);
     const old = _views;
     _next++;
     const others = sources.filter(t => t !== me);
-    const turn = others.length ? others[_next % others.length] : null;
+    /* Teammates on screen are refreshed two a tick, so their views do not visibly
+       lag and jump; ones off screen only feed the "can we see this enemy" check. */
+    const camNow = game.camera;
+    const onScreen = others.filter(t => camNow && Math.hypot(t.x - camNow.position.x, t.z - camNow.position.z) < 170);
+    const offScreen = others.filter(t => onScreen.indexOf(t) < 0);
+    const turns = [];
+    if(onScreen.length){ turns.push(onScreen[_next % onScreen.length]); if(onScreen.length > 1) turns.push(onScreen[(_next + 1) % onScreen.length]); }
+    if(offScreen.length && _next % 4 === 0) turns.push(offScreen[(_next >> 2) % offScreen.length]);
+    _next += turns.length > 1 ? 1 : 0;
     if(old.length !== sources.length) _dirty = true;
     const now = game.time || 0;
     _views = sources.map(t => {
       const prev = old.find(v => v.t === t);
-      if(!prev){ _dirty = true; return castView(game, t); }
+      if(!prev){ _dirty = true; const nv = castView(game, t, null, t === me ? 1 : 2); nv.needSettle = true; return nv; }
       /* A tank that has not moved sees what it saw: no rays, no repaint. Checked
          again now and then in case something moved around it. */
       const movedSinceCast = Math.hypot(t.x - prev.castX, t.z - prev.castZ) > 0.3;
-      if((t === me || t === turn) && (movedSinceCast || now - prev.castAt > 0.5)){
+      if((t === me || turns.indexOf(t) >= 0) && (movedSinceCast || now - prev.castAt > 0.5)){
         const before = prev.reach[0] + prev.reach[45] + prev.reach[90] + prev.reach[135];
-        castView(game, t, prev);
+        castView(game, t, prev, t === me ? 1 : 2);
+        prev.needSettle = true;
         if(movedSinceCast || before !== prev.reach[0] + prev.reach[45] + prev.reach[90] + prev.reach[135]) _dirty = true;
       } else if(Math.abs(prev.x - t.x) + Math.abs(prev.z - t.z) > 0.05){
         prev.x = t.x; prev.z = t.z;
@@ -241,6 +292,12 @@ const FogOfWar = (() => {
     });
     const cam = game.camera;
     if(cam && (Math.abs(cam.position.x - _paintX) > 0.5 || Math.abs(cam.position.z - _paintZ) > 0.5 || Math.abs(cam.position.y - _paintY) > 0.5)) _dirty = true;
+    for(const v of _views){
+      if(v.needSettle || v.settling){
+        v.needSettle = false;
+        if(settle(v)) _dirty = true;
+      }
+    }
     if(_dirty){
       paint(game);
       _dirty = false;
@@ -248,7 +305,11 @@ const FogOfWar = (() => {
     }
     for(const t of game.tanks){
       if(!t || !t.root || t.isDummy) continue;
-      const hide = !isAlly(me, t) && !seen(t.x, t.z, Math.max(t.colHalfW || 3, t.colHalfL || 3));
+      /* Seen now, or a moment ago: a tank right on the edge of the view must not blink
+         on and off with every tick. */
+      const inView = isAlly(me, t) || seen(t.x, t.z, Math.max(t.colHalfW || 3, t.colHalfL || 3));
+      if(inView) t._fogSeenAt = now;
+      const hide = !inView && now - (t._fogSeenAt === undefined ? -9 : t._fogSeenAt) > 0.3;
       if(hide !== !!t._fogHidden){
         t._fogHidden = hide;
         t.root.visible = !hide;

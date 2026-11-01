@@ -6489,9 +6489,27 @@ Net.sendJoinInfo(
      stray rotations, and the old camera aimed at the map centre, so both tanks and
      the whole view started crooked. Runs throughout the countdown because tanks
      appear late (async maps) and can be swapped on the pick screen. */
+  /* The first explosion of a match compiled its shaders in the middle of the fight,
+     a hitch right when things get busy. Everything is built once during the countdown,
+     out of sight below the map. */
+  _prewarmEffects(){
+    if(this._effectsWarm || !this.renderer || !this.scene || !this.camera) return;
+    this._effectsWarm = true;
+    const y = -6000;
+
+    try {
+      if(typeof Fireball !== 'undefined' && Fireball.spawn) Fireball.spawn(this.scene, 0, y, 0, 8);
+      if(typeof MortarBlast !== 'undefined' && MortarBlast.spawn) MortarBlast.spawn(this.scene, 0, y, 0, 8);
+      if(typeof MuzzlePop !== 'undefined' && MuzzlePop.play) MuzzlePop.play(this.scene, new THREE.Vector3(0, y, 0), new THREE.Vector3(0, 0, 1), true, null, null);
+      for(const style of ['wall', 'burn', undefined]) this.spawnExplosion(0, y, 0, 0xffaa33, 6, style);
+      if(this.renderer.compile) this.renderer.compile(this.scene, this.camera);
+    } catch(e){ console.warn('effect prewarm', e); }
+  }
+
   _alignSpawns(){
     const me = this.localTank;
     if(!me || !(this._tdmState || this.glad) || !this.tanks || !this.tanks.length) return;
+    this._prewarmEffects();
     const snap = (a) => Math.round(a / (Math.PI / 2)) * (Math.PI / 2);
     const mid = (list) => {
       let x = 0, z = 0, n = 0;
@@ -8244,7 +8262,14 @@ Net.sendJoinInfo(
     if(_rsm.enabled){
       _rsm.autoUpdate = false;
       this._shadowFrame = (this._shadowFrame | 0) + 1;
-      const shadowEvery = document.body.classList.contains('is-mobile') ? 3 : 2;
+      /* A crowd is what makes this pass expensive: every tank drawn near you is drawn
+         again into the shadow map. */
+      if((this._shadowFrame & 15) === 0 && this.localTank){
+        let near = 0;
+        for(const c of this.tanks) if(c && c.alive && Math.hypot(c.x - this.localTank.x, c.z - this.localTank.z) < 70) near++;
+        this._tanksNear = near;
+      }
+      const shadowEvery = (document.body.classList.contains('is-mobile') ? 3 : 2) + ((this._tanksNear || 0) >= 5 ? 1 : 0);
       if(this._shadowDirty || this._shadowFrame <= 2 || (this._shadowFrame % shadowEvery) === 0){
         _rsm.needsUpdate = true;
         this._shadowDirty = false;

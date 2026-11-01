@@ -753,3 +753,5 @@ Someone deployed to dev from `C:\Users\Nojus\Downloads\TL` (commits 69eee6b, a8c
 ## 2026-11-02, fifteenth pass (Claude Code) — SHELLS FLY UP AND DOWN
 
 Direct-fire shells leave level guns at up to `CONFIG.SHOT_PITCH_DEG` (15) up or down. The gun model never tilts; do not use `_applyAimPitch` for this. `Game._solveShotAim` runs each frame for the player and puts `aimPitch` on the input (mouse: first thing under the cursor; stick: enemy on the stick's line, else ground ahead); bots set it in `_aimAndFire` and back away when the target is outside the wedge. `spawnShot`, `_aimImpact` and the aim line all read `_tankPitch(t)`. Mortar, flame and mines stay as they were. The shell's tank fallback hit test now checks height.
+
+Fog smoothing (same day): `paint` draws `shownR/shownB`, a median-filtered, eased copy of the rays; `seen()` still uses the raw `reach`. The canvas centre and size snap to a grid, or edges shimmer. Teammates on screen refresh two a tick at half rays. Enemies stay shown 0.3 s after leaving view. `_prewarmEffects` builds explosion and muzzle effects during the countdown. Shadows update less often with 5+ tanks near.
