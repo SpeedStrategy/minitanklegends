@@ -2193,8 +2193,9 @@ const Menu = {
   _BACK_SELECTOR: '[data-back], #btn-play-back, #shop-back-main, #shop-back-buy, #shop-receive-back, #pl-back, #btn-preview-back, #collections-back',
   _ESC_OWNED_MENUS: ['menu-store','menu-shop-buy','menu-shop-receive','menu-storage','menu-profile','menu-collections','menu-platoon','menu-sandbox'],
   _ownBack(menu){
-    return [...menu.querySelectorAll(this._BACK_SELECTOR)]
-      .find(b => b.offsetParent !== null) || null;
+    /* Phones hide these (the floating back replaces them), but clicking still works. */
+    const all = [...menu.querySelectorAll(this._BACK_SELECTOR)];
+    return all.find(b => b.offsetParent !== null) || all[0] || null;
   },
   _authOpen(){
     const ov = document.getElementById('auth-overlay');
@@ -2239,6 +2240,9 @@ const Menu = {
     window.addEventListener('resize', refresh);
     const auth = document.getElementById('auth-overlay');
     if(auth) new MutationObserver(refresh).observe(auth, { attributes:true, attributeFilter:['class'] });
+    const screens = new MutationObserver(refresh);
+    document.querySelectorAll('.menu').forEach(m => screens.observe(m, { attributes:true, attributeFilter:['class'] }));
+    refresh();
     try{
       history.pushState({ mtl:1 }, '');
       window.addEventListener('popstate', () => {
@@ -2251,15 +2255,7 @@ const Menu = {
     const btn = document.getElementById('mobile-back-btn');
     if(!btn) return;
     const menu = document.querySelector('.menu:not(.hidden)');
-    let need = !!menu && menu.id !== 'menu-main' && menu.id !== 'menu-fullscreen-prompt';
-    if(this._authOpen()) need = true;
-    else if(need){
-      const own = this._ownBack(menu);
-      if(own){
-        const r = own.getBoundingClientRect();
-        need = !(r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth);
-      }
-    }
+    const need = this._authOpen() || (!!menu && menu.id !== 'menu-main' && menu.id !== 'menu-fullscreen-prompt');
     btn.classList.toggle('hidden', !need);
   },
   toggleEsc(){

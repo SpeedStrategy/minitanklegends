@@ -13121,3 +13121,93 @@ body:has(.menu:not(.hidden)) #impact-reticle,body.tkp-open #impact-reticle{displ
 
 /* The trajectory line is always dashed now, so its style picker is gone. */
 #aim-settings label:has(+ .aim-styles-btn),#aim-styles-btn,#aim-styles-panel{display:none!important}
+
+/* ---------- PHONE NAVIGATION + SCREENS ----------
+   One way out everywhere: #mobile-back-btn is always top-left on every screen
+   but the main menu, so each screen's own back button is hidden on phones. */
+body.is-mobile .menu .btn-back,
+body.is-mobile .menu .gm-back,
+body.is-mobile .menu .shop-sidebar-back,
+body.is-mobile .menu .shop-buy-back,
+body.is-mobile .menu .shop-receive-back { display: none !important; }
+#mobile-back-btn { z-index: 10001; }
+
+/* Store: the sidebar becomes a row of tabs along the top. */
+body.is-mobile .shop-sidebar {
+  left: 0; right: 0; top: 0; bottom: auto; width: auto; height: 56px;
+  flex-direction: row; align-items: center; gap: 8px;
+  padding: 6px 10px 6px 62px;
+  overflow-x: auto; overflow-y: hidden;
+  border-right: 0; border-bottom: 3px solid #000; box-shadow: none;
+}
+body.is-mobile .shop-store-logo { display: none; }
+body.is-mobile .shop-sidebar-section {
+  flex: 0 0 auto; margin: 0; padding: 7px 14px; font-size: 13px;
+  transform: none; white-space: nowrap;
+}
+body.is-mobile .shop-header { margin-top: 56px; padding: 4px 12px; min-height: 0; }
+body.is-mobile .shop-body { margin-left: 0; }
+body.is-mobile .shop-content { padding: 8px 12px 16px; }
+
+/* Trophy road: full screen, X always in the corner, only the road scrolls. */
+body.is-mobile .trophy-roadmap-card {
+  width: 100vw; height: 100dvh; max-height: none; margin: 0;
+  padding: 8px 0 6px; border-radius: 0; outline: 0; border: 0;
+  display: flex; flex-direction: column; overflow: hidden;
+}
+body.is-mobile .trophy-roadmap-head { min-width: 0; flex: none; padding: 0 64px 0 16px; margin: 0; }
+body.is-mobile .trophy-roadmap-title { font-size: 20px; margin: 0; line-height: 36px; }
+body.is-mobile .trophy-roadmap-close {
+  position: fixed;
+  top: max(8px, env(safe-area-inset-top));
+  right: max(10px, env(safe-area-inset-right));
+  z-index: 3;
+}
+body.is-mobile .trophy-roadmap-scroll {
+  flex: 1; min-height: 0; overflow-x: auto; overflow-y: hidden;
+  -webkit-overflow-scrolling: touch; touch-action: pan-x;
+}
+body.is-mobile .trophy-roadmap-track {
+  min-width: 940px; height: 100%; margin: 0;
+  --tr-h: 100%;
+}
+body.is-mobile .trophy-roadmap-foot { flex: none; min-width: 0; padding: 0 16px; margin: 0; font-size: 12px; }
+
+/* Gamemode cards fit side by side and the header leaves room for back. */
+body.is-mobile #menu-gamemode-select .gm-header { padding: 8px 12px 4px 66px; text-align: left; }
+body.is-mobile #menu-gamemode-select .gm-header::before,
+body.is-mobile #menu-gamemode-select .gm-header::after { display: none; }
+body.is-mobile #menu-gamemode-select .gm-title { font-size: 22px; letter-spacing: 2px; margin: 0; }
+body.is-mobile #menu-gamemode-select .gm-cards {
+  gap: 12px; padding: 6px 12px 10px; place-content: center;
+  grid-auto-flow: column; overflow-x: auto; flex: 1; min-height: 0;
+}
+body.is-mobile #menu-gamemode-select .gm-card {
+  width: min(44vw, 340px); height: calc(100dvh - 70px); min-height: 0; max-height: 300px; transform: none;
+}
+body.is-mobile #menu-gamemode-select .gm-card-icon { transform: scale(.7); transform-origin: left top; margin-bottom: 0; }
+body.is-mobile #menu-gamemode-select .gm-card-name { font-size: 18px; }
+body.is-mobile #menu-gamemode-select .gm-card-desc { font-size: 12px; }
+
+/* Super aim stick: appears under the thumb when the super button is pressed. */
+.super-stick-ui {
+  position: fixed; width: 136px; height: 136px; margin: -68px 0 0 -68px;
+  border-radius: 50%; border: 3px solid rgba(255,255,255,.75);
+  background: rgba(0,0,0,.25); pointer-events: none; z-index: 60;
+}
+.super-stick-ui.hidden { display: none; }
+.super-stick-knob {
+  position: absolute; left: 50%; top: 50%; width: 52px; height: 52px;
+  border-radius: 50%; background: #ffc53a; border: 3px solid #000;
+}
+.super-stick-ui.cancel { border-color: #ff4a3a; background: rgba(160,20,10,.35); }
+.super-stick-ui.cancel .super-stick-knob { background: #ff4a3a; }
+
+body.is-mobile .trophy-roadmap-track { zoom: .8; --tr-h: calc((100dvh - 72px) / .8); height: var(--tr-h); }
+body.is-mobile .trophy-roadmap-scroll,
+body.is-mobile #menu-gamemode-select .gm-cards,
+body.is-mobile .shop-sidebar { scrollbar-width: none; }
+body.is-mobile #menu-gamemode-select .gm-cards { justify-content: start; place-content: center start; }
+body.is-mobile #menu-profile:not(.hidden) { display: block !important; overflow-y: auto; }
+body.is-mobile #menu-profile > * { height: auto !important; max-height: none !important; min-height: 0 !important; }
+body.is-mobile #menu-profile .profile-card { margin: 8px auto 16px; max-height: none; transform: none; }

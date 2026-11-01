@@ -6654,6 +6654,8 @@ Net.sendJoinInfo(
        Callers that must release it do so themselves once their load settles. */
     this._noParticles = false;
     this._captureCircleMode = false;
+    this._botSquads = null;
+    this._botRadio = null;
     /* Cleared here for the same reason as _captureCircleMode directly above:
        _resetArena is where a finished mode's flags go, and a flag left set
        means the respawn loop and _onTDMKill's early return keep firing in the
@@ -6697,6 +6699,10 @@ Net.sendJoinInfo(
     this._physBodies.forEach(b=>{ try{ this.physicsWorld.removeRigidBody(b); }catch(e){} });
     this._physBodies = [];
     this._eventQueue = null;
+    /* These belong to the world being thrown away. Removing an old world's body from
+       the new one panics inside Rapier and wedges it, so the next match had no physics. */
+    this._sandboxTrimeshBody = null;
+    this._sandboxColliders = [];
     /* THE TWO TRAIL MANAGERS ARE GONE.
 
        They pre-allocated 200 trail meshes EACH in their constructor -- 400
@@ -8884,13 +8890,20 @@ Net.sendJoinInfo(
         // Turret: camera-relative aim
         if(this.input._turretJoystick && this.input._turretJoystick.active){
           turretAngle = (this.camAngle || Math.PI) + Math.PI - (touchInput.turretRelAngle || 0);
+        } else if(this._superStickAim !== undefined && this._superStickAim !== null){
+          turretAngle = this._superStickAim;
         }
 
         // Fire only when knob is dragged to max distance (armed)
         /* Mobile fire rule: dragging only aims. Letting go while aimed fires one
            shot, held for a moment if the gun is still reloading. The flamethrower
            is a stream, so it burns for as long as you aim. */
-        if(this.localTank.def.shellType === 'flame'){
+        if(touchInput.quickTap) this._beginTapShot();
+        const tapShot = this._tickTapShot();
+        if(tapShot){
+          if(tapShot.angle !== null) turretAngle = tapShot.angle;
+          fire = tapShot.fire;
+        } else if(this.localTank.def.shellType === 'flame'){
           fire = !!touchInput.aiming;
         } else {
           const nowMs = performance.now();
@@ -9092,36 +9105,7 @@ Net.sendJoinInfo(
         } else {
           const plan = t._botPlan;
           if(plan){
-            /* Re-aim at the target's LIVE position. Everything else — throttle,
-               turn, fire — is held from the last decision.
-
-               A target that has gone HIDDEN must be dropped right here, not at
-               the next decision. Bots think on an interval (BOT_THINK_EVERY),
-               so between two decides this branch runs every frame while
-               _curTarget still names the tank that has just ducked into a tree
-               -- and the bot would keep tracking and firing at a tank it is not
-               supposed to be able to see, right up until the next think tick.
-
-               Firing is suppressed too, and deliberately NOT the whole plan: the
-               bot keeps its throttle and turn, so it carries on driving and only
-               stops shooting. That is what losing a target mid-sentence looks
-               like. */
-            const tgt = (t.brain._curTarget && t.brain._curTarget.camoFactor > 0)
-              ? t.brain._curTarget
-              : null;
-            const me = t;
-            const aim = (tgt && tgt.alive)
-              ? Math.atan2(tgt.x - me.x, tgt.z - me.z)
-              : (t.brain.targetLastSeen
-                  ? Math.atan2(t.brain.targetLastSeen.x - me.x, t.brain.targetLastSeen.z - me.z)
-                  : plan.turretWorldAngle);
-            t.setInput({
-              throttle: plan.throttle,
-              turn: plan.turn,
-              turretWorldAngle: aim,
-              fire: tgt ? plan.fire : false,
-              handbrake: plan.handbrake,
-            });
+            t.setInput(t.brain.heldInput ? t.brain.heldInput(plan) : plan);
           } else {
             t.setInput({throttle:0,turn:0,turretWorldAngle:t.turretAngle,fire:false});
           }
@@ -12025,67 +12009,213 @@ _initMortarMarker(){
     this._tickStrikeBombs(dt);
   }
 
-  /* The mobile super button is a joystick: dragging it places the strike around
-     your tank, letting go casts. Bound once from _updateSuperSlot. */
+  /* MOBILE SUPER = A SECOND AIM STICK. Drag to aim and see exactly what the super
+     will cover, let go to cast, drag back to the centre to cancel, quick tap to
+     cast right away (at the nearest enemy if it needs a spot). Every super casts
+     through the same activateSuper() as on desktop; only the aiming differs. */
+  _superKind(t){
+    const ty = t.def.superType;
+    if(ty === 'airstrike' || ty === 'barrage' || ty === 'molotov' || ty === 'landfield') return 'area';
+    if(ty === 'twin_salvo' || ty === 'big_shells') return 'aimed';
+    if(ty === 'mine_dash') return 'dash';
+    return 'self';
+  }
+
+  _superReach(t){
+    const ty = t.def.superType;
+    return ty === 'airstrike' ? 70 : ty === 'barrage' ? 110 : ty === 'molotov' ? 60 : ty === 'landfield' ? 14
+      : ty === 'mine_dash' ? (t.def.speed || 20) * (t.def.dashSpeedMult || 3) * (t.def.dashTime || 1.3) / 2.25
+      : (t.def.shellRange || 60);
+  }
+
+  _superRadius(t){
+    const d = t.def, ty = d.superType;
+    return ty === 'barrage' ? (d.airstrikeSpread || 14) : ty === 'airstrike' ? (d.airstrikeRadius || 4)
+      : ty === 'molotov' ? (d.molotovRadius || 7) : ty === 'nova' ? (d.novaRadius || 16)
+      : ty === 'landfield' ? 4 : (t.colHalfL || 4) + 3;
+  }
+
+  _superStickAngle(s){
+    return (this.camAngle || Math.PI) + Math.PI - Math.atan2(s.dx, -s.dy);
+  }
+
+  _superStickPoint(t, s){
+    const a = this._superStickAngle(s), r = this._superReach(t) * Math.max(0.12, s.mag);
+    return { x: t.x + Math.sin(a) * r, z: t.z + Math.cos(a) * r };
+  }
+
+  /* The enemy a quick tap goes for: nearest in reach that you can actually see. */
+  _nearestVisibleEnemy(t, reach){
+    let best = null, bd = reach;
+    for(const o of this.tanks){
+      if(!o || o === t || !o.alive || o.dying || o.isDummy || o._fogHidden || o.camoFactor <= 0) continue;
+      if(t.team && o.team === t.team) continue;
+      if((t.allyId && o.id === t.allyId) || (o.allyId && o.allyId === t.id)) continue;
+      const d = Math.hypot(o.x - t.x, o.z - t.z);
+      if(d < bd){ bd = d; best = o; }
+    }
+    return best;
+  }
+
+  /* Quick tap on the fire stick. */
+  _beginTapShot(){
+    const t = this.localTank;
+    if(!t) return;
+    const flame = t.def.shellType === 'flame';
+    this._tapShot = { target: this._nearestVisibleEnemy(t, t.def.shellRange || 60), until: performance.now() + (flame ? 500 : 700), flame, done: false };
+  }
+
+  _tickTapShot(){
+    const s = this._tapShot, t = this.localTank;
+    if(!s) return null;
+    if(!t || !t.alive || performance.now() > s.until || s.done){ this._tapShot = null; return null; }
+    const tg = s.target && s.target.alive ? s.target : null;
+    const angle = tg ? Math.atan2(tg.x - t.x, tg.z - t.z) : null;
+    const dd = angle === null ? 0 : Math.atan2(Math.sin(angle - t.turretAngle), Math.cos(angle - t.turretAngle));
+    const onTarget = Math.abs(dd) < 0.08;
+    if(s.flame) return { angle, fire: onTarget };
+    const ready = !(t.reloadLeft > 0) && !(t.magReloadLeft > 0);
+    if(onTarget && ready){ s.done = true; return { angle, fire: true }; }
+    return { angle, fire: false };
+  }
+
   _wireSuperStick(btn){
     if(btn._stickWired) return;
     btn._stickWired = true;
-    const reach = (t) => {
-      const ty = t.def.superType;
-      return ty === 'airstrike' ? 70 : ty === 'barrage' ? 110 : ty === 'molotov' ? 60 : 14;
-    };
-    const point = (t) => {
-      const s = this._superStick;
-      const mag = Math.min(1, Math.hypot(s.dx, s.dy) / 70);
-      const ang = (this.camAngle || Math.PI) + Math.PI - Math.atan2(s.dx, -s.dy);
-      return { x: t.x + Math.sin(ang) * reach(t) * mag, z: t.z + Math.cos(ang) * reach(t) * mag };
-    };
-    const ringFor = (t) => t.def.superType === 'barrage' ? (t.def.airstrikeSpread || 14)
-      : t.def.superType === 'airstrike' ? (t.def.airstrikeRadius || 4)
-      : t.def.superType === 'molotov' ? (t.def.molotovRadius || 7) : 4;
+    const CANCEL = 0.28, MAX_PX = 68;
     btn.addEventListener('touchstart', (e) => {
       e.preventDefault(); e.stopPropagation();
       const t = this.localTank;
-      if(!t || !t.alive) return;
-      if(t.superState === 'targeting'){ /* already aiming: keep it */ }
-      else if(!t.activateSuper()) return;
-      if(t.superState !== 'targeting') return;   /* instant super: the tap was enough */
+      if(!t || !t.alive || this._superStick) return;
+      if(t.superCdLeft > 0 || (t.superState && t.superState !== 'done')) return;
       const f = e.changedTouches[0];
-      this._superStick = { id: f.identifier, sx: f.clientX, sy: f.clientY, dx: 0, dy: 0 };
-      if(this._superAimRing) this.scene.remove(this._superAimRing);
-      const p = point(t);
-      this._superAimRing = this._makeGroundRing(p.x, p.z, ringFor(t), 0xffffff, 0.8);
-      this._superAimRing.position.y = t.root.position.y + 0.3;
+      let ui = this._superStickUi;
+      if(!ui){
+        ui = this._superStickUi = document.createElement('div');
+        ui.className = 'super-stick-ui hidden';
+        ui.innerHTML = '<div class="super-stick-knob"></div>';
+        document.body.appendChild(ui);
+      }
+      ui.style.left = f.clientX + 'px';
+      ui.style.top = f.clientY + 'px';
+      ui.classList.remove('hidden', 'cancel');
+      ui.firstChild.style.transform = 'translate(-50%,-50%)';
+      this._superStick = { id: f.identifier, sx: f.clientX, sy: f.clientY, dx: 0, dy: 0, mag: 0, peak: 0, at: performance.now(), kind: this._superKind(t) };
     }, { passive: false });
     btn.addEventListener('touchmove', (e) => {
-      const s = this._superStick, t = this.localTank;
-      if(!s || !t) return;
+      const s = this._superStick;
+      if(!s) return;
       e.preventDefault();
       for(const f of e.changedTouches){
         if(f.identifier !== s.id) continue;
         s.dx = f.clientX - s.sx; s.dy = f.clientY - s.sy;
-        const p = point(t);
-        if(this._superAimRing) this._superAimRing.position.set(p.x, this._groundY(p.x, p.z, t.root.position.y) + 0.3, p.z);
+        const px = Math.hypot(s.dx, s.dy);
+        const kx = px > MAX_PX ? s.dx / px * MAX_PX : s.dx, ky = px > MAX_PX ? s.dy / px * MAX_PX : s.dy;
+        s.mag = Math.min(1, px / MAX_PX);
+        s.peak = Math.max(s.peak, s.mag);
+        this._superStickUi.firstChild.style.transform = 'translate(calc(-50% + ' + kx + 'px),calc(-50% + ' + ky + 'px))';
+        this._superStickUi.classList.toggle('cancel', s.peak >= CANCEL && s.mag < CANCEL);
       }
     }, { passive: false });
     const end = (e) => {
       const s = this._superStick, t = this.localTank;
       if(!s) return;
+      let ours = false;
+      for(const f of e.changedTouches) if(f.identifier === s.id) ours = true;
+      if(!ours) return;
       e.preventDefault();
-      if(t && t.superState === 'targeting'){
-        /* A tap without a drag aims ahead of the gun instead of on yourself. */
-        if(Math.hypot(s.dx, s.dy) < 12){
-          const r = reach(t) * 0.5;
-          t._touchSuperPick = { x: t.x + Math.sin(t.turretAngle) * r, z: t.z + Math.cos(t.turretAngle) * r };
-        } else {
-          t._touchSuperPick = point(t);
+      this._superStick = null;
+      if(this._superStickUi) this._superStickUi.classList.add('hidden');
+      if(!t || !t.alive) return;
+      const aimed = s.mag >= CANCEL;
+      const tapped = s.peak < CANCEL && performance.now() - s.at < 300;
+      if(e.type === 'touchcancel' || (!aimed && !tapped)) return;   /* dragged back to the centre: cancelled */
+      let spot = null;
+      if(s.kind === 'area'){
+        if(aimed) spot = this._superStickPoint(t, s);
+        else {
+          const reach = this._superReach(t);
+          const foe = this._nearestVisibleEnemy(t, reach);
+          const r = reach * 0.5;
+          spot = foe ? { x: foe.x, z: foe.z } : { x: t.x + Math.sin(t.turretAngle) * r, z: t.z + Math.cos(t.turretAngle) * r };
         }
       }
-      this._superStick = null;
-      if(this._superAimRing){ this.scene.remove(this._superAimRing); this._superAimRing = null; }
+      if(s.kind === 'aimed' && aimed){
+        /* The gun swings to where you aimed and stays there while it fires. */
+        this._superStickAim = this._superStickAngle(s);
+        clearTimeout(this._superAimTimer);
+        this._superAimTimer = setTimeout(() => { this._superStickAim = null; }, 1600);
+      }
+      if(!t.activateSuper()) return;
+      if(spot && t.superState === 'targeting') t._touchSuperPick = spot;
     };
     btn.addEventListener('touchend', end, { passive: false });
     btn.addEventListener('touchcancel', end, { passive: false });
+  }
+
+  /* Draw what the stick is aiming at: a line from the tank, and the circle it covers. */
+  _updateSuperPreview(){
+    const s = this._superStick, t = this.localTank;
+    if(s && (!t || !t.alive)){
+      this._superStick = null;
+      if(this._superStickUi) this._superStickUi.classList.add('hidden');
+    }
+    const live = this._superStick;
+    const pv = this._superPv;
+    if(!live){ if(pv) pv.group.visible = false; return; }
+    if(!pv){
+      const flat = (mesh) => { mesh.renderOrder = 950; mesh.frustumCulled = false; return mesh; };
+      const mat = () => new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6, depthTest: false, depthWrite: false, side: THREE.DoubleSide, toneMapped: false, fog: false });
+      const lineGeo = new THREE.PlaneGeometry(1, 1);
+      lineGeo.rotateX(-Math.PI / 2);
+      lineGeo.translate(0, 0, 0.5);
+      const ringGeo = new THREE.RingGeometry(0.93, 1, 48);
+      ringGeo.rotateX(-Math.PI / 2);
+      const fillGeo = new THREE.CircleGeometry(1, 48);
+      fillGeo.rotateX(-Math.PI / 2);
+      const fillMat = mat(); fillMat.opacity = 0.18;
+      const group = new THREE.Group();
+      const line = flat(new THREE.Mesh(lineGeo, mat()));
+      const ring = flat(new THREE.Mesh(ringGeo, mat()));
+      const fill = flat(new THREE.Mesh(fillGeo, fillMat));
+      group.add(line, ring, fill);
+      this.scene.add(group);
+      this._superPv = { group, line, ring, fill };
+    }
+    const P = this._superPv;
+    if(P.group.parent !== this.scene) this.scene.add(P.group);
+    const cancelled = live.peak >= 0.28 && live.mag < 0.28;
+    const aimed = live.mag >= 0.28;
+    P.group.visible = !cancelled;
+    if(cancelled) return;
+    const y = t.root.position.y + 0.5;
+    const R = this._superRadius(t);
+    const put = (x, z) => {
+      P.ring.position.set(x, y, z); P.fill.position.set(x, y, z);
+      P.ring.scale.set(R, 1, R); P.fill.scale.set(R, 1, R);
+    };
+    const showLine = (ang, len) => {
+      P.line.visible = true;
+      P.line.position.set(t.x, y, t.z);
+      P.line.rotation.y = ang;
+      P.line.scale.set(0.7, 1, Math.max(0.1, len));
+    };
+    P.ring.visible = P.fill.visible = true;
+    if(live.kind === 'area'){
+      if(!aimed){ P.group.visible = false; return; }
+      const p = this._superStickPoint(t, live);
+      put(p.x, p.z);
+      showLine(this._superStickAngle(live), Math.hypot(p.x - t.x, p.z - t.z));
+    } else if(live.kind === 'aimed'){
+      P.ring.visible = P.fill.visible = false;
+      showLine(aimed ? this._superStickAngle(live) : t.turretAngle, this._superReach(t));
+    } else if(live.kind === 'dash'){
+      P.ring.visible = P.fill.visible = false;
+      showLine(t.heading, this._superReach(t));
+    } else {
+      P.line.visible = false;
+      put(t.x, t.z);
+    }
   }
 
   _superPick(t){
@@ -12647,6 +12777,7 @@ _initMortarMarker(){
     wrap.classList.toggle('hidden', !has);
     if(!has || !t) return;
     if(document.body.classList.contains('is-mobile')) this._wireSuperStick(btn);
+    this._updateSuperPreview();
     if(!btn._wired){
       btn._wired = true;
       btn.onclick = () => { Audio && Audio.click && Audio.click(); if(this.localTank) this.localTank.activateSuper(); };

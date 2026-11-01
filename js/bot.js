@@ -1,10 +1,8 @@
 /* ============================================================
-   bot.js — WoT-style tactical AI for bots.
-   Cover-based combat: hold position, peek, shoot, retreat.
-   Different IQ levels affect reaction time, accuracy, lead.
-   Player-like behaviors: turret fidget, look at allies, cautious.
-   States: HOLDING → PEEKING → SHOOTING → RETREATING →
-           FLANKING → FOLLOWING → WANDERING → SCOUTING → DODGING
+   bot.js — bot players.
+   BotSquad (one per team) reads the mode's goal and gives each bot an order.
+   BotBrain follows its order and fights inside it. BOT_PLAYSTYLES says how a
+   tank should be played, BOT_PERSONALITIES who is playing it, iq how well.
    ============================================================ */
 
 /* ============================================================
@@ -47,1029 +45,660 @@ const BOT_PLAYSTYLES = {
    plays sanely: close to just inside the gun's range, ordinary profile. */
 const BOT_DEFAULT_STYLE = { role:'mid', closeIn:0.90, retreatHpMul:1.00, peekMul:1.00, flankBias:1.0, coverSeek:false };
 
+/* ============================================================
+   PERSONALITIES — who is driving, on top of what they drive.
+
+     aggr      how far forward it plays and how readily it chases
+     patience  holds angles and uses cover over side-stepping in the open
+     team      sticks to the group; low = goes its own way on a wide lane
+     nerve     HP share at which it pulls back
+     aim       aim error multiplier (lower is better)
+     react     reaction time multiplier
+     guard     how much it prefers defending when a base needs it
+   ============================================================ */
+const BOT_PERSONALITIES = {
+  hothead:  { aggr:0.90, patience:0.20, team:0.35, nerve:0.18, aim:1.30, react:0.75, guard:0.0 },
+  veteran:  { aggr:0.55, patience:0.75, team:0.80, nerve:0.40, aim:0.65, react:0.85, guard:0.4 },
+  guardian: { aggr:0.30, patience:0.90, team:0.90, nerve:0.40, aim:0.90, react:1.00, guard:1.0 },
+  wingman:  { aggr:0.50, patience:0.50, team:1.00, nerve:0.35, aim:1.00, react:1.00, guard:0.5 },
+  loner:    { aggr:0.60, patience:0.65, team:0.10, nerve:0.35, aim:0.90, react:0.90, guard:0.1 },
+  cautious: { aggr:0.25, patience:1.00, team:0.70, nerve:0.55, aim:1.00, react:1.10, guard:0.7 },
+  rookie:   { aggr:0.50, patience:0.35, team:0.40, nerve:0.25, aim:1.70, react:1.60, guard:0.2 },
+};
+/* Each kind of tank draws from the people who would pick it. */
+const BOT_PERSONALITY_POOLS = {
+  artillery:  ['cautious','veteran','guardian','rookie'],
+  sniper:     ['cautious','veteran','loner','guardian','rookie'],
+  ambusher:   ['loner','veteran','cautious','wingman','rookie'],
+  brawler:    ['hothead','wingman','guardian','veteran','rookie'],
+  rusher:     ['hothead','hothead','wingman','loner','rookie'],
+  flanker:    ['loner','hothead','wingman','veteran','rookie'],
+  skirmisher: ['wingman','veteran','loner','hothead','rookie'],
+  mid:        ['wingman','veteran','guardian','hothead','loner','rookie'],
+};
+
+/* ============================================================
+   BotSquad — one per team, the only thing that thinks about the team.
+
+   About once a second it looks at the mode's goal and the state of the fight
+   and hands every bot an ORDER: a post to go to, how far it may chase from it,
+   how fast to get there and which way to watch. Bots then fight on their own
+   inside that. One team-level pass a second replaces a lot of per-bot guessing,
+   and it is what makes defending, regrouping and pushing together possible.
+   ============================================================ */
+class BotSquad {
+  static get(game, team){
+    if(!game._botSquads) game._botSquads = {};
+    return game._botSquads[team] || (game._botSquads[team] = new BotSquad(team));
+  }
+
+  static playHalf(game){
+    const box = game.world && game.world._tdmBox;
+    if(box) return Math.min(box.max.x - box.min.x, box.max.z - box.min.z) / 2 - 8;
+    return ((game.world && game.world.half) || 300) - 15;
+  }
+  static playCentre(game){
+    const box = game.world && game.world._tdmBox;
+    return box ? { x: (box.min.x + box.max.x) / 2, z: (box.min.z + box.max.z) / 2 } : { x: 0, z: 0 };
+  }
+  /* The nearest open ground to a point, so no post is ever inside a building. */
+  static freeSpot(game, x, z){
+    const w = game.world;
+    if(!w || !w.collidesForAI || !w.collidesForAI(x, z, 3)) return { x, z };
+    for(let r = 5; r <= 25; r += 5){
+      for(let i = 0; i < 8; i++){
+        const a = i / 8 * Math.PI * 2;
+        const px = x + Math.sin(a) * r, pz = z + Math.cos(a) * r;
+        if(!w.collidesForAI(px, pz, 3)) return { x: px, z: pz };
+      }
+    }
+    return { x, z };
+  }
+
+  constructor(team){
+    this.team = team;
+    this.at = -99;
+    this.orders = new Map();
+    this.progress = 0.3;
+    this.focus = null;
+    this.contact = null;
+    this.baseHp = null;
+    this.baseHitAt = -99;
+    this.home = null;
+    this.front = null;
+  }
+
+  orderFor(tank, game, now){
+    if(now - this.at >= 1 || !this.orders.has(tank.id)) this._update(game, now);
+    return this.orders.get(tank.id) || null;
+  }
+
+  _centroid(list, read){
+    let x = 0, z = 0, n = 0;
+    for(const t of list){ const p = read(t); if(p){ x += p.x; z += p.z; n++; } }
+    return n ? { x: x / n, z: z / n } : null;
+  }
+
+  _update(game, now){
+    const dt = Math.min(2, now - this.at);
+    this.at = now;
+    const usable = t => t && t.alive && !t.dying && !t.isPanzer && !t.isDummy;
+    const members = [], bots = [], enemies = [];
+    for(const t of game.tanks){
+      if(!usable(t)) continue;
+      if(t.team === this.team){ members.push(t); if(t.brain) bots.push(t); }
+      else enemies.push(t);
+    }
+    /* Spawns stay put when tanks die, so these are stable for the whole match. */
+    const all = game.tanks.filter(t => t && !t.isPanzer && !t.isDummy);
+    this.home = this._centroid(all.filter(t => t.team === this.team), t => t._spawnPos) || this.home || { x: 0, z: 0 };
+    const centre = BotSquad.playCentre(game);
+    this.front = this._centroid(all.filter(t => t.team && t.team !== this.team), t => t._spawnPos)
+      || this.front || { x: centre.x * 2 - this.home.x, z: centre.z * 2 - this.home.z };
+
+    /* What the team actually knows, not where the enemies really are. */
+    const known = [];
+    if(game._botRadio){
+      for(const [id, r] of game._botRadio){
+        if(now - r.at > 5 || !r.t.alive){ game._botRadio.delete(id); continue; }
+        if(r.t.team !== this.team) known.push(r);
+      }
+    }
+    const mid = this._centroid(members, t => t) || this.home;
+    this.contact = null; this.focus = null;
+    let bestC = Infinity, bestF = Infinity;
+    for(const r of known){
+      const d = Math.hypot(r.x - mid.x, r.z - mid.z);
+      if(d < bestC){ bestC = d; this.contact = r; }
+      const frac = r.t.maxHp ? r.t.hp / r.t.maxHp : 1;
+      const score = d * 0.4 + frac * 60;
+      if(score < bestF){ bestF = score; this.focus = r.t; }
+    }
+
+    this.orders.clear();
+    if(!bots.length) return;
+    const ctx = { game, now, dt, members, bots, enemies, known, mid };
+    if(game._baseDefendMode && typeof BaseDefend !== 'undefined' && BaseDefend.getState()) this._baseOrders(ctx);
+    else if(game._captureCircleMode && typeof CaptureCircle !== 'undefined' && CaptureCircle.getState()) this._circleOrders(ctx);
+    else this._pushOrders(ctx, bots);
+  }
+
+  _post(tank, ctx, kind, x, z, opts){
+    const P = tank.brain.person;
+    const s = BotSquad.freeSpot(ctx.game, x, z);
+    this.orders.set(tank.id, Object.assign({
+      kind, x: s.x, z: s.z, r: 5,
+      leash: 30 + P.aggr * 35,
+      pace: 0.55 + P.aggr * 0.35,
+      face: this.front,
+      rally: this.home,
+      hide: false,
+    }, opts || {}));
+  }
+
+  /* A fixed spot around a point for each bot, so a team spreads out on arrival. */
+  _slot(tank, spread){
+    const b = tank.brain;
+    return { x: Math.sin(b._phase * 7) * spread * (0.4 + (b._phase % 1) * 0.6), z: Math.cos(b._phase * 7) * spread * (0.4 + (b._phase % 1) * 0.6) };
+  }
+
+  /* Move forward as a group: the line only advances once enough of the team has
+     caught up, and gives ground when it is losing. Lanes keep them from driving
+     in single file, ranged tanks hang back, loners take a wide route. */
+  _pushOrders(ctx, list){
+    const { game, members, enemies, bots, now, dt } = ctx;
+    const dx = this.front.x - this.home.x, dz = this.front.z - this.home.z;
+    const len = Math.max(1, Math.hypot(dx, dz));
+    const ax = dx / len, az = dz / len, px = az, pz = -ax;
+    const lineAt = p => ({ x: this.home.x + dx * p, z: this.home.z + dz * p });
+    const line = lineAt(this.progress);
+
+    let caught = 0;
+    for(const t of list) if(Math.hypot(t.x - line.x, t.z - line.z) < 50) caught++;
+    const strength = members.length / Math.max(1, enemies.length);
+    /* Radio contacts alone must not stop the push: two teams that know about each
+       other through a wall would otherwise wait there all match. Only actual
+       fighting holds the line, and a long quiet spell moves it regardless. */
+    let fighting = false;
+    for(const t of bots) if(t.brain._numVisibleEnemies > 0){ fighting = true; break; }
+    if(fighting) this.quietAt = now;
+    const quiet = now - (this.quietAt === undefined ? (this.quietAt = now) : this.quietAt);
+    if(strength < 0.7 && fighting) this.progress = Math.max(0.15, this.progress - 0.04 * dt);
+    else if(!fighting && (caught >= list.length * 0.5 || quiet > 10)) this.progress = Math.min(1, this.progress + 0.05 * dt);
+    else if(strength >= 1.4) this.progress = Math.min(1, this.progress + 0.02 * dt);
+
+    /* Nothing found at the far end: someone has a hunch where they went. */
+    let goal = lineAt(this.progress);
+    if(!fighting && quiet > 18 && enemies.length){
+      /* Nobody has seen a fight in a while: go and find one. */
+      if(now > (this._hunchAt || 0) || !this._hunch){
+        this._hunchAt = now + 12;
+        const e = this.contact ? this.contact : enemies[Math.random() * enemies.length | 0];
+        this._hunch = { x: e.x + (Math.random() - 0.5) * 30, z: e.z + (Math.random() - 0.5) * 30 };
+      }
+      goal = this._hunch;
+    } else if(this.progress >= 0.95 && !ctx.known.length && enemies.length){
+      if(now > (this._hunchAt || 0) || !this._hunch){
+        this._hunchAt = now + 12;
+        const e = enemies[Math.random() * enemies.length | 0];
+        this._hunch = { x: e.x + (Math.random() - 0.5) * 50, z: e.z + (Math.random() - 0.5) * 50 };
+      }
+      goal = this._hunch;
+    } else if(this.contact && Math.hypot(this.contact.x - goal.x, this.contact.z - goal.z) < 90){
+      goal = { x: (goal.x + this.contact.x) / 2, z: (goal.z + this.contact.z) / 2 };
+    }
+
+    const half = BotSquad.playHalf(game), c = BotSquad.playCentre(game);
+    list.forEach((t, i) => {
+      const b = t.brain, P = b.person;
+      const lane = ((i + 1) >> 1) * (i % 2 ? 1 : -1);
+      const role = b.style.role;
+      const back = role === 'artillery' ? 42 : role === 'sniper' ? 28 : role === 'brawler' || role === 'rusher' ? -8 : 0;
+      const wide = (role === 'flanker' ? 1.5 : 1) * (1 + (1 - P.team) * 1.4);
+      let x = goal.x + px * lane * 16 * wide - ax * back;
+      let z = goal.z + pz * lane * 16 * wide - az * back;
+      x = Math.max(c.x - half, Math.min(c.x + half, x));
+      z = Math.max(c.z - half, Math.min(c.z + half, z));
+      this._post(t, ctx, 'advance', x, z, {
+        hide: b.style.coverSeek,
+        face: this.contact || this.front,
+        rally: { x: goal.x - ax * 45, z: goal.z - az * 45 },
+      });
+    });
+  }
+
+  /* Most of the team stands in the circle; the ranged tanks and the last few
+     watch over it from outside, on the side the enemy comes from. Zones we do not
+     hold come first, and a zone the enemy is close to taking outranks all. */
+  _circleOrders(ctx){
+    const { bots } = ctx;
+    const st = CaptureCircle.getState();
+    const zones = st.zones || [];
+    if(!zones.length) return this._pushOrders(ctx, bots);
+    const R = (typeof GAMEMODES !== 'undefined' && GAMEMODES.captureTheCircle && GAMEMODES.captureTheCircle.circleRadius) || 12;
+    const mine = this.team === 'blue' ? 'bluePercent' : 'redPercent';
+    const theirs = this.team === 'blue' ? 'redPercent' : 'bluePercent';
+    const urgency = z => (z.owner === this.team ? 0 : 40) + (z[theirs] || 0) - (z[mine] || 0) * 0.3;
+    const order = zones.slice().sort((a, b) => urgency(b) - urgency(a));
+
+    /* Split the team across zones by need: never fewer than one on the top zone. */
+    const lists = order.map(() => []);
+    const left = bots.slice();
+    if(order.length > 1){
+      const share = Math.max(1, Math.ceil(bots.length * (urgency(order[1]) > 20 ? 0.4 : 0.25)));
+      left.sort((a, b) => Math.hypot(a.x - order[1].cx, a.z - order[1].cz) - Math.hypot(b.x - order[1].cx, b.z - order[1].cz));
+      lists[1] = left.splice(0, Math.min(share, Math.max(0, left.length - 1)));
+    }
+    lists[0] = left;
+
+    lists.forEach((team, zi) => {
+      const z = order[zi];
+      const dx = this.front.x - z.cx, dz = this.front.z - z.cz, len = Math.max(1, Math.hypot(dx, dz));
+      const ax = dx / len, az = dz / len;
+      const pressing = (z.owner !== this.team && (z[theirs] || 0) > 50);
+      const sorted = team.slice().sort((a, b) => b.brain.style.closeIn - a.brain.style.closeIn);
+      const watchers = pressing ? 0 : Math.floor(sorted.length * 0.35);
+      sorted.forEach((t, i) => {
+        const b = t.brain;
+        if(i < watchers){
+          /* Hold just off the circle towards home, gun range covering it. */
+          const off = Math.min(40, (t.def.shellRange || 60) * 0.45);
+          const side = (i % 2 ? 1 : -1) * 12;
+          this._post(t, ctx, 'overwatch', z.cx - ax * off + az * side, z.cz - az * off - ax * side, {
+            leash: 22, hide: b.style.coverSeek, face: { x: z.cx, z: z.cz }, pace: 0.7,
+            rally: { x: z.cx - ax * (off + 25), z: z.cz - az * (off + 25) },
+          });
+        } else {
+          const s = this._slot(t, R * 0.7);
+          /* A team that is capturing does not stroll there. */
+          this._post(t, ctx, 'capture', z.cx + s.x, z.cz + s.z, {
+            r: 3, leash: R + 12, pace: pressing ? 1 : 0.85, face: this.contact || this.front,
+            rally: { x: z.cx - ax * 25, z: z.cz - az * 25 },
+          });
+        }
+      });
+    });
+  }
+
+  /* Base Defend: how many stay home follows from how the base is doing. */
+  _baseOrders(ctx){
+    const { bots, now, known, game } = ctx;
+    const bd = BaseDefend.getState();
+    const me = bd.bases.find(b => b.team === this.team);
+    const them = bd.bases.find(b => b.team !== this.team);
+    if(!me || !them || bd.winner) return this._pushOrders(ctx, bots);
+
+    if(this.baseHp !== null && me.hp < this.baseHp - 0.01) this.baseHitAt = now;
+    this.baseHp = me.hp;
+    const myHp = me.hp / Math.max(1, me.maxHp), theirHp = them.hp / Math.max(1, them.maxHp);
+    const hitLately = now - this.baseHitAt < 6;
+
+    let attacker = null, bestA = 90;
+    for(const r of known){
+      const d = Math.hypot(r.x - me.x, r.z - me.z);
+      if(d < bestA){ bestA = d; attacker = r; }
+    }
+
+    let share;
+    if(myHp < 0.35) share = hitLately || attacker ? 0.8 : 0.5;
+    else if(hitLately || attacker) share = myHp < 0.65 ? 0.6 : 0.4;
+    else if(myHp < 0.65) share = 0.3;
+    else share = 0.15;
+    /* Their base is nearly down and ours is fine: everyone goes for the win. */
+    if(theirHp < 0.25 && myHp > theirHp + 0.2 && !attacker) share = 0;
+    const count = Math.min(bots.length, Math.round(bots.length * share));
+
+    /* Guardians first, then whoever is already closest to home. */
+    const ranked = bots.slice().sort((a, b) =>
+      (Math.hypot(a.x - me.x, a.z - me.z) - a.brain.person.guard * 80) -
+      (Math.hypot(b.x - me.x, b.z - me.z) - b.brain.person.guard * 80));
+    const dx = them.x - me.x, dz = them.z - me.z, len = Math.max(1, Math.hypot(dx, dz));
+    const ax = dx / len, az = dz / len;
+
+    ranked.slice(0, count).forEach(t => {
+      const towards = attacker || { x: me.x + ax * 30, z: me.z + az * 30 };
+      const d = Math.max(1, Math.hypot(towards.x - me.x, towards.z - me.z));
+      const s = this._slot(t, 14);
+      this._post(t, ctx, 'defend', me.x + (towards.x - me.x) / d * 20 + s.x, me.z + (towards.z - me.z) / d * 20 + s.z, {
+        leash: 42, pace: hitLately || myHp < 0.5 ? 1 : 0.7, face: towards,
+        rally: { x: me.x, z: me.z },
+      });
+    });
+
+    /* The rest gather short of the enemy base, then go in together. */
+    const strike = ranked.slice(count);
+    if(!strike.length) return;
+    const hold = Math.min(len * 0.5, 110);
+    const stage = { x: them.x - ax * hold, z: them.z - az * hold };
+    if(this._attackAt === undefined) this._attackAt = now + 18;
+    let ready = 0;
+    for(const t of strike) if(Math.hypot(t.x - stage.x, t.z - stage.z) < 40 || Math.hypot(t.x - them.x, t.z - them.z) < hold) ready++;
+    if(ready >= Math.ceil(strike.length * 0.6) || now > (this._attackAt || 0)){
+      if(!this._attacking) this._attackAt = now + 30;
+      this._attacking = true;
+    }
+    if(this._attacking && ready < strike.length * 0.25 && now > (this._attackAt || 0)){
+      this._attacking = false;
+      this._attackAt = now + 25;
+    }
+    strike.forEach(t => {
+      const s = this._slot(t, 16);
+      const r = Math.min(52, (t.def.shellRange || 60) * 0.75);
+      const dest = this._attacking ? { x: them.x - ax * r + s.x, z: them.z - az * r + s.z } : { x: stage.x + s.x, z: stage.z + s.z };
+      this._post(t, ctx, 'attack', dest.x, dest.z, {
+        leash: 38, face: { x: them.x, z: them.z }, siege: this._attacking,
+        rally: { x: stage.x - ax * 30, z: stage.z - az * 30 },
+      });
+    });
+  }
+}
+
 class BotBrain {
   constructor(tank, opts){
     this.tank = tank;
     const o = opts || {};
+    this._botId = Math.random().toString(36).slice(2, 8);
+    this._phase = Math.random() * Math.PI * 2;
 
-    this.state = 'SEEKING';
-    this.wanderHeading = Math.random()*Math.PI*2;
-    this.wanderTimer = 0;
-    this.coverPos = null;
-    this.coverDir = null;
-    this.peekTimer = 0;
-    this.retreatTimer = 0;
-    this.pushTimer = 0;
-    this.waitTimer = 0;
-    this.dodgeTimer = 0;
-    this.dodgeDir = 0;
-    this.targetLastSeen = null;
-    this.strafeDir = Math.random() < 0.5 ? 1 : -1;
-    this.strafeTimer = 0;
-    this._lastTargetId = null;
-    this._lostTimer = 0;
-
-    /* --- perception and navigation state -------------------------------
-       All null/empty on purpose: the first decide() fills them, and every one
-       has a defined meaning when absent, so a brain constructed mid-match (a
-       bot-fill joining rounds already in progress) starts blind rather than
-       reading someone else's memory. */
+    /* Perception. All empty until the first think, so a bot that joins mid-match
+       starts blind rather than with someone else's memory. */
     this._seen = null;        /* uid -> { t, x, z, at }  last known position */
-    this._seenAt = 0;         /* when the last sweep ran                       */
+    this._seenAt = 0;
     this._visible = null;     /* uid -> { t, x, z, at, dist }  in sight now   */
-    this._heard = null;       /* teammates' radio, merged in from game        */
-    this._heardGoal = null;
+    this._heard = null;       /* teammates' radio */
     this._numVisibleEnemies = 0;
-    this._numAliveEnemies = 0;
     this._curTarget = null;
-    this._path = null;        /* remaining waypoints, world space              */
-    this._pathGoal = null;    /* what that path was planned for               */
-
-    this.iq = o.iq || (['low','medium','medium','high'])[Math.random()*4|0];
-    this.reactionDelay = this.iq === 'high' ? 0.08 : this.iq === 'medium' ? 0.2 : 0.4;
-    this._reactTimer = 0;
-    this._lastFireTime = 0;
-    this._fidgetTimer = 0;
-    this._fidgetCooldown = 2 + Math.random() * 4;
-    this._lookAtAllyTimer = 0;
-    this._heldTurretAngle = null;
-    this._preaimAngle = null;
-    this._hitPanicTimer = 0;
+    this.targetLastSeen = null;
+    this._path = null;
+    this._pathGoal = null;
     this._allyPositions = [];
-    this._allyCheckTimer = 0;
-    this._numVisibleEnemies = 0;
-    this._numAliveAllies = 0;
-    this._retreatThreshold = this.iq === 'high' ? 2 : this.iq === 'medium' ? 1.5 : 1;
-    this._flankCooldown = 0;
-    this._lastCoverPos = null;
-    this._sidePeek = Math.random() < 0.5 ? 1 : -1;
-
-    this._groupTimer = 0;
-    this._coordinatedPushTarget = null;
-    this._lowHpThreshold = 0.3;
-    this._teamCoordTimer = 0;
-    this._lastAllyNearby = false;
-    this._shootRetreatCooldown = 0;
-    this._stuckTimer = 0;
+    this._stuckAt = 0;
     this._stuckCheckPos = {x: tank.x, z: tank.z};
     this._separationRadius = 5;
-    this._botId = Math.random().toString(36).slice(2, 8);
+    this._losCache = {};
+    this.strafeDir = Math.random() < 0.5 ? 1 : -1;
+    this.wanderTimer = 0;
+    this.wanderHeading = Math.random() * Math.PI * 2;
 
-    /* WHAT IT DRIVES, not just how well. The table above turns every shipped
-       tank into its own kind of opponent instead of a generic one. The
-       retreat threshold is scaled right here so brawlers are measurably
-       braver and artillery measurably more careful, on top of IQ; the flank
-       gap is the coordinated-push cooldown derived from flankBias. */
+    this.iq = o.iq || (['low','medium','medium','high'])[Math.random()*4|0];
+    this.reactionDelay = this.iq === 'high' ? 0.12 : this.iq === 'medium' ? 0.25 : 0.45;
+
     this.style = BOT_PLAYSTYLES[(tank.def && tank.def.id) || ''] || BOT_DEFAULT_STYLE;
-    this._retreatThreshold = Math.max(0.6, this._retreatThreshold * this.style.retreatHpMul);
-    this._flankGap = (6 + Math.random() * 4) / Math.max(0.3, this.style.flankBias);
+    const pool = BOT_PERSONALITY_POOLS[this.style.role] || BOT_PERSONALITY_POOLS.mid;
+    this.personality = o.personality || pool[Math.random() * pool.length | 0];
+    this.person = BOT_PERSONALITIES[this.personality];
   }
 
+  /* One think. Bots no longer run a state machine that restarts its plan every
+     few seconds. Each think answers three questions in order: what does my team
+     want from me (the squad's order), am I fit to do it (retreat), and is there
+     someone to shoot right now (fight). Everything else is following the order. */
   decide(game){
     const me = this.tank;
     if(!me.alive) return {throttle:0, turn:0, turretWorldAngle:me.turretAngle, fire:false};
+    const now = game.time || 0;
 
-    const isAlly = (t) => t === me || (me.team && t.team && me.team === t.team);
-
-    /* PERCEPTION FIRST, THEN TARGETING.
-
-       The old loop walked game.tanks and took the nearest enemy, which meant a
-       bot locked onto a target it had no line of sight to -- through a wall, or
-       round a corner -- and then drove at the wall between them. It also had no
-       memory at all: lose sight of a target and the bot immediately swiveled to
-       whatever else happened to be nearest, including something behind it.
-
-       _perceive() establishes what can actually be seen (field of view, line of
-       sight, camouflage, allies' radio) and remembers where things were, and
-       _chooseTarget() then picks with hysteresis so a bot does not thrash. */
     this._perceive(me, game);
-    const pick = this._chooseTarget(me, game);
-    let target = pick.target;   /* reassigned to the enemy base in Base Defend (below) */
+    const order = me.team ? BotSquad.get(game, me.team).orderFor(me, game, now) : this._soloOrder(me, game, now);
+    this._order = order;
+
+    const pick = this._chooseTarget(me, game, order, now);
+    const target = pick.target, canSee = !!pick.canSee;
     this._curTarget = target;
+    if(target){ this.targetLastSeen = { x: target.x, z: target.z }; this._lostAt = now; }
+    else if(this.targetLastSeen && now - (this._lostAt || 0) > 4) this.targetLastSeen = null;
 
-    let enemyCount = 0;
-    const allies = [];
-    for(const t of game.tanks){
-      if(!t.alive) continue;
-      if(isAlly(t)){
-        if(t !== me) allies.push(t);
-        continue;
-      }
-      enemyCount++;
-    }
-    /* _numVisibleEnemies is what the behaviour layer reads to decide how scared
-       to be, so it must stay the count of things SEEN -- not of things alive on
-       the far side of the map. Counting every living enemy made bots nervous
-       about fights they had no way of knowing about. */
-    this._numAliveEnemies = enemyCount;
-    this._numAliveAllies = allies.length;
-    this._allyPositions = allies;
-
-    /* If the bot is chasing a memory rather than a sighting, it should still
-       drive to where it was last seen -- that is the whole point of remembering
-       it. Without this the "go and look" behaviour would have nowhere to go. */
-    let targetX = target ? target.x : 0;
-    let targetZ = target ? target.z : 0;
-    if(target && this._seen && this._seen[target.id]){
-      targetX = this._seen[target.id].x;
-      targetZ = this._seen[target.id].z;
-    } else if(!target && this._heard){
-      for(const id in this._heard){
-        const h = this._heard[id];
-        if(!this._heardGoal){
-          const d = Math.hypot(h.x - me.x, h.z - me.z);
-          if(!this._heardGoal || d < this._heardGoal.d) this._heardGoal = { d: d, x: h.x, z: h.z };
-        }
-      }
-      if(this._heardGoal){ targetX = this._heardGoal.x; targetZ = this._heardGoal.z; }
+    /* A new target takes a moment to react to; a veteran is quicker than a rookie. */
+    if(target !== this._engaged){
+      this._engaged = target;
+      this._engagedAt = now;
+      this._fireReadyAt = now + this.reactionDelay * this.person.react + Math.random() * 0.25;
     }
 
-    /* BASE DEFEND: THE BASE IS A TARGET TOO, BUT ONLY SOMETIMES.
+    const out = { throttle: 0, turn: 0, turretAngle: me.turretAngle, fire: false };
+    const hp = me.hp / Math.max(1, me.maxHp);
 
-       A bot that only ever shoots tanks cannot finish this mode. Both teams
-       respawn without limit, so ten bots trading kills leaves both bases at
-       full health and the match runs until the heat death of the universe —
-       the mode's entire win condition is unreachable by the AI that fills nine
-       tenths of every roster.
+    if(!this._retreatUntil && hp < this._nerve(order) && now > (this._retreatCd || 0) && (canSee || now - (me._lastHitAt || -99) < 3)){
+      this._retreatUntil = now + 5 + this.person.nerve * 4;
+      this._retreatCd = this._retreatUntil + 14;
+    }
+    if(this._retreatUntil && now > this._retreatUntil) this._retreatUntil = 0;
 
-       So the enemy base is offered as a target here, and the caller decides
-       whether to take it. It is a FIGHTING target, not a movement objective:
-       every line below reads target.x, target.z, target.id and target._physBody,
-       and a base object supplies all four. _calcLead reads _physBody, which is
-       absent on a base, so it returns no lead — which is correct, because a
-       building does not move.
-
-       The last one to have a live enemy tank keeps fighting that tank. Without
-       this the base would out-prioritise an opponent standing in front of it,
-       and a bot would shell a wall while a tank shot it in the back. */
-    /* PROMOTE THE BASE TO `target`, which is what the rest of this function
-       reads.
-
-       The substitution rather than a separate code path is the cheap part of
-       this being a small change: every state below already treats `target` as
-       "something with an x and a z to point the turret at and a position to
-       drive toward", and that is exactly what a base is. A second state machine
-       for attacking an objective would be a hundred lines to keep in step with
-       the first one, and would drift.
-
-       What the stand-in deliberately does NOT carry is anything the state
-       machine might read off a tank. Only .x, .z, .id and ._physBody are ever
-       touched (grep-verified against this file), and the stand-in supplies the
-       first three and pointedly NOT the fourth — a moving target gets its lead
-       computed from its velocity, and a building has none to give.
-
-       WHEN A BOT GOES FOR IT. Only when it has nothing better to shoot: a live
-       enemy tank always wins, because a bot that shells a wall while a tank
-       shoots it in the back is not playing the objective, it is ignoring it.
-       So the base is a fallback for the moments the field is empty — which in
-       this mode is most of them, since respawns are unlimited and the tanks are
-       never all dead at once. */
-    this._baseTarget = null;
-    if(game._baseDefendMode && typeof BaseDefend !== 'undefined' && BaseDefend.getState()){
-      const bt = BaseDefend.botTargetFor(me.team);
-      /* botTargetFor returns null once the enemy base is down, so a bot with
-         nothing left to shoot simply has no target and goes back to its normal
-         wandering — rather than driving to a wreck. */
-      if(bt && !target){
-        target = { x: bt.x, z: bt.z, id: 'base-' + bt.team, isBase: true };
-        this._baseTarget = target;
+    const shell = now > (this._dodgeCd || 0) ? this._detectIncomingShell(me, game) : null;
+    if(shell){
+      this._dodgeCd = now + 1.6;
+      if(Math.random() < (this.iq === 'high' ? 0.85 : this.iq === 'medium' ? 0.55 : 0.3)){
+        this._dodgeUntil = now + 0.55;
+        this.dodgeDir = this._getDodgeAngle(shell, me);
       }
     }
 
-    if(target){
-      this.targetLastSeen = {x:target.x, z:target.z};
-      /* Kept as a live REFERENCE, not just a position, so that when the
-         decision is throttled the bot can still re-aim at where its target
-         actually IS every frame. A cached position would leave the turret
-         pointing at where the enemy used to be. */
-      this._curTarget = target;
-      this._lostTimer = 4;
-    } else if(this.targetLastSeen){
-      this._lostTimer -= game.dt;
-      if(this._lostTimer <= 0) this.targetLastSeen = null;
-    }
+    if(target && target.isBase) this._attackBase(me, target, game, out, now);
+    else if(this._retreatUntil) this._retreat(me, target, game, out, now);
+    else if(target && canSee) this._fight(me, target, order, game, out, now);
+    else this._followOrder(me, target, order, game, out, now);
 
-    /* Perception already established this on its last sweep, so it is asked here
-       rather than re-raycast. Note the deliberate difference from the old code:
-       this is now "can this bot SEE its target", not "would a shell get
-       through" -- the field-of-view cone means a target directly behind a bot is
-       no longer something it fires at just because nothing is in the way. */
-const canSeeTarget = target ? !!pick.canSee : false;
-    const incomingShell = this._detectIncomingShell(me, game);
+    if(target && !target.isBase && canSee) this._aimAndFire(me, target, game, out, now);
 
-    if(this._hitPanicTimer > 0) this._hitPanicTimer -= game.dt;
-    if(this._flankCooldown > 0) this._flankCooldown -= game.dt;
-    if(this._shootRetreatCooldown > 0) this._shootRetreatCooldown -= game.dt;
-
-    const myHpRatio = me.hp / me.maxHp;
-    const allyNearby = allies.length > 0 ? allies.some(a => Math.hypot(a.x-me.x, a.z-me.z) < 25) : false;
-    this._lastAllyNearby = allyNearby;
-
-    if(this.state !== 'DODGING' && this.state !== 'GROUPING' && this.state !== 'COORDPUSH'){
-      if(myHpRatio < this._lowHpThreshold && allies.length > 0 && this.state !== 'RETREATING'){
-        const nearAlly = allies.reduce((best, a) => {
-          const d = Math.hypot(a.x-me.x, a.z-me.z);
-          return d < best.d ? {a, d} : best;
-        }, {a: null, d: Infinity});
-        if(nearAlly.d < 40){
-          const offsetAngle = this._botId.charCodeAt(0) / 127 * Math.PI * 2;
-          const offsetDist = 5 + (this._botId.charCodeAt(1) % 5);
-          this.coverPos = {x: nearAlly.a.x + Math.sin(offsetAngle)*offsetDist, z: nearAlly.a.z + Math.cos(offsetAngle)*offsetDist};
-          this.state = 'GROUPING';
-          this._groupTimer = 0;
-        }
-      }
-      else if(enemyCount >= 2 && allies.length >= 1 && !allyNearby && this.state !== 'SEEKING' && this.state !== 'APPROACHING'){
-        this._teamCoordTimer += game.dt;
-        if(this._teamCoordTimer > 1.5){
-          const nearAlly = allies.reduce((best, a) => {
-            const d = Math.hypot(a.x-me.x, a.z-me.z);
-            return d < best.d ? {a, d} : best;
-          }, {a: null, d: Infinity});
-          if(nearAlly.a){
-            const offsetAngle = this._botId.charCodeAt(2) / 127 * Math.PI * 2;
-            this.coverPos = {x: nearAlly.a.x + Math.sin(offsetAngle)*8, z: nearAlly.a.z + Math.cos(offsetAngle)*8};
-            this.state = 'GROUPING';
-            this._groupTimer = 0;
-          }
-          this._teamCoordTimer = 0;
-        }
-      } else {
-        this._teamCoordTimer = 0;
-      }
-
-      /* ARK SEEKS COVER.
-
-         Ark is the glass cannon: 140 HP, longest barrel in the game, and it dies
-         to anything that sees it first. So an Ark that is not already hidden and
-         has no shot worth taking goes and puts its body in a tree or a bush.
-
-         Restricted to its OWN half of the map. An Ark that wandered off to hide
-         on the far side would be hiding in the wrong country -- nowhere near its
-         team, unable to support a push, and gone from the fight for as long as it
-         takes to drive back. The half is decided from the map centre and the
-         team, which is the same convention the spawn fallbacks use (blue sits at
-         centre.x - , red at centre.x +). */
-      if(this._wantsCover(me) && !target && this.state !== 'RETREATING' &&
-         this.state !== 'DODGING' && this.state !== 'TAKINGCOVER'){
-        this.state = 'TAKINGCOVER';
-        this._coverTarget = null;
-        this._coverSearchTimer = 0;
-      }
-      /* ...and drop out of cover the moment hiding stops being the best plan:
-         an enemy in the open, or nothing left worth hiding from. */
-      if(this.state === 'TAKINGCOVER' && (target || this._inCover(me))){
-        if(target && this._inCover(me)) this.state = 'HOLDING';
-        else if(target) this.state = 'SEEKING';
-      }
-
-      if(this.state !== 'GROUPING' && enemyCount >= 2 && allies.length >= 2 && this._flankCooldown <= 0){
-        const closeAllies = allies.filter(a => Math.hypot(a.x-me.x, a.z-me.z) < 20);
-        if(closeAllies.length >= 1 && target && canSeeTarget){
-          const dist = Math.hypot(target.x-me.x, target.z-me.z);
-          if(dist < me.def.shellRange * 0.8){
-            this.state = 'COORDPUSH';
-            this.pushTimer = 0;
-            this._coordinatedPushTarget = {x: target.x, z: target.z};
-            /* The cooldown comes from the playstyle: flankers set up pushes
-               every few seconds, a mortar basically never volunteers. */
-            this._flankCooldown = this._flankGap;
-          }
-        }
-      }
-    }
-
-    const out = {throttle:0, turn:0, turretAngle:me.turretAngle, fire:false};
-
-    if(incomingShell){
-      this._reactTimer += game.dt;
-      if(this._reactTimer < this.reactionDelay){
-        out.turretAngle = target ? Math.atan2(target.x-me.x, target.z-me.z) : me.turretAngle;
-        return this._clamp({throttle:out.throttle, turn:out.turn, turretWorldAngle:out.turretAngle, fire:false});
-      }
-      this._reactTimer = 0;
-      const dodgeAngle = this._getDodgeAngle(incomingShell, me);
-      const angDiff = this._angleDiff(dodgeAngle, me.heading);
-      out.turn = Math.max(-1, Math.min(1, angDiff*2));
+    if(this._dodgeUntil && now < this._dodgeUntil){
+      out.turn = Math.max(-1, Math.min(1, this._angleDiff(this.dodgeDir, me.heading) * 2.5));
       out.throttle = 1;
-      if(target) out.turretAngle = Math.atan2(target.x-me.x, target.z-me.z);
-      this.state = 'DODGING';
-      this.dodgeTimer = 0.6 + Math.random()*0.4;
-      this.dodgeDir = dodgeAngle;
-      return this._clamp({throttle:out.throttle, turn:out.turn, turretWorldAngle:out.turretAngle, fire:out.fire});
-    }
-
-    this._updateFidget(me, game, out);
-
-    switch(this.state){
-      case 'SEEKING':      this._doSeeking(me, target, canSeeTarget, game, out); break;
-      case 'HOLDING':      this._doHolding(me, target, canSeeTarget, game, out); break;
-      case 'APPROACHING':  this._doApproaching(me, target, canSeeTarget, game, out); break;
-      case 'PEEKING':      this._doPeeking(me, target, canSeeTarget, game, out); break;
-      case 'SHOOTING':     this._doShooting(me, target, canSeeTarget, game, out); break;
-      case 'RETREATING':   this._doRetreating(me, target, canSeeTarget, game, out); break;
-      case 'FLANKING':     this._doFlanking(me, target, canSeeTarget, game, out); break;
-      case 'FOLLOWING':    this._doFollowing(me, target, canSeeTarget, game, out); break;
-      case 'WANDERING':    this._doWandering(me, target, game, out); break;
-      case 'SCOUTING':     this._doScouting(me, target, canSeeTarget, game, out); break;
-      case 'DODGING':      this._doDodging(me, target, game, out); break;
-      case 'TAKINGCOVER':  this._doTakingCover(me, target, canSeeTarget, game, out); break;
-      case 'GROUPING':     this._doGrouping(me, target, canSeeTarget, game, out); break;
-      case 'COORDPUSH':    this._doCoordinatedPush(me, target, canSeeTarget, game, out); break;
-    }
-
-    /* CAPTURE THE CIRCLE NEEDS THE CIRCLE. Base Defend hands bots the enemy
-       base above; this mode had no objective at all, so a bot with no enemy in
-       sight wandered at random. Both teams drifted around their own halves,
-       nobody ever met, nobody fired, and nobody stood in the zone -- a whole
-       match ended with every scoreboard row at zero. With nothing to shoot, a
-       bot now drives to its own spot inside the circle and holds it; the
-       moment it sees an enemy the normal fight logic above takes over. */
-    /* BASE DEFEND: the enemy base is handed in above as a stand-in target, but
-       the fight states treat it like a tank -- look for cover from it, peek,
-       hold -- and from 200 units away that loop never advanced: bots shuffled
-       between APPROACHING and HOLDING all match and no base ever took damage.
-       A base is a building, so attack it plainly: drive into range, stop, aim,
-       shoot. Any enemy tank the bot sees still replaces it as the target. */
-    if(target && target.isBase){
-      const d = Math.hypot(target.x - me.x, target.z - me.z);
-      const range = Math.min(55, ((me.def && me.def.shellRange) || 65) * 0.8);
-      out.turretAngle = Math.atan2(target.x - me.x, target.z - me.z);
-      if(d > range){
-        this._driveTo(me, out, target.x, target.z, game, 1.6);
-        out.throttle = 0.85;
-        this._wallAvoid(me, out, game);
-        out.fire = false;
-      } else {
-        out.throttle = 0;
-        out.turn = 0;
-        out.fire = Math.abs(this._angleDiff(out.turretAngle, me.turretAngle)) < 0.12;
-      }
-    }
-
-    /* An enemy that is only remembered or radioed in does not outrank the zone:
-       on the bigger maps bots spent whole matches stalking contacts they could
-       not see, 30-60 units short of the circle, with nothing ever captured. */
-    const objective = (!target || !canSeeTarget) && this._circleObjective(me, game);
-    if(objective){
-      const d = Math.hypot(objective.x - me.x, objective.z - me.z);
-      if(d > 3){
-        this._driveTo(me, out, objective.x, objective.z, game, 1.6);
-        out.throttle = d > 20 ? 0.9 : 0.5;
-        this._wallAvoid(me, out, game);
-      } else {
-        out.throttle = 0;
-        out.turn = 0;
-      }
-      out.fire = false;
     }
 
     this._separateFromAllies(me, out, game);
 
-    if(out.throttle !== 0 && this._checkStuck(me, game)){
-      this.wanderHeading = me.heading + (Math.random()-0.5)*Math.PI;
-      this.wanderTimer = 1.5;
-      this.state = 'WANDERING';
-      out.turn += (Math.random() < 0.5 ? 1 : -1) * 0.8;
-      out.throttle = 0.8;
-      /* Pressing forward into the thing that stopped it, which is what the
-         very next decision did whenever an objective (base, circle) pointed
-         the same way, kept a bot pinned to one prop all match. Back off and
-         swing round instead, and replan from the new spot. */
-      this._unstickUntil = (game.time || 0) + 1.3;
+    if(out.throttle !== 0 && this._checkStuck(me, now)){
+      /* Back off and swing round rather than pressing on into whatever stopped it. */
+      this._unstickUntil = now + 1.3;
       this._unstickDir = Math.random() < 0.5 ? 1 : -1;
       this._dropPath();
     }
-    if(this._unstickUntil && (game.time || 0) < this._unstickUntil){
+    if(this._unstickUntil && now < this._unstickUntil){
       out.throttle = -0.8;
       out.turn = this._unstickDir;
     }
 
-    try { this._maybeSuper(me, target, canSeeTarget, game); } catch(e){}
-    if(out.turretAngle === undefined || out.turretAngle === null) out.turretAngle = me.turretAngle;
-    return this._clamp({throttle:out.throttle, turn:out.turn, turretWorldAngle:out.turretAngle, fire:out.fire});
+    try { this._maybeSuper(me, target, canSee, game); } catch(e){}
+    return this._clamp({ throttle: out.throttle, turn: out.turn, turretWorldAngle: out.turretAngle, fire: out.fire });
   }
 
-  _doSeeking(me, target, canSee, game, out){
-    if(!target){
-      this.state = 'WANDERING';
-      this.wanderHeading = me.heading + (Math.random()-0.5)*1.5;
-      this.wanderTimer = 2+Math.random()*3;
-      return;
-    }
-    const dist = Math.hypot(target.x-me.x, target.z-me.z);
-    const isTDM = !!game._tdmState;
-    const cover = this._findCoverFromTarget(me, target, game);
-    const allyNearby = this._allyPositions.some(a => Math.hypot(a.x-me.x, a.z-me.z) < 20);
+  /* The frames between thinks: keep driving the plan, and let the turret track a
+     target still in view, with the same aim error the think chose. */
+  heldInput(plan){
+    const t = this._curTarget, me = this.tank;
+    const live = t && t.alive && t.camoFactor > 0 && !t.isBase && this._visible && this._visible[t.id];
+    return {
+      throttle: plan.throttle,
+      turn: plan.turn,
+      turretWorldAngle: live ? Math.atan2(t.x - me.x, t.z - me.z) + (this._aimErr || 0) : plan.turretWorldAngle,
+      fire: plan.fire,
+      handbrake: plan.handbrake,
+    };
+  }
 
-    if(isTDM && !allyNearby && this._numVisibleEnemies > 1){
-      const groupTarget = this._allyPositions.length > 0
-        ? this._allyPositions.reduce((b, a) => Math.hypot(a.x-me.x,a.z-me.z) < b.d ? {a,d:Math.hypot(a.x-me.x,a.z-me.z)} : b, {a:null,d:Infinity}).a
-        : null;
-      if(groupTarget){
-        const offsetA = this._botId.charCodeAt(3) / 127 * Math.PI * 2;
-        this.coverPos = {x: groupTarget.x + Math.sin(offsetA)*10, z: groupTarget.z + Math.cos(offsetA)*10};
-        this.coverDir = Math.atan2(this.coverPos.x-me.x, this.coverPos.z-me.z);
-        this.state = 'APPROACHING';
-      } else {
-        this.state = 'GROUPING';
-        const offsetA = this._botId.charCodeAt(0) / 127 * Math.PI * 2;
-        this.coverPos = {x: me.x + Math.sin(offsetA)*12, z: me.z + Math.cos(offsetA)*12};
-        this._groupTimer = 0;
-      }
-    } else if(cover){
-      const offsetA = this._botId.charCodeAt(4) / 127 * 3;
-      this.coverPos = {x: cover.x + Math.sin(offsetA)*3, z: cover.z + Math.cos(offsetA)*3};
-      this.coverDir = Math.atan2(cover.x-me.x, cover.z-me.z);
-      this.state = 'APPROACHING';
+  _nerve(order){
+    const base = this.person.nerve * this.style.retreatHpMul * 0.8;
+    return order && (order.kind === 'capture' || order.kind === 'defend') ? base * 0.6 : base;
+  }
+
+  /* Drive at a point, slowing to turn first instead of arcing wide into a wall. */
+  _go(me, out, x, z, game, pace){
+    this._driveTo(me, out, x, z, game, 1.8);
+    const wp = this._path && this._path[0];
+    const a = Math.atan2((wp ? wp.x : x) - me.x, (wp ? wp.z : z) - me.z);
+    const off = Math.abs(this._angleDiff(a, me.heading));
+    out.throttle = pace * (off > 1.5 ? 0.15 : off > 0.8 ? 0.55 : 1);
+    this._wallAvoid(me, out, game);
+  }
+
+  /* Give ground the way a person does: backwards, gun still on the enemy. */
+  _backOff(me, out, x, z, game){
+    const a = Math.atan2(x - me.x, z - me.z);
+    const rev = this._angleDiff(a + Math.PI, me.heading);
+    if(Math.abs(rev) < 1.6){
+      out.turn = Math.max(-1, Math.min(1, rev * 1.8));
+      out.throttle = -0.75;
+      this._voidAvoid(me, out, game);
     } else {
-      this.state = 'FOLLOWING';
+      this._go(me, out, x, z, game, 0.8);
     }
-    out.turretAngle = Math.atan2(target.x-me.x, target.z-me.z);
   }
 
-  _doHolding(me, target, canSee, game, out){
-    this.waitTimer += game.dt;
-    out.throttle = 0;
-    out.turn = 0;
+  _fight(me, t, order, game, out, now){
+    const P = this.person, st = this.style;
+    const dist = Math.hypot(t.x - me.x, t.z - me.z);
+    const range = me.def.shellRange || 60;
+    const want = Math.max(10, Math.min(range * 0.9, range * st.closeIn * (1.25 - 0.5 * P.aggr)));
 
-    if(this.coverPos){
-      const toCover = Math.hypot(this.coverPos.x-me.x, this.coverPos.z-me.z);
-      if(toCover > 5){
-        this.state = 'APPROACHING';
-        return;
+    let friends = 0;
+    for(const a of this._allyPositions) if(Math.hypot(a.x - me.x, a.z - me.z) < 32) friends++;
+    const outnumbered = this._numVisibleEnemies > friends + 1 + (P.aggr > 0.7 ? 1 : 0);
+
+    /* How far the order lets this bot chase before it would abandon the job. */
+    const leash = order ? order.leash : 60;
+    const fromPost = order ? Math.hypot(me.x - order.x, me.z - order.z) : 0;
+    const reloading = Math.max(me.reloadLeft || 0, me.magReloadLeft || 0);
+
+    if(order && order.siege && fromPost > 8){
+      /* The wave keeps rolling towards the base, gun free to shoot whoever is in the way. */
+      this._go(me, out, order.x, order.z, game, 0.75);
+    } else if(outnumbered && order && !(order.kind === 'capture' || order.kind === 'defend')){
+      const back = order.rally || order;
+      this._backOff(me, out, back.x, back.z, game);
+    } else if(reloading > 1.2 && P.patience > 0.6 && st.closeIn > 0.5 && (this._coverNow(me, t, game, now))){
+      this._go(me, out, this._coverSpot.x, this._coverSpot.z, game, 0.8);
+    } else if(dist > want + 7){
+      if(fromPost > leash) this._go(me, out, order.x, order.z, game, 0.7);
+      else this._go(me, out, t.x, t.z, game, 0.45 + 0.45 * P.aggr);
+    } else if(dist < want - 7){
+      const a = Math.atan2(me.x - t.x, me.z - t.z);
+      const d = want - dist + 8;
+      this._backOff(me, out, me.x + Math.sin(a) * d, me.z + Math.cos(a) * d, game);
+    } else if(P.patience < 0.8 || this._numVisibleEnemies > 1){
+      /* In range: side-step so return fire has to lead, swapping now and then. */
+      if(now > (this.strafeTimer || 0)){
+        this.strafeTimer = now + 1.2 + Math.random() * 2 + P.patience * 2;
+        this.strafeDir = Math.random() < 0.5 ? 1 : -1;
+        this._strafeStill = Math.random() < P.patience * 0.5;
       }
-    }
-
-    if(this._heldTurretAngle === null){
-      this._heldTurretAngle = target
-        ? Math.atan2(target.x-me.x, target.z-me.z)
-        : me.heading + Math.PI;
-    }
-    out.turretAngle = this._heldTurretAngle;
-
-    const isTDM = !!game._tdmState;
-
-    if(target && canSee){
-      const aimAngle = Math.atan2(target.x-me.x, target.z-me.z);
-      const aimDiff = Math.abs(this._angleDiff(aimAngle, me.turretAngle));
-      if(aimDiff < 0.12 && me.reloadLeft <= 0){
-        out.turretAngle = aimAngle;
-        this.state = 'PEEKING';
-        this.peekTimer = 0;
-        this._sidePeek = Math.random() < 0.5 ? 1 : -1;
-        return;
-      }
-      if(me.reloadLeft > 0 && aimDiff < 0.3){
-        this._heldTurretAngle = aimAngle;
-      }
-      out.turretAngle = this._heldTurretAngle || aimAngle;
-      this._heldTurretAngle = out.turretAngle;
-    }
-
-    const holdTime = isTDM ? 3 + Math.random()*3 : 5 + Math.random()*3;
-    if(this.waitTimer > holdTime){
-      if(target){
-        const cover = this._findCoverFromTarget(me, target, game);
-        if(cover){
-          this.coverPos = cover;
-          this.state = 'APPROACHING';
-        } else {
-          this.state = 'FOLLOWING';
-        }
-      } else {
-        this.state = 'WANDERING';
-        this.wanderHeading = me.heading + (Math.random()-0.5)*2;
-        this.wanderTimer = 2+Math.random()*3;
-      }
-      this.waitTimer = 0;
-    }
-
-    if(target && canSee && this.waitTimer > 0.5){
-      const dist = Math.hypot(target.x-me.x, target.z-me.z);
-      const enemyCount = this._numVisibleEnemies;
-      const allyCount = this._numAliveAllies;
-      if(enemyCount > allyCount * this._retreatThreshold && dist < me.def.shellRange * 0.6){
-        const cover = this._findRetreatCover(me, target, game);
-        if(cover){
-          this.coverPos = cover;
-          this.state = 'RETREATING';
-          this.retreatTimer = 0;
-        }
+      if(!this._strafeStill){
+        const a = Math.atan2(t.x - me.x, t.z - me.z) + this.strafeDir * Math.PI / 2;
+        this._go(me, out, me.x + Math.sin(a) * 14, me.z + Math.cos(a) * 14, game, 0.55);
       }
     }
   }
 
-  _doApproaching(me, target, canSee, game, out){
-    if(!target){ this.state = 'SEEKING'; return; }
-
-    const isTDM = !!game._tdmState;
-    const dist = Math.hypot(target.x-me.x, target.z-me.z);
-
-    if(this.coverPos){
-      const toCover = Math.hypot(this.coverPos.x-me.x, this.coverPos.z-me.z);
-      if(toCover < 3){
-        this.state = 'HOLDING';
-        this.waitTimer = 0;
-        this._heldTurretAngle = target ? Math.atan2(target.x-me.x, target.z-me.z) : me.heading + Math.PI;
-        return;
-      }
-      this._driveTo(me, out, this.coverPos.x, this.coverPos.z, game, 1.8);
-      const speedMul = toCover < 10 ? 0.6 : 1.0;
-      out.throttle = (this.iq === 'low' ? 0.5 : 0.75) * speedMul;
-    } else {
-      const cover = this._findCoverFromTarget(me, target, game);
-      if(cover){
-        this.coverPos = cover;
-        return;
-      }
-      this.state = 'FOLLOWING';
-      return;
+  _coverNow(me, t, game, now){
+    if(now > (this._coverAt || 0)){
+      this._coverAt = now + 1.5;
+      this._coverSpot = this._findCoverFromTarget(me, t, game);
     }
-
-    out.turretAngle = Math.atan2(target.x-me.x, target.z-me.z);
-    if(canSee && dist < me.def.shellRange * 0.85 && me.reloadLeft <= 0){
-      const aimDiff = Math.abs(this._angleDiff(out.turretAngle, me.turretAngle));
-      if(aimDiff < 0.18){
-        const lead = this._calcLead(me, target, dist);
-        out.turretAngle = Math.atan2(target.x+lead.x-me.x, target.z+lead.z-me.z);
-        if(Math.abs(this._angleDiff(out.turretAngle, me.turretAngle)) < 0.15){
-          out.fire = true;
-          this._lastFireTime = game.time;
-        }
-      }
-    }
-
-    this._wallAvoid(me, out, game);
+    return !!this._coverSpot;
   }
 
-  _doPeeking(me, target, canSee, game, out){
-    this.peekTimer += game.dt;
+  _aimAndFire(me, t, game, out, now){
+    const dist = Math.hypot(t.x - me.x, t.z - me.z);
+    const lead = this._calcLead(me, t, dist);
+    /* Aim wanders and settles the longer it stays on one target. A moving bot is
+       worse, a rookie much worse. Humans miss; bots with perfect aim feel like bots. */
+    const settle = 1 - Math.min(1, (now - (this._engagedAt || 0)) / 2.5) * 0.6;
+    const amp = (this.iq === 'high' ? 0.022 : this.iq === 'medium' ? 0.045 : 0.08) * this.person.aim * settle * (Math.abs(out.throttle) > 0.2 ? 1.4 : 1);
+    this._aimErr = amp * Math.sin(now * 1.7 + this._phase) + amp * 0.5 * Math.sin(now * 4.3 + this._phase * 2);
+    const aim = Math.atan2(t.x + lead.x - me.x, t.z + lead.z - me.z) + this._aimErr;
+    out.turretAngle = aim;
+    const range = me.def.shellRange || 60;
+    if(dist > range * (0.8 + 0.2 * this.person.aggr)) return;
+    if(now < (this._fireReadyAt || 0)) return;
+    const tol = Math.max(0.04, Math.min(0.2, 3 / Math.max(1, dist)));
+    if(Math.abs(this._angleDiff(aim, me.turretAngle)) > tol) return;
+    if((me.reloadLeft || 0) > 0 || (me.magReloadLeft || 0) > 0) return;
+    if(this._allyInLine(me, t, dist)) return;
+    out.fire = true;
+    this._lastFireTime = now;
+  }
 
-    if(!target){ this.state = 'SEEKING'; return; }
-
-    const dist = Math.hypot(target.x-me.x, target.z-me.z);
-    out.turretAngle = Math.atan2(target.x-me.x, target.z-me.z);
-
-    if(this.coverDir !== undefined && this.coverDir !== null){
-      const perpAngle = this.coverDir + Math.PI/2 * this._sidePeek;
-      const peekDist = Math.min(3, 1.5 + this.peekTimer * 3);
-      const peekX = me.x + Math.sin(perpAngle) * peekDist;
-      const peekZ = me.z + Math.cos(perpAngle) * peekDist;
-      const toPeek = Math.atan2(peekX - me.x, peekZ - me.z);
-      this._driveTo(me, out, peekX, peekZ, game, 2.5);
-      out.throttle = this.peekTimer < 0.3 ? 0.7 : 0;
-    } else {
-      /* Drive at where the target is, or at where it was LAST SEEN when it has
-         broken line of sight. Steering at the live position of a target you
-         cannot see is steering at nothing: the point moves as they do, and the
-         bot chases a ghost it has no information about. */
-      const mem = (this._seen && this._seen[target.id]) || null;
-      this._driveTo(me, out, mem ? mem.x : target.x, mem ? mem.z : target.z, game, 2);
-      out.throttle = this.peekTimer < 0.3 ? 0.6 : 0;
+  _allyInLine(me, t, dist){
+    const ax = (t.x - me.x) / Math.max(1, dist), az = (t.z - me.z) / Math.max(1, dist);
+    for(const a of this._allyPositions){
+      const dx = a.x - me.x, dz = a.z - me.z;
+      const along = dx * ax + dz * az;
+      if(along > 2 && along < dist && Math.abs(dx * az - dz * ax) < 3.5) return true;
     }
+    return false;
+  }
 
-    if(canSee && dist < me.def.shellRange){
-      const aimDiff = Math.abs(this._angleDiff(out.turretAngle, me.turretAngle));
-      if(aimDiff < 0.12 && me.reloadLeft <= 0){
-        const lead = this._calcLead(me, target, dist);
-        out.turretAngle = Math.atan2(target.x+lead.x-me.x, target.z+lead.z-me.z);
-        if(Math.abs(this._angleDiff(out.turretAngle, me.turretAngle)) < 0.15){
-          out.fire = true;
-          this._lastFireTime = game.time;
-          this.state = 'SHOOTING';
-          this.retreatTimer = 0;
-        }
-      }
-    }
-
-    /* Style stretches or shrinks the peek: a sniper lingers on its peek to
-       land the max-range shot, a flanker jabs and is already driving. */
-    const peekTimeout = (this.iq === 'high' ? 1.0 : this.iq === 'medium' ? 1.5 : 2.0) * (this.style ? this.style.peekMul : 1);
-    if(this.peekTimer > peekTimeout){
-      this.state = 'RETREATING';
-      this.retreatTimer = 0;
+  _attackBase(me, target, game, out, now){
+    const d = Math.hypot(target.x - me.x, target.z - me.z);
+    const range = Math.min(55, (me.def.shellRange || 65) * 0.8);
+    const aim = Math.atan2(target.x - me.x, target.z - me.z);
+    out.turretAngle = aim;
+    if(d > range){
+      this._go(me, out, target.x, target.z, game, 0.7);
+    } else if(now > (this._fireReadyAt || 0) && Math.abs(this._angleDiff(aim, me.turretAngle)) < 0.12){
+      out.fire = true;
     }
   }
 
-  _doShooting(me, target, canSee, game, out){
-    this.retreatTimer += game.dt;
-    out.turretAngle = target ? Math.atan2(target.x-me.x, target.z-me.z) : me.turretAngle;
-    out.throttle = 0;
-    out.turn = 0;
-
-    if(canSee && Math.abs(this._angleDiff(out.turretAngle, me.turretAngle)) < 0.15 && me.reloadLeft <= 0){
-      if(target){
-        const dist = Math.hypot(target.x-me.x, target.z-me.z);
-        const lead = this._calcLead(me, target, dist);
-        out.turretAngle = Math.atan2(target.x+lead.x-me.x, target.z+lead.z-me.z);
-        if(Math.abs(this._angleDiff(out.turretAngle, me.turretAngle)) < 0.15){
-          out.fire = true;
-        }
-      }
+  _retreat(me, target, game, out, now){
+    const order = this._order;
+    let spot = order && order.rally;
+    let near = null, best = 70;
+    for(const a of this._allyPositions){
+      const d = Math.hypot(a.x - me.x, a.z - me.z);
+      if(d < best){ best = d; near = a; }
     }
-
-    const shootTime = this.iq === 'high' ? 0.1 : this.iq === 'medium' ? 0.2 : 0.3;
-    if(this.retreatTimer > shootTime){
-      this.state = 'RETREATING';
-      this.retreatTimer = 0;
-    }
+    if(near) spot = near;
+    if(!spot && target) spot = this._findRetreatCover(me, target, game);
+    if(target && this._coverNow(me, target, game, now) && !near) spot = this._coverSpot;
+    if(!spot){ out.throttle = 0; return; }
+    if(Math.hypot(spot.x - me.x, spot.z - me.z) > 9) this._backOff(me, out, spot.x, spot.z, game);
+    if(target) out.turretAngle = Math.atan2(target.x - me.x, target.z - me.z);
   }
 
-  _doRetreating(me, target, canSee, game, out){
-    this.retreatTimer += game.dt;
+  /* Nobody to shoot: go where the team needs this bot, then watch that way. */
+  _followOrder(me, target, order, game, out, now){
+    let gx = order ? order.x : me.x, gz = order ? order.z : me.z;
+    const lastSeen = target || null;
 
-    if(this._allyPositions.length > 0 && this.retreatTimer < 0.5){
-      const nearestAlly = this._allyPositions.reduce((best, a) => {
-        const d = Math.hypot(a.x-me.x, a.z-me.z);
-        return d < best.d ? {a, d} : best;
-      }, {a: null, d: Infinity});
-      if(nearestAlly.d < 35){
-        const awayAngle = Math.atan2(nearestAlly.a.x-me.x, nearestAlly.a.z-me.z);
-        this.coverPos = {
-          x: nearestAlly.a.x + Math.cos(awayAngle) * 8 + (Math.random()-0.5)*6,
-          z: nearestAlly.a.z + Math.sin(awayAngle) * 8 + (Math.random()-0.5)*6
-        };
+    /* Bold bots go and look where someone just was, while it stays near the job. */
+    if(lastSeen && this.person.aggr > 0.45 && order && Math.hypot(lastSeen.x - order.x, lastSeen.z - order.z) < order.leash){
+      const mem = this._seen && this._seen[lastSeen.id];
+      if(mem){ gx = mem.x; gz = mem.z; }
+    } else if(order && order.hide && this._wantsCover(me)){
+      /* Ambushers wait inside a bush near their post if one is close. */
+      if(this._bushFor !== order.x + order.z){
+        this._bushFor = order.x + order.z;
+        this._bush = this._findFoliageCover({ x: order.x, z: order.z, team: me.team }, game);
+        if(this._bush && Math.hypot(this._bush.x - order.x, this._bush.z - order.z) > 22) this._bush = null;
       }
+      if(this._bush){ gx = this._bush.x; gz = this._bush.z; }
     }
 
-    if(this.coverPos){
-      const toCover = Math.hypot(this.coverPos.x-me.x, this.coverPos.z-me.z);
-      if(toCover < 2.5 || this.retreatTimer > 2.5){
-        this.state = 'HOLDING';
-        this.waitTimer = 0;
-        this._heldTurretAngle = target ? Math.atan2(target.x-me.x, target.z-me.z) : me.heading + Math.PI;
-        return;
-      }
-      this._driveTo(me, out, this.coverPos.x, this.coverPos.z, game, 2);
-      out.throttle = 0.9;
-    } else {
-      const reverseAngle = me.heading + Math.PI;
-      const angDiff = this._angleDiff(reverseAngle, me.heading);
-      out.turn = Math.max(-1, Math.min(1, angDiff*2));
-      out.throttle = -0.6;
+    const dist = Math.hypot(gx - me.x, gz - me.z);
+    const arrive = order ? order.r || 5 : 5;
+    if(dist > arrive){
+      const pace = (order ? order.pace : 0.6) * (dist < 14 ? Math.max(0.35, dist / 14) : 1);
+      this._go(me, out, gx, gz, game, pace);
     }
 
-    this._wallAvoid(me, out, game);
-
-    if(target){
-      out.turretAngle = Math.atan2(target.x-me.x, target.z-me.z);
-      if(canSee && Math.abs(this._angleDiff(out.turretAngle, me.turretAngle)) < 0.2 && me.reloadLeft <= 0){
-        out.fire = true;
-      }
-    }
-
-    if(this.retreatTimer > 3){
-      this.coverPos = this._findCoverFromTarget(me, target, game) || this.coverPos;
-      if(this.coverPos){
-        this.state = 'APPROACHING';
-      } else {
-        this.state = 'FOLLOWING';
-      }
-    }
+    let look;
+    if(lastSeen) look = Math.atan2(lastSeen.x - me.x, lastSeen.z - me.z);
+    else if(order && order.face) look = Math.atan2(order.face.x - me.x, order.face.z - me.z) + Math.sin(now * 0.6 + this._phase) * 0.7;
+    else look = me.heading + Math.sin(now * 0.6 + this._phase) * 1.2;
+    out.turretAngle = look;
   }
 
-  _doFlanking(me, target, canSee, game, out){
-    this.pushTimer += game.dt;
-    if(!target){ this.state = 'SEEKING'; return; }
-
-    const flankTarget = this._getFlankPosition(me, target, game);
-    const dist = Math.hypot(flankTarget.x-me.x, flankTarget.z-me.z);
-
-    if(dist < 4){
-      this.state = 'HOLDING';
-      this.waitTimer = 0;
-      this.coverPos = flankTarget;
-      this._heldTurretAngle = Math.atan2(target.x-me.x, target.z-me.z);
-      return;
+  /* Free-for-all has no team to answer to: patrol the middle, bolder bots closer in. */
+  _soloOrder(me, game, now){
+    if(!this._solo || now > this._soloUntil || Math.hypot(me.x - this._solo.x, me.z - this._solo.z) < 8){
+      const half = BotSquad.playHalf(game);
+      const cx = BotSquad.playCentre(game);
+      const spread = half * (0.75 - this.person.aggr * 0.45);
+      const a = Math.random() * Math.PI * 2;
+      this._solo = BotSquad.freeSpot(game, cx.x + Math.sin(a) * spread * Math.random(), cx.z + Math.cos(a) * spread * Math.random());
+      this._soloUntil = now + 10 + this.person.patience * 12;
     }
-
-    this._driveTo(me, out, flankTarget.x, flankTarget.z, game, 1.5);
-    out.throttle = 0.8;
-    out.turretAngle = Math.atan2(target.x-me.x, target.z-me.z);
-    this._wallAvoid(me, out, game);
-
-    if(canSee && Math.hypot(target.x-me.x, target.z-me.z) < me.def.shellRange && me.reloadLeft <= 0){
-      const aimDiff = Math.abs(this._angleDiff(out.turretAngle, me.turretAngle));
-      if(aimDiff < 0.2){
-        out.fire = true;
-      }
-    }
-
-    if(this.pushTimer > 8){
-      this.state = 'SEEKING';
-      this.pushTimer = 0;
-    }
-  }
-
-  _doFollowing(me, target, canSee, game, out){
-    if(!target){
-      this.state = 'WANDERING';
-      this.wanderHeading = me.heading + (Math.random()-0.5)*2;
-      this.wanderTimer = 2+Math.random()*3;
-      return;
-    }
-
-    const isTDM = !!game._tdmState;
-    const dist = Math.hypot(target.x-me.x, target.z-me.z);
-
-    let followTarget;
-    if(isTDM){
-      const allies = this._allyPositions;
-      if(allies.length > 0){
-        const nearestAlly = allies.reduce((best, a) => {
-          const d = Math.hypot(a.x-me.x, a.z-me.z);
-          return d < best.d ? {a, d} : best;
-        }, {a: null, d: Infinity});
-        if(nearestAlly.d < 30){
-          const perpAngle = Math.atan2(target.x-nearestAlly.a.x, target.z-nearestAlly.a.z) + Math.PI/2 * this._sidePeek;
-          followTarget = {
-            x: (nearestAlly.a.x + target.x)/2 + Math.sin(perpAngle) * 10,
-            z: (nearestAlly.a.z + target.z)/2 + Math.cos(perpAngle) * 10
-          };
-        } else {
-          followTarget = {
-            x: target.x + (Math.random()-0.5)*15,
-            z: target.z + (Math.random()-0.5)*15
-          };
-        }
-      } else {
-        followTarget = {
-          x: target.x + (Math.random()-0.5)*15,
-          z: target.z + (Math.random()-0.5)*15
-        };
-      }
-    } else {
-      const allies = this._allyPositions;
-      followTarget = null;
-      if(allies.length > 0){
-        let closestAlly = null, closestDist = Infinity;
-        for(const a of allies){
-          const d = Math.hypot(a.x-me.x, a.z-me.z);
-          if(d < closestDist && d < 50){ closestDist = d; closestAlly = a; }
-        }
-        if(closestAlly){
-          const aheadX = closestAlly.x + Math.sin(closestAlly.heading || 0) * 12;
-          const aheadZ = closestAlly.z + Math.cos(closestAlly.heading || 0) * 12;
-          followTarget = {x: aheadX, z: aheadZ};
-        }
-      }
-      if(!followTarget){
-        followTarget = {x: (me.x + target.x)/2, z: (me.z + target.z)/2};
-      }
-    }
-
-    /* STYLE: keep the stand-off this gun is built for.
-
-       An artillery bot that closes to brawling range has thrown away its
-       only advantage, and a sniper that lets a flanker walk to point-blank
-       has lost the fight that mattered. So while the hull is healthy a bot
-       backs away from anything that gets inside its stand-off range
-       (shellRange * closeIn), firing on the move. The stand-off is only the
-       default of its role: brawlers and rushers have closeIn far below the
-       distance anyone ever closes to, so for them this block never fires
-       and they press in over open ground exactly as before. A hull that is
-       already breaking up must run for cover instead - that is RETREATING's
-       job, and it has its own trigger. */
-    const st = this.style;
-    if(st && !isTDM && (me.hp / me.maxHp) > Math.min(0.45, this._retreatThreshold * 0.35)){
-      const standOff = me.def.shellRange * st.closeIn;
-      if(dist < standOff){
-        const away = Math.atan2(me.x - target.x, me.z - target.z);
-        this._driveTo(me, out, me.x + Math.sin(away) * (standOff - dist + 8), me.z + Math.cos(away) * (standOff - dist + 8), game, 2.0);
-        out.throttle = st.role === 'artillery' ? 0.8 : 0.5;
-        out.turretAngle = Math.atan2(target.x-me.x, target.z-me.z);
-        this._wallAvoid(me, out, game);
-        /* Fight backwards: a stand-off bot at its proper range is STILL a
-           threat, and the shot it lands while backing off is the whole
-           point of keeping the range in the first place. */
-        if(canSee && me.reloadLeft <= 0 && dist < me.def.shellRange){
-          const aimDiff = Math.abs(this._angleDiff(out.turretAngle, me.turretAngle));
-          if(aimDiff < 0.15){
-            const lead = this._calcLead(me, target, dist);
-            out.turretAngle = Math.atan2(target.x+lead.x-me.x, target.z+lead.z-me.z);
-            if(Math.abs(this._angleDiff(out.turretAngle, me.turretAngle)) < 0.12){
-              out.fire = true;
-            }
-          }
-        }
-        return;
-      }
-    }
-
-    const cover = this._findCoverFromTarget(me, target, game);
-    if(!isTDM && cover){
-      this.coverPos = cover;
-      this.coverDir = Math.atan2(cover.x-me.x, cover.z-me.z);
-      this.state = 'APPROACHING';
-      return;
-    }
-
-    this._driveTo(me, out, followTarget.x, followTarget.z, game, 1.5);
-    out.throttle = isTDM ? 0.85 : 0.65;
-    out.turretAngle = Math.atan2(target.x-me.x, target.z-me.z);
-    this._wallAvoid(me, out, game);
-
-    if(canSee && dist < me.def.shellRange && me.reloadLeft <= 0){
-      const aimDiff = Math.abs(this._angleDiff(out.turretAngle, me.turretAngle));
-      if(aimDiff < (isTDM ? 0.2 : 0.18)){
-        out.fire = true;
-      }
-    }
-  }
-
-  _doWandering(me, target, game, out){
-    if(target){
-      this.state = 'SEEKING';
-      return;
-    }
-
-    const isTDM = !!game._tdmState;
-    this.wanderTimer -= game.dt;
-    if(this.wanderTimer <= 0){
-      this.wanderHeading = me.heading + (Math.random()-0.5)*2;
-      this.wanderTimer = 2+Math.random()*4;
-    }
-
-    const angDiff = this._angleDiff(this.wanderHeading, me.heading);
-    out.turn = Math.max(-1, Math.min(1, angDiff*1.5));
-    out.throttle = isTDM ? 0.8 : 0.4;
-    this._wallAvoid(me, out, game);
-  }
-
-  _doScouting(me, target, canSee, game, out){
-    this.pushTimer += game.dt;
-
-    if(target && canSee){
-      const dist = Math.hypot(target.x-me.x, target.z-me.z);
-      const cover = this._findCoverFromTarget(me, target, game);
-      if(cover){
-        this.coverPos = cover;
-        this.coverDir = Math.atan2(cover.x-me.x, cover.z-me.z);
-        this.state = 'APPROACHING';
-        return;
-      }
-    }
-
-    const scoutPoint = this._getScoutPosition(me, game);
-    this._driveTo(me, out, scoutPoint.x, scoutPoint.z, game, 1.5);
-    out.throttle = 0.55;
-    out.turretAngle = me.heading + Math.PI + (Math.random()-0.5)*0.8;
-    this._wallAvoid(me, out, game);
-
-    if(this.pushTimer > 6 || (target && canSee)){
-      this.state = 'SEEKING';
-      this.pushTimer = 0;
-    }
-  }
-
-  _doGrouping(me, target, canSee, game, out){
-    this._groupTimer += game.dt;
-
-    if(!this.coverPos){
-      this.state = 'SEEKING';
-      return;
-    }
-
-    const toCover = Math.hypot(this.coverPos.x-me.x, this.coverPos.z-me.z);
-    if(toCover < 4){
-      this.state = 'HOLDING';
-      this.waitTimer = 0;
-      this._heldTurretAngle = target ? Math.atan2(target.x-me.x, target.z-me.z) : me.heading + Math.PI;
-      return;
-    }
-
-    this._driveTo(me, out, this.coverPos.x, this.coverPos.z, game, 1.8);
-    out.throttle = 0.9;
-    out.turretAngle = target ? Math.atan2(target.x-me.x, target.z-me.z) : me.heading;
-    this._wallAvoid(me, out, game);
-
-    if(canSee && target){
-      const dist = Math.hypot(target.x-me.x, target.z-me.z);
-      if(dist < me.def.shellRange * 0.9 && me.reloadLeft <= 0){
-        const aimDiff = Math.abs(this._angleDiff(out.turretAngle, me.turretAngle));
-        if(aimDiff < 0.2){
-          out.fire = true;
-        }
-      }
-    }
-
-    if(this._groupTimer > 5){
-      this.state = 'SEEKING';
-      this._groupTimer = 0;
-    }
-  }
-
-  _doCoordinatedPush(me, target, canSee, game, out){
-    this.pushTimer += game.dt;
-    if(!target){
-      this.state = 'SEEKING';
-      return;
-    }
-
-    const dist = Math.hypot(target.x-me.x, target.z-me.z);
-    const pushTarget = this._coordinatedPushTarget || {x: target.x, z: target.z};
-
-    const sideAngle = Math.atan2(pushTarget.x-me.x, pushTarget.z-me.z);
-    const uniqueSide = this._botId.charCodeAt(0) % 2 === 0 ? 1 : -1;
-    const flankAngle = sideAngle + (Math.PI/3) * uniqueSide;
-    const idealDist = Math.min(me.def.shellRange * 0.6, 20);
-    const tx = pushTarget.x + Math.sin(flankAngle) * idealDist;
-    const tz = pushTarget.z + Math.cos(flankAngle) * idealDist;
-
-    this._driveTo(me, out, tx, tz, game, 1.8);
-    out.throttle = 0.85;
-    out.turretAngle = Math.atan2(target.x-me.x, target.z-me.z);
-    this._wallAvoid(me, out, game);
-
-    if(canSee && dist < me.def.shellRange && me.reloadLeft <= 0){
-      const aimDiff = Math.abs(this._angleDiff(out.turretAngle, me.turretAngle));
-      if(aimDiff < 0.15){
-        const lead = this._calcLead(me, target, dist);
-        out.turretAngle = Math.atan2(target.x+lead.x-me.x, target.z+lead.z-me.z);
-        if(Math.abs(this._angleDiff(out.turretAngle, me.turretAngle)) < 0.15){
-          out.fire = true;
-          this._lastFireTime = game.time;
-          this._shootRetreatCooldown = 0.5;
-        }
-      }
-    }
-
-    if(this._shootRetreatCooldown > 0 && this._shootRetreatCooldown < 0.3){
-      const cover = this._findCoverFromTarget(me, target, game);
-      if(cover){
-        this.coverPos = cover;
-        this.state = 'RETREATING';
-        this.retreatTimer = 0;
-        this._shootRetreatCooldown = 0;
-        return;
-      }
-    }
-
-    if(this.pushTimer > 8 || dist < 5){
-      if(target){
-        const cover = this._findCoverFromTarget(me, target, game);
-        if(cover){
-          this.coverPos = cover;
-          this.state = 'HOLDING';
-          this.waitTimer = 0;
-        } else {
-          this.state = 'SEEKING';
-        }
-      } else {
-        this.state = 'SEEKING';
-      }
-      this.pushTimer = 0;
-    }
-  }
-
-  _doDodging(me, target, game, out){
-    this.dodgeTimer -= game.dt;
-    if(this.dodgeTimer <= 0){
-      if(target){
-        const cover = this._findCoverFromTarget(me, target, game);
-        if(cover){
-          this.coverPos = cover;
-          this.state = 'APPROACHING';
-        } else {
-          this.state = 'SEEKING';
-        }
-      } else {
-        this.state = 'WANDERING';
-      }
-      return;
-    }
-
-    const angDiff = this._angleDiff(this.dodgeDir, me.heading);
-    out.turn = Math.max(-1, Math.min(1, angDiff*2.5));
-    out.throttle = 1;
-    this._wallAvoid(me, out, game);
-
-    if(target){
-      out.turretAngle = Math.atan2(target.x-me.x, target.z-me.z);
-    }
-  }
-
-  _updateFidget(me, game, out){
-    this._fidgetTimer += game.dt;
-
-    if(this._fidgetTimer > this._fidgetCooldown){
-      this._fidgetTimer = 0;
-      this._fidgetCooldown = 1.5 + Math.random() * 5;
-
-      if(Math.random() < 0.3 && this._allyPositions.length > 0){
-        const ally = this._allyPositions[Math.random()*this._allyPositions.length|0];
-        out.turretAngle = Math.atan2(ally.x-me.x, ally.z-me.z);
-      } else if(Math.random() < 0.4){
-        out.turretAngle = me.turretAngle + (Math.random()-0.5)*2;
-      } else {
-        out.turretAngle = me.heading + Math.PI + (Math.random()-0.5)*1.5;
-      }
-    }
-
-    if(Math.random() < 0.003){
-      this.strafeDir *= -1;
-    }
+    return { kind: 'patrol', x: this._solo.x, z: this._solo.z, r: 6, leash: 40 + this.person.aggr * 50, pace: 0.5 + this.person.aggr * 0.4, face: null, hide: true };
   }
 
   _calcLead(me, target, dist){
@@ -1172,80 +801,6 @@ const canSeeTarget = target ? !!pick.canSee : false;
     return !!(tank && tank.camoFactor <= 0);
   }
 
-  /* Drive to the chosen plant, then hold still in it.
-
-     The throttle tapers off over the last few units so the bot arrives at a
-     crawl instead of overshooting and ploughing straight through the far side --
-     which would both shake the foliage it came for and look absurd.
-
-     Throttle 0 on arrival is the whole point: cover that shakes is not cover. */
-  _doTakingCover(me, target, canSee, game, out){
-    /* Something worth shooting turned up. Cover is worth less than a shot, and
-       the enemy is visible, so go fight. */
-    if(target){
-      this.state = 'SEEKING';
-      return;
-    }
-    /* Already hidden: stop moving and let the foliage settle. */
-    if(this._inCover(me)){
-      out.throttle = 0;
-      out.turn = 0;
-      out.turretAngle = me.heading + Math.PI;
-      return;
-    }
-
-    this._coverSearchTimer = (this._coverSearchTimer || 0) + game.dt;
-    /* Re-pick periodically rather than every frame: the list is walked in full
-       and a bot running this at 60Hz would do it 60 times a second. Half a
-       second is often enough for a plant that is tens of units away. */
-    if(!this._coverTarget || this._coverSearchTimer > 0.5){
-      this._coverSearchTimer = 0;
-      this._coverTarget = this._findFoliageCover(me, game);
-    }
-
-    if(!this._coverTarget){
-      /* Nowhere to hide. Do something rather than sit there. */
-      this.state = 'SCOUTING';
-      this.pushTimer = 0;
-      return;
-    }
-
-    const dx = this._coverTarget.x - me.x;
-    const dz = this._coverTarget.z - me.z;
-    const dist = Math.hypot(dx, dz);
-    if(dist < 2.5){
-      out.throttle = 0;
-      out.turn = 0;
-      out.turretAngle = me.heading + Math.PI;
-      return;
-    }
-
-    this._driveTo(me, out, me.x + dx, me.z + dz, game, 1.5);
-    /* Ease off inside 8 units so it settles into the foliage instead of
-       overshooting -- and so the last few metres are under COVER_SHAKE_SPEED,
-       which is what stops the arrival from giving it away. */
-    out.throttle = dist < 8 ? Math.max(0.18, dist / 8) : 1;
-    /* Keep the turret on the way it came while it drives in, which is the same
-       angle both the "already hidden" and "arrived" branches hold, so the
-       turret does not snap backwards at the moment it stops. This line read
-       `= a` -- an undefined identifier -- so it threw a ReferenceError on every
-       single frame a cover-seeking bot was en route: the state machine never
-       got past it, and _update()'s catch turned that into a warning 60 times a
-       second. */
-    out.turretAngle = me.heading + Math.PI;
-    this._wallAvoid(me, out, game);
-
-    /* Safety net: if it has been trying for a long time and still has not got
-       under cover, give up rather than drive at a plant forever. */
-    this._coverStuckTimer = (this._coverStuckTimer || 0) + game.dt;
-    if(this._coverStuckTimer > 12){
-      this._coverStuckTimer = 0;
-      this._coverTarget = null;
-      this.state = 'SCOUTING';
-      this.pushTimer = 0;
-    }
-  }
-
   _findCoverFromTarget(me, target, game){
     const walls = game.world.coverPoints || game.world.walls;
     if(!walls || !walls.length) return null;
@@ -1262,6 +817,7 @@ const canSeeTarget = target ? !!pick.canSee : false;
     let bestCover = null, bestScore = -Infinity;
 
     for(const w of walls){
+      if(Math.abs(w.x - me.x) > 65 || Math.abs(w.z - me.z) > 65) continue;
       const hx = w.w/2, hz = w.d/2;
       const corners = [
         {x:w.x-hx-2.5, z:w.z-hz-2.5},
@@ -1324,6 +880,7 @@ const canSeeTarget = target ? !!pick.canSee : false;
     let bestCover = null, bestScore = -Infinity;
 
     for(const w of walls){
+      if(Math.abs(w.x - me.x) > 50 || Math.abs(w.z - me.z) > 50) continue;
       const hx = w.w/2, hz = w.d/2;
       const corners = [
         {x:w.x-hx-2.5, z:w.z-hz-2.5},
@@ -1351,60 +908,18 @@ const canSeeTarget = target ? !!pick.canSee : false;
     return bestCover;
   }
 
-  _getFlankPosition(me, target, game){
-    const baseAngle = Math.atan2(target.x-me.x, target.z-me.z);
-    const flankAngle = baseAngle + (Math.PI/2 + Math.random()*0.5) * this._sidePeek;
-    const dist = 15 + Math.random() * 15;
-    let fx = me.x + Math.sin(flankAngle) * dist;
-    let fz = me.z + Math.cos(flankAngle) * dist;
-    const half = game.world.half - 10;
-    fx = Math.max(-half, Math.min(half, fx));
-    fz = Math.max(-half, Math.min(half, fz));
-    return {x: fx, z: fz};
-  }
-
-  _getScoutPosition(me, game){
-    const angle = me.heading + (Math.random()-0.5)*1.5;
-    const dist = 15 + Math.random()*15;
-    let sx = me.x + Math.sin(angle) * dist;
-    let sz = me.z + Math.cos(angle) * dist;
-    const half = game.world.half - 10;
-    sx = Math.max(-half, Math.min(half, sx));
-    sz = Math.max(-half, Math.min(half, sz));
-    return {x: sx, z: sz};
-  }
-
-  _hasLOS(me, target, game){
-    const tid = target.id || 't';
-    const now = game.time || 0;
-    if(this._losTargetId === tid && this._losTime && (now - this._losTime) < 0.3){
-      return this._losResult;
-    }
-    this._losTargetId = tid;
-    this._losTime = now;
-
-    const dx = target.x - me.x;
-    const dz = target.z - me.z;
-    const dist = Math.hypot(dx, dz);
-    const steps = Math.min(Math.ceil(dist / 3), 15);
-    const sx = dx / steps;
-    const sz = dz / steps;
-
+  _hasLOS(me, target, game, now){
+    const c = this._losCache[target.id];
+    if(c && now - c.at < 0.5 && Math.hypot(c.x - target.x, c.z - target.z) < 3 && Math.hypot(c.mx - me.x, c.mz - me.z) < 3) return c.ok;
+    const dx = target.x - me.x, dz = target.z - me.z;
+    const steps = Math.min(Math.ceil(Math.hypot(dx, dz) / 4), 14);
+    let ok = true;
     for(let i = 1; i < steps; i++){
-      const tx = me.x + sx * i;
-      const tz = me.z + sz * i;
-      /* collidesForAI, not collidesWallsOnly. A line of sight has to be blocked by
-       cover: shells are real physics bodies that stop at it, so a bot that can
-       see through a building is seeing something the game says is not there, and
-       will happily aim at -- and drive at -- an enemy it should have no way to
-       know about. collidesWallsOnly skips GLB cover, which made every ray clear. */
-      if(game.world.collidesForAI(tx, tz, 0.5)){
-        this._losResult = false;
-        return false;
-      }
+      /* collidesForAI: shells stop at GLB cover, so sight has to as well. */
+      if(game.world.collidesForAI(me.x + dx / steps * i, me.z + dz / steps * i, 0.5)){ ok = false; break; }
     }
-    this._losResult = true;
-    return true;
+    this._losCache[target.id] = { ok, at: now, x: target.x, z: target.z, mx: me.x, mz: me.z };
+    return ok;
   }
 
   _detectIncomingShell(me, game){
@@ -1538,18 +1053,14 @@ const canSeeTarget = target ? !!pick.canSee : false;
     }
   }
 
-  _checkStuck(me, game){
-    const dx = me.x - this._stuckCheckPos.x;
-    const dz = me.z - this._stuckCheckPos.z;
-    const moved = Math.hypot(dx, dz);
-    if(moved > 2){
+  _checkStuck(me, now){
+    if(Math.hypot(me.x - this._stuckCheckPos.x, me.z - this._stuckCheckPos.z) > 2){
       this._stuckCheckPos = {x: me.x, z: me.z};
-      this._stuckTimer = 0;
+      this._stuckAt = now;
       return false;
     }
-    this._stuckTimer += game.dt;
-    if(this._stuckTimer > 1.5){
-      this._stuckTimer = 0;
+    if(now - this._stuckAt > 1.5){
+      this._stuckAt = now;
       this._stuckCheckPos = {x: me.x, z: me.z};
       return true;
     }
@@ -1563,8 +1074,10 @@ const canSeeTarget = target ? !!pick.canSee : false;
   }
 
   _angleDiff(a,b){
-    let d = ((a-b+Math.PI)%(Math.PI*2))-Math.PI;
-    return d;
+    /* atan2, not %: JS % keeps the sign, so half of all bearings came out outside
+       -PI..PI and bots turned the long way round. */
+    const d = a - b;
+    return Math.atan2(Math.sin(d), Math.cos(d));
   }
 
   /* ==========================================================================
@@ -1689,28 +1202,6 @@ const canSeeTarget = target ? !!pick.canSee : false;
     }
   }
 
-  /* Where this bot stands in Capture the Circle: the nearest zone, at a fixed
-     per-bot offset inside its radius so a team spreads out instead of piling
-     onto the centre. Null outside the mode. */
-  _circleObjective(me, game){
-    if(!game._captureCircleMode || typeof CaptureCircle === 'undefined') return null;
-    const st = CaptureCircle.getState && CaptureCircle.getState();
-    if(!st || !st.zones || !st.zones.length || st.winner) return null;
-    let zone = null, best = Infinity;
-    for(const z of st.zones){
-      const d = Math.hypot(z.cx - me.x, z.cz - me.z);
-      if(d < best){ best = d; zone = z; }
-    }
-    if(!zone) return null;
-    if(this._circleSlot === undefined){
-      let h = 0;
-      for(let i = 0; i < this._botId.length; i++) h = (h * 31 + this._botId.charCodeAt(i)) >>> 0;
-      this._circleSlot = { a: (h % 360) * Math.PI / 180, f: 0.25 + ((h >> 9) % 50) / 100 };
-    }
-    const r = ((GAMEMODES.captureTheCircle && GAMEMODES.captureTheCircle.circleRadius) || 12) * this._circleSlot.f;
-    return { x: zone.cx + Math.sin(this._circleSlot.a) * r, z: zone.cz + Math.cos(this._circleSlot.a) * r };
-  }
-
   /* A path planned for a goal that has since died is worse than no path. */
   _dropPath(){ this._path = null; this._pathGoal = null; }
 
@@ -1739,68 +1230,47 @@ const canSeeTarget = target ? !!pick.canSee : false;
      ========================================================================== */
   _perceive(me, game){
     const now = game.time || 0;
-
-    /* Every bot re-checks its eyes on its own phase, roughly twice a second,
-       rather than every frame. A bot looking at the same static wall four times
-       between changes learns nothing; it just burns the frame budget. The
-       window is only for the full sweep -- threat and allies are always current
-       because the behaviour layer reads the live arrays anyway. */
-    const due = !this._seenAt || (now - this._seenAt) > 0.45;
-    this._numVisibleEnemies = 0;
-    if(due) this._sweep(me, game, now);
+    /* Each bot looks around on its own phase a few times a second. */
+    if(!this._seenAt || now - this._seenAt > 0.3) this._sweep(me, game, now);
     return this._visible || null;
   }
 
   _sweep(me, game, now){
     this._seenAt = now;
     const visible = {};
-    const FOV = Math.PI * 0.78;              /* ~140 degrees of awareness */
-    const RANGE = 95;
-
+    /* The same view the player gets: top-down all round, as far as this tank's
+       fog radius, blocked by walls. Bots are not fooled by which way a hull faces
+       and they do not see further than you do. */
+    const RANGE = (me.viewRange || me.def.viewRange || 80) * ((CONFIG && CONFIG.FOG_VIEW_SCALE) || 0.875);
+    let n = 0;
+    const allies = [];
     for(const t of game.tanks){
-      if(!t.alive) continue;
-      /* me.team === t.team -- this read `me.team === me.team`, which is always
-         true, so in every team mode each bot saw every tank as an ally, never
-         acquired a target and never fired a shot. */
-      const ally = t === me || (me.team && t.team && me.team === t.team);
+      if(!t.alive || t === me) continue;
+      if(me.team && t.team && me.team === t.team){ allies.push(t); continue; }
+      if((me.allyId && t.id === me.allyId) || (t.allyId && t.allyId === me.id)){ allies.push(t); continue; }
       const dx = t.x - me.x, dz = t.z - me.z;
       const d = Math.hypot(dx, dz);
-      if(d > RANGE) continue;
-      if(ally) continue;
-
-      /* Camouflage is a hard invisibility: a tank under enough foliage cannot
-         be acquired no matter how well it is placed. Kept consistent with the
-         old target loop. */
-      if(t.camoFactor <= 0) continue;
-
-      /* Something already on top of you is seen regardless of which way the
-         hull is pointing -- you do not need peripheral vision to notice a tank
-         touching your tread. */
-      const bearing = Math.atan2(dx, dz);
-      const off = Math.abs(this._angleDiff(bearing, me.heading));
-      if(d > 12 && off > FOV / 2) continue;
-
-      if(!this._hasLOS(me, t, game)) continue;
-
-      visible[t.id] = { t: t, x: t.x, z: t.z, at: now, dist: d };
-      this._numVisibleEnemies++;
-
-      /* Record where it was. This is the memory that survives losing sight of
-         it, and it decays: a sighting twenty seconds old is a guess, not
-         knowledge, and by then it is noise rather than a lead. */
+      if(d > RANGE || t.camoFactor <= 0) continue;
+      if(!this._hasLOS(me, t, game, now)) continue;
+      visible[t.id] = { t, x: t.x, z: t.z, at: now, dist: d };
+      n++;
       this._seen = this._seen || {};
-      this._seen[t.id] = { t: t, x: t.x, z: t.z, at: now };
+      this._seen[t.id] = { t, x: t.x, z: t.z, at: now };
     }
+    this._allyPositions = allies;
+    this._numVisibleEnemies = n;
 
-    /* FORGET. Anything not confirmed visible and not re-confirmed within a few
-       seconds is dropped. Without this the map of remembered positions grows
-       without bound over a long match. */
+    /* Being shot tells you where someone is, even if you can't see them yet. */
+    const atk = me._lastAttacker;
+    if(atk && atk.alive && now - (me._lastHitAt || -99) < 2 && !visible[atk.id] && !(me.team && atk.team === me.team)){
+      this._seen = this._seen || {};
+      this._seen[atk.id] = { t: atk, x: atk.x, z: atk.z, at: now };
+    }
     if(this._seen){
       for(const id in this._seen){
         if(now - this._seen[id].at > 6) delete this._seen[id];
       }
     }
-
     this._visible = visible;
     this._radio(me, game, now);
   }
@@ -1836,59 +1306,61 @@ const canSeeTarget = target ? !!pick.canSee : false;
     }
   }
 
-  /* Pick who to fight, the way a person does: keep the target you have unless
-     there is a good reason to change. Flipping to whichever enemy is nearest on
-     every tick is what made the old bots look twitchy. */
-  _chooseTarget(me, game){
-    const cur = this._curTarget;
-    const now = game.time || 0;
-
-    if(cur && cur.alive && this._seen && this._seen[cur.id]
-       && (now - this._seen[cur.id].at) < 2.5){
-      /* Still worth shooting. Switching costs the turret traverse and the aim
-         solution, so it needs to be worth something. */
-      const stillHere = this._visible && this._visible[cur.id];
-      if(stillHere) return { target: cur, canSee: true };
-      return { target: cur, canSee: false };
-    }
-
-    /* Nothing held: take the nearest thing currently in view, else the nearest
-       remembered position, else whatever a teammate reported. */
-    let best = null, bestD = Infinity, sawIt = false;
+  /* Who to fight. Something in view beats a memory, and the current target is
+     kept unless another is clearly better, so a bot does not thrash its turret. */
+  _chooseTarget(me, game, order, now){
+    const squad = me.team && game._botSquads ? game._botSquads[me.team] : null;
+    const zones = (game._captureCircleMode && typeof CaptureCircle !== 'undefined' && CaptureCircle.getState())
+      ? CaptureCircle.getState().zones : null;
+    const zoneR = ((typeof GAMEMODES !== 'undefined' && GAMEMODES.captureTheCircle && GAMEMODES.captureTheCircle.circleRadius) || 12) + 4;
+    let best = null, bestS = Infinity;
     if(this._visible){
-      /* Not simply the nearest: a badly damaged enemy is worth a detour (a
-         kill now removes its damage for a whole respawn), and in Capture the
-         Circle an enemy standing in the zone is the one costing the match. */
-      const zones = (game._captureCircleMode && typeof CaptureCircle !== 'undefined'
-        && CaptureCircle.getState && CaptureCircle.getState()) ? CaptureCircle.getState().zones : null;
-      const zoneR = ((typeof GAMEMODES !== 'undefined' && GAMEMODES.captureTheCircle && GAMEMODES.captureTheCircle.circleRadius) || 12) + 4;
       for(const id in this._visible){
         const v = this._visible[id];
-        let score = v.dist;
-        const hpFrac = v.t.maxHp ? v.t.hp / v.t.maxHp : 1;
-        score -= (1 - hpFrac) * 30;
-        if(zones && zones.some(z => Math.hypot(v.t.x - z.cx, v.t.z - z.cz) < zoneR)) score -= 25;
-        if(score < bestD){ bestD = score; best = v.t; sawIt = true; }
+        if(!v.t.alive) continue;
+        let s = v.dist;
+        const frac = v.t.maxHp ? v.t.hp / v.t.maxHp : 1;
+        s -= (1 - frac) * 30;
+        if(zones && zones.some(z => Math.hypot(v.t.x - z.cx, v.t.z - z.cz) < zoneR)) s -= 25;
+        /* Shoot what the team is shooting; shoot back at what is shooting you. */
+        if(squad && squad.focus === v.t) s -= 12 + this.person.team * 16;
+        if(me._lastAttacker === v.t && now - (me._lastHitAt || -99) < 3) s -= 18;
+        /* A defender cares most about whoever is at the base. */
+        if(order && order.kind === 'defend' && order.rally && Math.hypot(v.t.x - order.rally.x, v.t.z - order.rally.z) < 45) s -= 30;
+        if(this._curTarget === v.t) s -= 15;
+        if(s < bestS){ bestS = s; best = v.t; }
       }
     }
-    if(!best && this._seen){
+    /* Attackers in position shell the base unless a tank is right on top of them.
+       The base is what wins the match; a far-off tank is not worth stopping for. */
+    if(order && order.siege && game._baseDefendMode && typeof BaseDefend !== 'undefined'){
+      const bt = BaseDefend.botTargetFor(me.team);
+      const close = best && Math.hypot(best.x - me.x, best.z - me.z) < 26;
+      const range = Math.min(58, (me.def.shellRange || 60) * 0.85);
+      if(bt && !close && Math.hypot(bt.x - me.x, bt.z - me.z) < range) return { target: { x: bt.x, z: bt.z, id: 'base-' + bt.team, isBase: true }, canSee: false };
+    }
+    if(best) return { target: best, canSee: true };
+
+    let d = Infinity;
+    if(this._seen){
       for(const id in this._seen){
         const s = this._seen[id];
-        if(s.t === cur) continue;
-        const d = Math.hypot(s.x - me.x, s.z - me.z);
-        if(d < bestD){ bestD = d; best = s.t; }
+        if(!s.t.alive) continue;
+        const dd = Math.hypot(s.x - me.x, s.z - me.z);
+        if(dd < d){ d = dd; best = s.t; }
       }
     }
     if(!best && this._heard){
       for(const id in this._heard){
         const h = this._heard[id];
-        const d = Math.hypot(h.x - me.x, h.z - me.z) * 1.15;   /* heard is worth slightly less than seen */
-        if(d < bestD){ bestD = d; best = h.t; }
+        if(!h.t.alive) continue;
+        const dd = Math.hypot(h.x - me.x, h.z - me.z);
+        if(dd < d && dd < 70){ d = dd; best = h.t; }
       }
     }
-    if(!best) return { target: null, canSee: false };
-    return { target: best, canSee: sawIt || (this._visible && !!this._visible[best.id]) };
+    return { target: best, canSee: false };
   }
+
 }
 
 class PanzerBrain extends BotBrain {

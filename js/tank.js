@@ -4894,6 +4894,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
   }
 
   takeDamage(amount, fromTank, game, accumulate, noCharge){
+    if(fromTank && fromTank !== this){ this._lastAttacker = fromTank; this._lastHitAt = (game && game.time) || 0; }
     if(!isFinite(amount)) return;
     if(!this.alive || this.dying) return;
     if(this._spawnInvuln && this._spawnInvuln > 0) return;

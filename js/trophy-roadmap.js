@@ -207,6 +207,9 @@
     /* Build AFTER revealing so the track has real layout (clientWidth is 0
        while display:none, which used to pin the banner at 27px). */
     buildRoadmap();
+    const scroll = document.getElementById('trophy-roadmap-scroll');
+    const here = document.getElementById('trophy-roadmap-here');
+    if (scroll && here) scroll.scrollLeft = Math.max(0, here.offsetLeft - scroll.clientWidth / 2);
   }
 
   function closeRoadmap() {

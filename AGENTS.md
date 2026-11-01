@@ -727,3 +727,13 @@ local matches.
    `CONFIG.PICK_TIME + CONFIG.VS_TIME`. Use `_groundY(x,z,ref)` for anything placed on the map.
 4. Mobile rules live at the end of css/style.css. A forced `display` under `body.is-mobile` MUST be
    scoped with `:not(.hidden)`, or it reveals hidden screens (this blacked out the match once).
+
+---
+
+## 2026-11-01, thirteenth pass (Claude Code) — TEAM BOTS, PHONE SUPERS, PHONE MENUS, SMOOTH FOG
+
+1. **bot.js**: the old state machine is gone. `BotSquad` (one per team, runs once a second) turns the mode's goal into an order per bot (`advance`, `capture`, `overwatch`, `defend`, `attack`, with post, leash, pace, facing, rally). `BotBrain.decide` is: order, retreat check, fight or follow. `BOT_PERSONALITIES` sits on top of `BOT_PLAYSTYLES`. Between thinks game.js calls `brain.heldInput(plan)`. Bots see what the player's fog shows: all round, up to fog radius, blocked by walls.
+2. **Mobile**: quick tap on the fire stick auto-fires at the nearest visible enemy (`_beginTapShot`). The super button is an aim stick (`_wireSuperStick`, `_updateSuperPreview`); it only calls `activateSuper()` on release, so desktop behaviour is unchanged.
+3. **Phone menus**: `#mobile-back-btn` is ALWAYS shown off the main menu and each screen's own back button is hidden by CSS (`_ownBack` still finds and clicks it).
+4. **fog.js**: the canvas covers only the camera's view (uv repeat/offset on a map-sized plane) and carries colour, not alpha. Its border must stay solid: clamp-to-edge stretches it over the rest of the map.
+5. Removing a body from a world it does not belong to panics Rapier and wedges that world. Clear any stored body handle in `_resetPhysics`.

@@ -14,10 +14,12 @@
    Bots keep their own line-of-sight rules; this is only what the player sees.
    ============================================================ */
 const FogOfWar = (() => {
-  const RAYS = 160;
+  const RAYS = 180;
   const BAND = 0.16;              /* half-fog ring, as a share of the view radius */
   const WALL_PEEK = 2.5;          /* a wall's own face stays visible */
-  const SIZE_OK = 768, SIZE_PHONE = 512;
+  const SIZE_OK = 1024, SIZE_PHONE = 640;
+  const FOG_RGB = '1,2,4', FOG_ALPHA = 0.9, HALF_ALPHA = 0.5;
+  const OUTLINE = '#4b4f55', OUTLINE_W = 1.5;   /* world units */
 
   let _mesh = null, _ctx = null, _tex = null, _span = 0, _size = 0;
   let _timer = 0, _active = false;
@@ -90,40 +92,78 @@ const FogOfWar = (() => {
     c.width = c.height = _size;
     _ctx = c.getContext('2d');
     _tex = new THREE.CanvasTexture(c);
-    _tex.minFilter = THREE.LinearFilter;
+    _tex.minFilter = _tex.magFilter = THREE.LinearFilter;
     _tex.generateMipmaps = false;
+    _tex.wrapS = _tex.wrapT = THREE.ClampToEdgeWrapping;
+    if(THREE.SRGBColorSpace) _tex.colorSpace = THREE.SRGBColorSpace;
     const geo = new THREE.PlaneGeometry(span, span);
     geo.rotateX(-Math.PI / 2);
-    const mat = new THREE.MeshBasicMaterial({ color: 0x010204, alphaMap: _tex, transparent: true, opacity: 0.9, depthTest: false, depthWrite: false, toneMapped: false, fog: false });
+    const mat = new THREE.MeshBasicMaterial({ map: _tex, transparent: true, depthTest: false, depthWrite: false, toneMapped: false, fog: false });
     _mesh = new THREE.Mesh(geo, mat);
     _mesh.renderOrder = 900;
     _mesh.frustumCulled = false;
     game.scene.add(_mesh);
   }
 
-  function paint(){
-    const s = _size / _span, h = _span / 2, g = _ctx;
-    /* TOON: three flat steps with hard edges. Solid fog, a ring of half fog (still
-       fog: nothing in it is seen), and clear. All bands first, so one tank's
-       ring never paints over a teammate's clear area. */
-    const pass = (key, style) => {
-      g.fillStyle = style;
+  /* The canvas covers only what the camera can see, not the whole map, so its
+     pixels are small enough for a smooth edge. The plane is still map-sized: the
+     canvas border is painted solid and stretches over everything outside it. */
+  function paint(game){
+    const cam = game.camera;
+    const y = cam ? Math.max(20, cam.position.y - _mesh.position.y) : 60;
+    const tan = Math.tan(((cam && cam.fov) || 55) * Math.PI / 360);
+    const seenW = y * tan * 2 * Math.max(1, (cam && cam.aspect) || 1.8);
+    const W = Math.min(_span, Math.max(180, seenW * 1.35));
+    const cx = cam ? cam.position.x : game.localTank.x, cz = cam ? cam.position.z : game.localTank.z;
+    const s = _size / W, g = _ctx;
+    const toX = x => (x - cx + W / 2) * s, toY = z => (z - cz + W / 2) * s;
+    const trace = (key) => {
+      g.beginPath();
       for(const v of _views){
         const arr = v[key];
-        g.beginPath();
         for(let i = 0; i < RAYS; i++){
           const a = i / RAYS * Math.PI * 2, r = arr[i];
-          const px = (v.x + Math.sin(a) * r + h) * s, py = (v.z + Math.cos(a) * r + h) * s;
+          const px = toX(v.x + Math.sin(a) * r), py = toY(v.z + Math.cos(a) * r);
           if(i) g.lineTo(px, py); else g.moveTo(px, py);
         }
         g.closePath();
-        g.fill();
       }
     };
-    g.fillStyle = '#fff';
+    const cut = (key) => {
+      trace(key);
+      g.globalCompositeOperation = 'destination-out';
+      g.fillStyle = '#000';
+      g.fill('nonzero');
+      g.globalCompositeOperation = 'source-over';
+    };
+    /* TOON: solid fog, a ring of half fog (still fog: nothing in it is seen), then
+       clear, with a dark gray line on both edges. Each outline is stroked and its
+       inside then cut away, so only the outer rim of the team's whole view has a
+       line and none runs through a teammate's clear area. */
+    g.globalCompositeOperation = 'source-over';
+    g.clearRect(0, 0, _size, _size);
+    g.fillStyle = 'rgba(' + FOG_RGB + ',' + FOG_ALPHA + ')';
     g.fillRect(0, 0, _size, _size);
-    pass('band', '#8c8c8c');
-    pass('reach', '#000');
+    g.lineJoin = 'round';
+    g.lineWidth = OUTLINE_W * 2 * s;
+    g.strokeStyle = OUTLINE;
+    trace('band');
+    g.stroke();
+    cut('band');
+    trace('band');
+    g.fillStyle = 'rgba(' + FOG_RGB + ',' + HALF_ALPHA + ')';
+    g.fill('nonzero');
+    trace('reach');
+    g.stroke();
+    cut('reach');
+    /* The border pixels are what clamp-to-edge stretches across the rest of the map. */
+    g.lineWidth = 4;
+    g.strokeStyle = 'rgba(' + FOG_RGB + ',' + FOG_ALPHA + ')';
+    g.clearRect(0, 0, _size, 2); g.clearRect(0, _size - 2, _size, 2); g.clearRect(0, 0, 2, _size); g.clearRect(_size - 2, 0, 2, _size);
+    g.strokeRect(0, 0, _size, _size);
+    const rep = _span / W;
+    _tex.repeat.set(rep, rep);
+    _tex.offset.set((W / 2 - _span / 2 - cx) / W, 1 - (_span / 2 - cz + W / 2) / W);
     _tex.needsUpdate = true;
   }
 
@@ -175,7 +215,7 @@ const FogOfWar = (() => {
       prev.x = t.x; prev.z = t.z;
       return prev;
     });
-    paint();
+    paint(game);
     for(const t of game.tanks){
       if(!t || !t.root || t.isDummy) continue;
       const hide = !isAlly(me, t) && !seen(t.x, t.z, Math.max(t.colHalfW || 3, t.colHalfL || 3));

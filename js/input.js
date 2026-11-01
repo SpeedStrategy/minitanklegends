@@ -119,6 +119,8 @@ class TouchJoystick {
           this.dx = 0;
           this.dy = 0;
           this.firePulse = false;
+          this._touchAt = performance.now();
+          this._peakMag = 0;
 
           // reset armed when touch begins; it will re-arm onMove
           this.armed = false;
@@ -165,6 +167,7 @@ class TouchJoystick {
         // joystick "up" is negative dy (screen coords), so angle relative to up:
         // relAngle = atan2(x, -y)
         const mag = Math.min(1, Math.hypot(this.dx, this.dy));
+        this._peakMag = Math.max(this._peakMag || 0, mag);
         /* Inside the centre zone is "cancel": the gun holds its last aim and
            letting go fires nothing. */
         const aimed = mag >= (this.opts.aimThreshold || 0.3);
@@ -181,6 +184,10 @@ class TouchJoystick {
           /* Let go while aimed = fire. A short touch that never aimed does nothing. */
           if(this.opts.turretFireMode === 'armedPress' && Math.hypot(this.dx, this.dy) >= (this.opts.aimThreshold || 0.3)){
             this.releaseFire = true;
+          } else if(this.opts.turretFireMode === 'armedPress' && (this._peakMag || 0) < (this.opts.aimThreshold || 0.3) &&
+                    performance.now() - (this._touchAt || 0) < 260){
+            /* A quick tap that never aimed: game.js auto-fires at the nearest enemy. */
+            this.quickTap = true;
           }
           this.container.classList.remove('stick-aim', 'stick-cancel');
           this.active = false;
@@ -231,6 +238,7 @@ class TouchJoystick {
     this.firePulse = false;
     this.firing = false;
     this.releaseFire = false;
+    this.quickTap = false;
     if(this.container) this.container.classList.remove('stick-aim', 'stick-cancel');
     this._updateKnob(0, 0);
   }
@@ -824,11 +832,13 @@ class Input {
     const turretRelAngle = turret.relAngle || 0;
     const armed = !!turret.armed;
     const releaseFire = !!(this._turretJoystick && this._turretJoystick.releaseFire);
-    if(this._turretJoystick) this._turretJoystick.releaseFire = false;
+    const quickTap = !!(this._turretJoystick && this._turretJoystick.quickTap);
+    if(this._turretJoystick){ this._turretJoystick.releaseFire = false; this._turretJoystick.quickTap = false; }
 
     return {
       aiming: !!turret.aiming,
       releaseFire,
+      quickTap,
       throttle,
       turn,
       turretRelAngle,

@@ -136,3 +136,9 @@ myself are marked *(mine)*.
 |---|-----|-------|--------|
 | 62 | Upgrades bought for a tank were applied to EVERY tank of that type, so upgrading Cool Buddy also upgraded every bot Cool Buddy. Now only your own tank wears your tree. | `js/tank.js` constructor | Fixed |
 | 63 | Three tree nodes (Regen time, Regen strength, Gadget cool) cost tech points but did nothing in battle ("HOLD: UNUSED YET"). Regen is now Field repairs, Gadget cool is now Shell velocity, all three work. | `js/upgrade-tree.js`, `js/tank.js` | Fixed |
+
+| 77 | Second match after leaving one had no tank physics: a stale `_sandboxTrimeshBody` from the old world was removed from the new one, which panics inside Rapier and wedges it. Cleared in `_resetPhysics`. | Fixed |
+| 78 | Bots turned the long way round: `_angleDiff` used `%`, which keeps the sign. Now atan2. | Fixed |
+| 79 | Bot timers ran off `game.dt` but bots think every 4th frame, so they ran about 4x slow. New brain uses `game.time`. | Fixed |
+| 80 | Phone profile screen: top of the card was cut off with no way to scroll to it. | Fixed |
+| 81 | Phone store: sidebar took half the screen and BACK was clipped. Trophy road: X scrolled off screen when horizontal. | Fixed |
