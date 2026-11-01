@@ -8018,6 +8018,9 @@ Net.sendJoinInfo(
         }
         if(this._matchStartDelay <= 0){
           this._matchStartDelay = 0;
+          // Battle intro: brief splash right as the battle begins
+          // (after the player has chosen their tank during the countdown).
+          try { this._showBattleIntro(); } catch(e){ console.warn('battle intro', e); }
           if(window.TankPick) TankPick.hideVs();
           var mc = document.getElementById('match-cd');
           if(mc) mc.classList.add('hidden');
@@ -8504,6 +8507,42 @@ Net.sendJoinInfo(
   }
 
   /* ---- Tank switch during countdown ---- */
+  /* ---------- battle intro (team roster bars) ---------- */
+  _showBattleIntro(){
+    const overlay = document.getElementById('battle-intro');
+    if(!overlay) return;
+    const esc = (s) => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    const local = this.localTank;
+    const myTeam = (local && local.team) ? local.team : 'blue';
+    const alive = (this.tanks || []).filter(t => t && t.alive !== false);
+    const allies = alive.filter(t => t.team === myTeam).slice(0, 7);
+    const enemies = alive.filter(t => t.team !== myTeam).slice(0, 7);
+    const aEl = document.getElementById('bi-allies');
+    const eEl = document.getElementById('bi-enemies');
+    if(aEl) aEl.innerHTML = allies.map(t => '<span class="bi-name">' + esc(t.name || 'Player') + '</span>').join('');
+    if(eEl) eEl.innerHTML = enemies.map(t => '<span class="bi-name">' + esc(t.name || 'Player') + '</span>').join('');
+    overlay.classList.remove('hidden', 'bi-out');
+    void overlay.offsetWidth;
+    requestAnimationFrame(() => {
+      overlay.classList.add('bi-in');
+      overlay.setAttribute('aria-hidden', 'false');
+    });
+    clearTimeout(this._battleIntroTimer);
+    this._battleIntroTimer = setTimeout(() => { try { this._hideBattleIntro(); } catch(e){} }, 1500);
+  }
+  _hideBattleIntro(){
+    const overlay = document.getElementById('battle-intro');
+    if(!overlay) return;
+    clearTimeout(this._battleIntroTimer);
+    this._battleIntroTimer = null;
+    overlay.classList.remove('bi-in');
+    overlay.classList.add('bi-out');
+    setTimeout(() => {
+      overlay.classList.add('hidden');
+      overlay.classList.remove('bi-out');
+      overlay.setAttribute('aria-hidden', 'true');
+    }, 420);
+  }
   _populateTankSwitchList(){
     if(window.TankPick && this._tdmState){ TankPick.open(this); return; }
     const panel = document.getElementById('tank-switch-panel');
@@ -9752,7 +9791,7 @@ Net.sendJoinInfo(
            make lookAt's up-vector degenerate) -- with the tank centred. */
         const topDown = true;
         const viewDist = D / Math.cos(stratPitchDeg * Math.PI / 180);
-        const pitchRad = (CONFIG.TOPDOWN_PITCH_DEG || 85) * Math.PI / 180;
+        const pitchRad = (CONFIG.CAM_PITCH_OPTIONS && CONFIG.CAM_PITCH_OPTIONS[this.settings && this.settings.camPitchIdx != null ? this.settings.camPitchIdx : 4] || CONFIG.TOPDOWN_PITCH_DEG || 85) * Math.PI / 180;
         const horiz = viewDist * Math.cos(pitchRad);
         const stratH = viewDist * Math.sin(pitchRad);
         // Use the FIXED strategic camera angle for both position and look-at

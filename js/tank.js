@@ -235,14 +235,26 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       }
     }
     const GLOBAL_SCALE = Tank.GLOBAL_SCALE;
-    this.colHalfW = def.body.w * 0.55 * GLOBAL_SCALE;
-    this.colHalfL = def.body.l * 0.55 * GLOBAL_SCALE;
-    this.colHalfH = (def.body.h || 1.0) * 0.5 * GLOBAL_SCALE;
+    if(def.bodyAuthored){
+      this.colHalfW = (def.body.w || 1) / 2;
+      this.colHalfL = (def.body.l || 1) / 2;
+      this.colHalfH = (def.body.h || 1) / 2;
+      this.colOffX = 0; this.colOffY = (def.body.h || 1) / 2; this.colOffZ = 0;
+    } else {
+      this.colHalfW = def.body.w * 0.55 * GLOBAL_SCALE;
+      this.colHalfL = def.body.l * 0.55 * GLOBAL_SCALE;
+      this.colHalfH = (def.body.h || 1.0) * 0.5 * GLOBAL_SCALE;
+    }
     if(_edOv && _edOv.body){
       const _b = _edOv.body;
-      this.colHalfW = Math.max(0.1, _b.w || def.body.w) * 0.55 * GLOBAL_SCALE;
-      this.colHalfL = Math.max(0.1, _b.l || def.body.l) * 0.55 * GLOBAL_SCALE;
-      this.colHalfH = Math.max(0.1, _b.h || def.body.h || 1.0) * 0.5 * GLOBAL_SCALE;
+      this.colHalfW = Math.max(0.1, _b.w || def.body.w) / 2;
+      this.colHalfL = Math.max(0.1, _b.l || def.body.l) / 2;
+      this.colHalfH = Math.max(0.1, _b.h || def.body.h || 1.0) / 2;
+      if(_edOv.pivot){
+        this.colOffX = _edOv.pivot.x || 0;
+        this.colOffY = _edOv.pivot.y || 0;
+        this.colOffZ = _edOv.pivot.z || 0;
+      }
     }
     /* THE TREADS, resolved once here so nothing downstream has to deal with a
        missing block or a null. An editor override wins over the tank's own
@@ -3285,6 +3297,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
      authored around their body origin. hitTest2D reads the same numbers. */
   _fitHitboxToModel(){
     if(this._disposed || !this.bodyGroup || !this.root) return;
+    if((this._edOv && this._edOv.body && this._edOv.body.w && this._edOv.body.h && this._edOv.body.l) || this.def.bodyAuthored) return;
     const box = new THREE.Box3(), tmp = new THREE.Box3(), m = new THREE.Matrix4();
     this.root.updateMatrixWorld(true);
     /* Each part is measured in its OWN group's frame, so the tank's tilt while

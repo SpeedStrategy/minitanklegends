@@ -337,6 +337,16 @@ const MapVoting = (() => {
       scale: 120,
       worldHalf: 187,
       preview: null
+    },
+    {
+      id: 'shootingrange',
+      name: 'Shooting Range',
+      desc: 'Open range — 4 flags, 7 vs 7.',
+      glb: 'assets/maps/TL_shooting_range_opt.glb',
+      scale: 120,
+      worldHalf: 351,
+      captureTime: 50,
+      preview: null
     }
   ];
 
@@ -434,7 +444,9 @@ const MapVoting = (() => {
       'lastfrontier': 'linear-gradient(135deg, #39424e 0%, #7d8794 50%, #a8b2bd 100%)',
       /* Hill: grass rising into a dry, sunlit crown — distinct from Core's
          deep forest green and from Last Frontier's cold stone. */
-      'hill': 'linear-gradient(135deg, #24561f 0%, #4e7a33 45%, #93a05a 100%)'
+      'hill': 'linear-gradient(135deg, #24561f 0%, #4e7a33 45%, #93a05a 100%)',
+      /* Shooting range: neutral grey-green field. */
+      'shootingrange': 'linear-gradient(135deg, #3a4a3a 0%, #5a6a5a 45%, #7a7a6a 100%)'
     };
     /* Flat grey for a map with no entry reads as "unfinished", which is the
        honest signal if someone adds a map and forgets this table. */

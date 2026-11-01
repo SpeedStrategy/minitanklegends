@@ -1085,7 +1085,7 @@ class World {
     const seenRoots = new Set();
     grp.traverse(o => {
       const lower = (o.name || '').toLowerCase();
-      if(!/(pine|taiga|tree|bush)/.test(lower)) return;
+      if(!/(pine|taiga|tree|bush|forest)/.test(lower)) return;
       if(!(o.isGroup || o.isMesh)) return;
       let r = o;
       while(r.parent && r.parent !== grp) r = r.parent;
@@ -1530,7 +1530,7 @@ class World {
     grp.traverse(o => {
       if(!o.isMesh) return;
       const nameLower = (o.name || '').toLowerCase();
-      if(nameLower.includes('bush') || nameLower.includes('pine') || nameLower.includes('tree')) return;
+      if(nameLower.includes('bush') || nameLower.includes('pine') || nameLower.includes('tree') || nameLower.includes('forest')) return;
       if(o.userData && o.userData.isCollider) return;
       let root = o;
       while(root.parent && root.parent !== grp) root = root.parent;
@@ -1572,7 +1572,16 @@ class World {
            the small texture, rather than swapping it in afterwards and forcing
            a recompile of every affected material mid-battle. */
         try { Models.applyTextureBudget(grp); } catch(e){}
-        grp.traverse(o => {
+                /* Pre-pass: collect stylized grass + dirt textures. */
+        var _grassTexRef = null, _dirtTexRef = null;
+        grp.traverse(function(_o){
+          if(!_o.isMesh || !_o.material) return;
+          var _m = _o.material;
+          var _n = (_m.name || "").toLowerCase();
+          if(_n.includes("grass") && _m.map && !_grassTexRef) _grassTexRef = _m.map;
+          if(_n.includes("concrete") && _m.map && !_dirtTexRef) _dirtTexRef = _m.map;
+        });
+grp.traverse(o => {
           if(o.isMesh){ o.castShadow = true; o.receiveShadow = true;
             if(o.material){
               var m = o.material;
@@ -1604,6 +1613,59 @@ class World {
                 opts.side = THREE.DoubleSide;
               }
               o.material = Toon.mat(opts);
+               /* FIELDS: ground mask -> stylized grass/dirt texture blend. */
+               if (m && m.map && (m.name === 'Material.001' || (m.map.name && /grass/i.test(m.map.name)) || (m.name && /grass/i.test(m.name)))) {
+                 (function(mesh, maskTex, grassTex, dirtTex){
+                   var _doBlend = function() {
+                     try {
+                       const img = maskTex.image;
+                       if (!img || !img.width || !img.height) { setTimeout(_doBlend, 100); return; }
+                       const w = img.width, h = img.height;
+                       const canvas = document.createElement('canvas');
+                       canvas.width = w; canvas.height = h;
+                       const ctx = canvas.getContext('2d');
+                       ctx.drawImage(img, 0, 0, w, h);
+                       const src = ctx.getImageData(0, 0, w, h).data;
+                       var grassImg = (grassTex && grassTex.image && grassTex.image.width) ? grassTex.image : null;
+                       var dirtImg = (dirtTex && dirtTex.image && dirtTex.image.width) ? dirtTex.image : null;
+                       var grassData = null, dirtData = null;
+                       if (grassImg) { var gc = document.createElement('canvas'); gc.width = w; gc.height = h; var gctx = gc.getContext('2d'); gctx.drawImage(grassImg, 0, 0, w, h); grassData = gctx.getImageData(0, 0, w, h).data; }
+                       if (dirtImg) { var dc = document.createElement('canvas'); dc.width = w; dc.height = h; var dctx = dc.getContext('2d'); dctx.drawImage(dirtImg, 0, 0, w, h); dirtData = dctx.getImageData(0, 0, w, h).data; }
+                       const out = ctx.createImageData(w, h);
+                       for (let k = 0; k < src.length; k += 4) {
+                         const lum = (src[k] + src[k+1] + src[k+2]) / 3;
+                         const t = lum / 255;
+                         const n = (Math.random() - 0.5) * 8;
+                         if (grassData && dirtData) {
+                           out.data[k]   = Math.max(0, Math.min(255, grassData[k]   * (1-t) + dirtData[k]   * t + n));
+                           out.data[k+1] = Math.max(0, Math.min(255, grassData[k+1] * (1-t) + dirtData[k+1] * t + n));
+                           out.data[k+2] = Math.max(0, Math.min(255, grassData[k+2] * (1-t) + dirtData[k+2] * t + n));
+                         } else {
+                           out.data[k]   = Math.max(0, Math.min(255, 74  * (1-t) + 138 * t + n));
+                           out.data[k+1] = Math.max(0, Math.min(255, 124 * (1-t) + 106 * t + n));
+                           out.data[k+2] = Math.max(0, Math.min(255, 42  * (1-t) + 74  * t + n));
+                         }
+                         out.data[k+3] = 255;
+                       }
+                       ctx.putImageData(out, 0, 0);
+                       const tex = new THREE.CanvasTexture(canvas);
+                       tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+                       mesh.material = Toon.mat({ color: 0xffffff, map: tex, side: THREE.DoubleSide });
+                       mesh.material.needsUpdate = true;
+                       console.log('[fields] grass mask blended:', w, 'x', h, 'grassTex=', !!grassData, 'dirtTex=', !!dirtData);
+                     } catch (e) { console.warn('fields grass mask blend failed', e); }
+                   };
+                   if (maskTex.image && maskTex.image.complete && maskTex.image.width > 0) {
+                     _doBlend();
+                   } else if (maskTex.image && maskTex.image.addEventListener) {
+                     maskTex.image.addEventListener('load', _doBlend, { once: true });
+                     setTimeout(_doBlend, 500);
+                   } else {
+                     setTimeout(_doBlend, 100);
+                   }
+                 })(o, m.map, _grassTexRef, _dirtTexRef);
+               }
+
               /* THE ACTUAL FIX FOR SHADOW ACNE, AND IT IS NOT A BIAS.
 
                  Acne is a surface shadowing itself because the depth stored in
@@ -1830,7 +1892,7 @@ class World {
               this._treeBlobSpots.push({ x: wp.x, z: wp.z, r: radius * 0.85 });
             }
           }
-          if((lower.includes('bush') || lower.includes('taiga')) && (o.isGroup || o.isMesh)){
+          if(((lower.includes('bush') || lower.includes('taiga')) || lower.includes('forest')) && (o.isGroup || o.isMesh)){
             let root = o;
             while(root.parent && root.parent !== grp) root = root.parent;
             if(!this._glbBushes.some(b => b.obj === root)){

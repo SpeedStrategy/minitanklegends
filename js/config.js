@@ -141,6 +141,10 @@ const CONFIG = {
      horizon; 90 would be straight down (lookAt breaks there). */
   TOPDOWN_PITCH_DEG: 85,
 
+  /* Five selectable top-down angles. Distance (the horizontal offset) stays
+     the same for all of them; only the pitch changes. Index 0..4. */
+  CAM_PITCH_OPTIONS: [45, 50, 60, 80, 85],
+
   // Mode 1 crosshair pitch: mouse-Y moves the CROSSHAIR, not the camera.
   AIM_PITCH_UP_DEG:   18,      // how far the aim can rise above horizontal
   AIM_PITCH_DOWN_DEG: 8,       // how far it can dig below horizontal
@@ -1299,6 +1303,7 @@ function loadSettings(){
          so the view you left at is the view you come back to. */
       camTwoMode:       s.camTwoMode !== false,
       cameraStage:      (typeof s.cameraStage === 'number' && s.cameraStage >= 0 && s.cameraStage <= 5) ? s.cameraStage : 2,
+      camPitchIdx:     (typeof s.camPitchIdx === 'number' && s.camPitchIdx >= 0 && s.camPitchIdx <= 4) ? s.camPitchIdx : 4,
       // Which renderer to build: 'auto' (WebGPU when the device has it, WebGL 2
       // otherwise), 'webgpu' (force WebGPU) or 'webgl2' (stay on WebGL 2).
       rendererBackend: ['auto','webgpu','webgl2'].indexOf(s.rendererBackend) >= 0 ? s.rendererBackend : 'auto',

@@ -13211,3 +13211,127 @@ body.is-mobile #menu-gamemode-select .gm-cards { justify-content: start; place-c
 body.is-mobile #menu-profile:not(.hidden) { display: block !important; overflow-y: auto; }
 body.is-mobile #menu-profile > * { height: auto !important; max-height: none !important; min-height: 0 !important; }
 body.is-mobile #menu-profile .profile-card { margin: 8px auto 16px; max-height: none; transform: none; }
+
+/* ============================================================
+   PLAY BUTTON HOVER DOT PATTERN
+   Only the dots (radial gradient) fade in over the button on hover.
+   No solid background, no clipping of the button's shadow.
+   ============================================================ */
+.btn-play:hover {
+  background:
+    radial-gradient(rgba(255, 255, 255, 0.171) 2px, transparent 0) -5px -5px / 30px 30px repeat,
+    linear-gradient(135deg, #ffc24b 0%, #ffa020 50%, #ff8000 100%) 0 0 / 100% 100% no-repeat;
+}
+
+/* ============================================================
+   KEYBIND ICONS - settings > Controls
+   ============================================================ */
+.bind-key{display:flex;align-items:center;justify-content:center;gap:6px}
+.bind-key .bind-ico{display:block;height:28px;width:auto;max-width:70px;pointer-events:none;user-select:none}
+.bind-key.binding{font-size:12px}
+
+/* ============================================================
+   BATTLE INTRO - two sliding roster bars + VS (enhanced)
+   ============================================================ */
+.battle-intro{
+  position:fixed; inset:0; z-index:9000;
+  pointer-events:none;
+  display:flex; flex-direction:column; align-items:stretch; justify-content:space-between;
+  padding: 12vh 4vw;
+  opacity:0;
+}
+.battle-intro.bi-in{ opacity:1; }
+.bi-bar{
+  position:relative;
+  width: min(78vw, 920px);
+  min-height: 96px;
+  padding: 14px 18px;
+  background: linear-gradient(180deg, #2a2a2a 0%, #1a1a1a 100%);
+  border: 2px solid #000;
+  border-radius: 12px;
+  box-shadow: 8px 8px 0 #000, 0 0 40px rgba(0,0,0,0.6);
+  transform: translateX(120%) translateY(-40%);
+  opacity:0;
+  transition: transform .55s cubic-bezier(.2,.9,.25,1), opacity .35s ease;
+  overflow:hidden;
+}
+.bi-bar::before, .bi-bar::after{
+  content:'';
+  position:absolute; top:50%; width:140%; height:2px;
+  background: linear-gradient(90deg, transparent, rgba(255,177,43,0.55), transparent);
+  transform: rotate(45deg) translateY(-50%);
+  pointer-events:none; opacity:0.7;
+}
+.bi-bar::after{ transform: rotate(-45deg) translateY(-50%); opacity:0.4; }
+.bi-bar-top{ align-self:flex-end; }
+.bi-bar-bot{ align-self:flex-start; transform: translateX(-120%) translateY(40%); }
+.battle-intro.bi-in .bi-bar-top{
+  transform: translateX(0) translateY(0);
+  opacity:1;
+  animation: biSlideTop .55s cubic-bezier(.2,.9,.25,1) both;
+}
+.battle-intro.bi-in .bi-bar-bot{
+  transform: translateX(0) translateY(0);
+  opacity:1;
+  animation: biSlideBot .55s cubic-bezier(.2,.9,.25,1) both;
+}
+@keyframes biSlideTop{
+  0%   { transform: translateX(120vw) translateY(-60px); opacity:0; }
+  60%  { opacity:1; }
+  100% { transform: translateX(0) translateY(0); opacity:1; }
+}
+@keyframes biSlideBot{
+  0%   { transform: translateX(-120vw) translateY(60px); opacity:0; }
+  60%  { opacity:1; }
+  100% { transform: translateX(0) translateY(0); opacity:1; }
+}
+.battle-intro.bi-out .bi-bar-top{ animation: biSlideTopOut .4s ease-in both; }
+.battle-intro.bi-out .bi-bar-bot{ animation: biSlideBotOut .4s ease-in both; }
+@keyframes biSlideTopOut{
+  0%   { transform: translateX(0) translateY(0); opacity:1; }
+  100% { transform: translateX(120vw) translateY(-60px); opacity:0; }
+}
+@keyframes biSlideBotOut{
+  0%   { transform: translateX(0) translateY(0); opacity:1; }
+  100% { transform: translateX(-120vw) translateY(60px); opacity:0; }
+}
+.bi-bar-inner{ display:flex; flex-direction:column; gap:8px; }
+.bi-bar-top .bi-bar-inner{ align-items:flex-end; text-align:right; }
+.bi-bar-bot .bi-bar-inner{ align-items:flex-start; text-align:left; }
+.bi-title{
+  font-family:'Lilita One',sans-serif; font-size:20px; letter-spacing:3px;
+  color:#ffb12b; text-shadow:2px 2px 0 #000;
+}
+.bi-names{ display:flex; flex-wrap:wrap; gap:6px; max-width:100%; }
+.bi-bar-top .bi-names{ justify-content:flex-end; }
+.bi-name{
+  display:inline-flex; align-items:center; justify-content:center;
+  min-width:40px; height:34px; padding:0 10px;
+  background:#111; color:#fff; font-weight:700; font-size:13px;
+  border:2px solid #000; border-radius:6px;
+  box-shadow:3px 3px 0 #000;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:120px;
+}
+.bi-vs{
+  align-self:center;
+  font-family:'Lilita One',sans-serif; font-size: clamp(48px, 8vw, 96px);
+  color:#fff; letter-spacing:4px;
+  text-shadow: 4px 4px 0 #000, 0 0 24px rgba(255,177,43,0.6);
+  opacity:0; transform: scale(0.4) rotate(-12deg);
+  transition: opacity .3s ease, transform .4s cubic-bezier(.3,1.4,.4,1);
+}
+.battle-intro.bi-in .bi-vs{
+  opacity:1; transform: scale(1) rotate(0deg);
+  animation: biVsStamp .55s cubic-bezier(.2,1.6,.4,1) .3s both;
+}
+.battle-intro.bi-out .bi-vs{ opacity:0; transform: scale(0.6) rotate(6deg); }
+@keyframes biVsStamp{
+  0%   { opacity:0; transform: scale(3) rotate(-18deg); filter: blur(6px); }
+  50%  { opacity:1; transform: scale(1.25) rotate(4deg); filter: blur(0); }
+  70%  { transform: scale(0.92) rotate(-2deg); }
+  100% { opacity:1; transform: scale(1) rotate(0deg); filter: blur(0); }
+}
+@media (prefers-reduced-motion: reduce){
+  .bi-bar, .bi-vs { animation:none !important; transition:none !important; }
+  .battle-intro.bi-in .bi-bar, .battle-intro.bi-in .bi-vs { opacity:1; transform:none; }
+}

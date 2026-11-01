@@ -1172,6 +1172,7 @@ window.TankEditor = (function(){
         /* Same check again: the model may have taken seconds to arrive. */
         if(state._buildGen !== myGen || state.tank !== t) return;
         buildMarkers();
+        try { autoFitHitbox(); } catch(e){ console.warn('autoFit on load failed:', e); }
       });
     }
 
@@ -1735,7 +1736,7 @@ window.TankEditor = (function(){
       new THREE.BoxGeometry(b.w, b.h, b.l),
       new THREE.MeshBasicMaterial({color: 0x22ff88, transparent: true, opacity: 0.22, depthWrite: false})
     );
-    state.bodyBox.position.y = b.h / 2 + 0.45;
+    state.bodyBox.position.y = b.h / 2;
     state.boxWire = new THREE.LineSegments(
       new THREE.EdgesGeometry(new THREE.BoxGeometry(b.w, b.h, b.l)),
       new THREE.LineBasicMaterial({color: 0x22ff88})
@@ -1905,14 +1906,21 @@ window.TankEditor = (function(){
 
     if(state.bodyBox && state.boxWire){
       var b = v.body;
+      /* Prefer the game's measured hitbox so the editor shows what the match uses. */
+      var dispW = b.w, dispH = b.h, dispL = b.l;
+      if(state.tank && state.tank.colHalfW && state.tank.colHalfW > 0.3){
+        dispW = state.tank.colHalfW * 2;
+        dispH = state.tank.colHalfH * 2;
+        dispL = state.tank.colHalfL * 2;
+      }
       state.bodyBox.scale.set(
-        clamp(b.w / state.bodyBox.geometry.parameters.width, 0.05, 20),
-        clamp(b.h / state.bodyBox.geometry.parameters.height, 0.05, 20),
-        clamp(b.l / state.bodyBox.geometry.parameters.depth, 0.05, 20)
+        clamp(dispW / state.bodyBox.geometry.parameters.width, 0.05, 20),
+        clamp(dispH / state.bodyBox.geometry.parameters.height, 0.05, 20),
+        clamp(dispL / state.bodyBox.geometry.parameters.depth, 0.05, 20)
       );
       // keep the box bottom pinned on the ground plane
       var hs = (b.h / 2) * state.bodyBox.scale.y;
-      state.bodyBox.position.y = hs + 0.45;
+      state.bodyBox.position.y = hs;
       state.boxWire.scale.copy(state.bodyBox.scale);
       state.boxWire.position.copy(state.bodyBox.position);
     }
@@ -2060,7 +2068,7 @@ window.TankEditor = (function(){
         clamp(state.values.body.l / gp.depth, 0.05, 20)
       );
       var hs = (state.values.body.h / 2) * state.bodyBox.scale.y;
-      state.bodyBox.position.y = hs + 0.45;
+      state.bodyBox.position.y = hs;
       state.boxWire.scale.copy(state.bodyBox.scale);
       state.boxWire.position.copy(state.bodyBox.position);
       state.values.body.w = round(gp.width * state.bodyBox.scale.x);

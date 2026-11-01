@@ -2295,7 +2295,7 @@ const Menu = {
     Object.keys(DEFAULT_BINDS).forEach(action=>{
       if(isMobile && action === 'minimap') return;
       const row = document.createElement('div'); row.className='bind-row';
-      row.innerHTML = `<div class="bl">${DEFAULT_BINDS[action].label}</div><div class="bind-key" data-action="${action}">${this._keyLabel(this.settings.binds[action])}</div>`;
+      row.innerHTML = `<div class="bl">${DEFAULT_BINDS[action].label}</div><div class="bind-key" data-action="${action}">${this._keyChipHtml(this.settings.binds[action])}</div>`;
       wrap.appendChild(row);
     });
     wrap.querySelectorAll('.bind-key').forEach(el=>{
@@ -2305,11 +2305,65 @@ const Menu = {
         this.settings.binds[el.dataset.action] = captured;
         saveSettings(this.settings);
         el.classList.remove('binding');
-        el.textContent = this._keyLabel(captured);
+        el.innerHTML = this._keyChipHtml(captured);
         this.game.applySettings(this.settings);
         this._updateMapHint();
       };
     });
+  },
+  /* ---------- keybind icons ----------
+     Settings > Controls renders the bound key of every action as a small
+     chip. assets/icons/keybinds/* carries pictorial keys for the alphabet,
+     the digits and the special keys (tab, space, escape, shift, ctrl, alt,
+     arrows, enter, backspace, brackets...). When an icon exists for the
+     bound key the chip shows the PICTURE instead of the text - letter C
+     replaces the plain "C" chip and so on. The action labels (the words in
+     the left column) stay text everywhere, mouse buttons / wheel and keys
+     without an icon keep the old text chip. */
+  _keyIconFor(code){
+    if(!code) return '';
+    const ICONS = {
+      ControlLeft:'001-ctrl.png', ControlRight:'001-ctrl.png',
+      KeyA:'002-letter-a.png',  Space:'003-space.png',
+      KeyE:'004-letter-e.png',  ArrowDown:'005-down-arrow.png',
+      ShiftLeft:'006-shift.png', ShiftRight:'006-shift.png',
+      ArrowLeft:'007-left-arrow.png', Escape:'008-escape-sign.png',
+      KeyS:'009-letter-s.png',  Enter:'010-enter.png', NumpadEnter:'010-enter.png',
+      KeyD:'011-letter-d.png',  KeyW:'012-letter-w.png',
+      ArrowRight:'013-right-arrow.png', KeyQ:'014-letter-q.png',
+      Tab:'015-tab.png',        AltLeft:'016-alt.png', AltRight:'016-alt.png',
+      KeyC:'018-letter-c.png',  Digit1:'019-number-1.png', Numpad1:'019-number-1.png',
+      ArrowUp:'020-up-arrow.png', KeyF:'021-letter-f.png',
+      KeyR:'023-letter-r.png',  KeyV:'024-letter-v.png',
+      KeyX:'025-letter-x.png',  KeyZ:'026-letter-z.png',
+      KeyG:'027-letter-g.png',  KeyL:'028-letter-l.png',
+      KeyB:'029-letter-b.png',  BracketRight:'030-close-bracket.png',
+      KeyT:'031-letter-t.png',  KeyP:'032-letter-p.png',
+      KeyI:'033-letter-i.png',  KeyU:'034-letter-u.png',
+      Digit0:'035-number.png',  Numpad0:'035-number.png',
+      KeyM:'037-letter-m.png',  Digit5:'038-number-5.png', Numpad5:'038-number-5.png',
+      KeyJ:'039-letter-j.png',  KeyY:'040-letter-y.png',
+      KeyH:'041-letter-h.png',  Digit3:'042-number-3.png', Numpad3:'042-number-3.png',
+      Backspace:'043-back.png', Digit9:'044-number-9.png', Numpad9:'044-number-9.png',
+      KeyO:'045-letter-o.png',
+      Digit4:'047-number-4.png', Numpad4:'047-number-4.png',
+      Minus:'048-minus.png',    NumpadSubtract:'048-minus.png',
+      KeyK:'049-letter-k.png',  Digit2:'050-number-2.png', Numpad2:'050-number-2.png',
+      KeyN:'051-letter-n.png',  Equal:'052-equal.png',
+      Slash:'053-stroke.png',   Backslash:'054-stroke-1.png',
+      BracketLeft:'056-open-bracket.png',
+      Digit6:'058-number-6.png', Numpad6:'058-number-6.png',
+      Digit7:'059-number-7.png', Numpad7:'059-number-7.png',
+      Digit8:'060-number-8.png', Numpad8:'060-number-8.png',
+    };
+    const f = ICONS[code];
+    return f ? 'assets/icons/keybinds/' + f : '';
+  },
+  _keyChipHtml(k){
+    const img = this._keyIconFor(k);
+    const label = this._keyLabel(k);
+    if(img) return '<img class="bind-ico" src="' + img + '?v=20261031a" alt="' + label + '" title="' + label + '" draggable="false">';
+    return label;
   },
   _keyLabel(k){
     if(k==='LMB') return 'LMB';
@@ -2826,21 +2880,39 @@ const Menu = {
   _renderCameraSettings(){
     const wrap = document.getElementById('camera-settings');
     if(!wrap) return;
+    const pitchIdx = (typeof this.settings.camPitchIdx === 'number') ? this.settings.camPitchIdx : 4;
+    const pitchNames = ['45°', '50°', '60°', '80°', '85°'];
+    /* The dev-stage camera work added Rotation (Fixed / Follow hull) and a
+       Zoom picker (settings.cameraStage, 0..5) on top of the angle picker.
+       All three live here now in order: angle, rotation, zoom. */
     const stage = (typeof this.settings.cameraStage === 'number') ? this.settings.cameraStage : 2;
-    const names = ['Closest', 'Close', 'Default', 'Far', 'Farther', 'Widest'];
+    const stageNames = ['Closest', 'Close', 'Default', 'Far', 'Farther', 'Widest'];
     const follow = !!this.settings.camFollowHull;
-    wrap.innerHTML = `
-      <label>Camera Rotation</label>
-      <div class="seg" style="display:grid; grid-template-columns:repeat(2,1fr); gap:4px;">
-        <div class="seg-opt${follow?'':' active'}" data-camfollow="0">Fixed</div>
-        <div class="seg-opt${follow?' active':''}" data-camfollow="1">Follow hull</div>
-      </div>
-      <div class="hint">Follow hull turns the view with your tank, so its front always points up the screen.</div>
-      <label style="margin-top:16px">Camera Zoom</label>
-      <div class="seg" style="display:grid; grid-template-columns:repeat(3,1fr); gap:4px;">
-        ${names.map((n, i) => `<div class="seg-opt${stage===i?' active':''}" data-camstage="${i}">${n}</div>`).join('')}
-      </div>
-      <div class="hint">The scroll wheel (or a two-finger pinch) changes this during a match.</div>`;
+    wrap.innerHTML =
+      '<label>Camera Angle</label>' +
+      '<div class="seg" style="display:grid; grid-template-columns:repeat(5,1fr); gap:4px;">' +
+        pitchNames.map((n, i) => '<div class="seg-opt' + (pitchIdx===i?' active':'') + '" data-campitch="' + i + '">' + n + '</div>').join('') +
+      '</div>' +
+      '<div class="hint">Top-down pitch of the view. Distance stays the same; only the angle changes.</div>' +
+      '<label style="margin-top:16px">Camera Rotation</label>' +
+      '<div class="seg" style="display:grid; grid-template-columns:repeat(2,1fr); gap:4px;">' +
+        '<div class="seg-opt' + (follow?'':' active') + '" data-camfollow="0">Fixed</div>' +
+        '<div class="seg-opt' + (follow?' active':'') + '" data-camfollow="1">Follow hull</div>' +
+      '</div>' +
+      '<div class="hint">Follow hull turns the view with your tank, so its front always points up the screen.</div>' +
+      '<label style="margin-top:16px">Camera Zoom</label>' +
+      '<div class="seg" style="display:grid; grid-template-columns:repeat(3,1fr); gap:4px;">' +
+        stageNames.map((n, i) => '<div class="seg-opt' + (stage===i?' active':'') + '" data-camstage="' + i + '">' + n + '</div>').join('') +
+      '</div>' +
+      '<div class="hint">The scroll wheel (or a two-finger pinch) changes this during a match.</div>';
+    wrap.querySelectorAll('[data-campitch]').forEach(el=>{
+      el.onclick = ()=>{
+        this.settings.camPitchIdx = +el.dataset.campitch;
+        saveSettings(this.settings);
+        if(this.game) this.game.applySettings(this.settings);
+        this._renderCameraSettings();
+      };
+    });
     wrap.querySelectorAll('[data-camfollow]').forEach(el=>{
       el.onclick = ()=>{
         this.settings.camFollowHull = el.dataset.camfollow === '1';

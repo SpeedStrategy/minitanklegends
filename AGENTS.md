@@ -738,3 +738,12 @@ local matches.
 4. **fog.js**: the canvas covers only the camera's view (uv repeat/offset on a map-sized plane) and carries colour, not alpha. Its border must stay solid: clamp-to-edge stretches it over the rest of the map.
 5. Removing a body from a world it does not belong to panics Rapier and wedges that world. Clear any stored body handle in `_resetPhysics`.
 6. **Performance rules**: per-frame HUD code writes through `_setHidden`/`_setText` (game.js top), never directly. Anything removed from a scene is released at the next reset (`_noteSceneAssets`, `_freeUnusedAssets`); dispose is safe because three re-uploads on next draw. Fog only recasts and repaints when a view or the camera moved.
+
+---
+
+## 2026-11-02, fourteenth pass (Claude Code) — MERGED A SECOND COPY OF THE PROJECT
+
+Someone deployed to dev from `C:\Users\Nojus\Downloads\TL` (commits 69eee6b, a8cdc2e, not in this repo), based on 3aa274a with the page taken from the stale `dev/index.html`. Merged three-way from deployment c6aa0edc.
+- **Kept from them:** battle intro, keybind icons, camera angle picker (`CAM_PITCH_OPTIONS`), authored hitboxes, Shooting Range map, map texture blend, editor fixes, play-button hover.
+- **Left out on purpose:** login wall (`auth-locked`), DEV banner, `/dev/js/` script paths, their `fog.js` (640 rays, no half-fog ring), unfinished `_muzzleFlashImg` and `BrunoExplosion` (only in their unloaded js/game.js; the image was never deployed).
+- **Deploy from this repo only.** `dev/index.html` and `dev/js/` are stale: do not build a page from them. Tag `before-dev-merge-20261102` is the state before this merge.
