@@ -146,7 +146,7 @@ const CONFIG = {
   CAM_PITCH_OPTIONS: [45, 50, 60, 80, 85],
 
   /* How far up or down a shell can leave a level gun. The gun model never tilts. */
-  SHOT_PITCH_DEG: 15,
+  SHOT_PITCH_DEG: 8,
 
   // Mode 1 crosshair pitch: mouse-Y moves the CROSSHAIR, not the camera.
   AIM_PITCH_UP_DEG:   18,      // how far the aim can rise above horizontal
@@ -300,7 +300,7 @@ const CONFIG = {
   FOG_VIEW_SCALE: 0.875,
   /* Pre-battle: seconds to choose a tank, then the animated VS card. */
   PICK_TIME: 15,
-  VS_TIME: 3.5,
+  VS_TIME: 0,
   SUPER_COOLDOWN: 60,   // seconds between super uses
 
   // Networking

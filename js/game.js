@@ -350,6 +350,7 @@ class Game {
     // Get the muzzle-flash picture downloading now, so the very first shot of
     // the session already has its art instead of a blank square.
     this._muzzlePictureTex();
+    if(typeof this._muzzleFlashImgTex === 'function') this._muzzleFlashImgTex();
     // far used to be 1000, but at full zoom-out the camera climbs to ~900
     // units up, so the far edge of the frame landed past the far plane and the
     // world visibly cut off. 1500 keeps everything inside (fog still hides the
@@ -7488,6 +7489,7 @@ Net.sendJoinInfo(
           this.renderer.render(this.scene, this.camera);
         }
         Fireball.clear();
+        if(typeof BrunoExplosion !== 'undefined'){ try { BrunoExplosion.spawn(this.scene, 0, -6000, 0, 8.7); BrunoExplosion.clear(); } catch(e){} }
       } catch(e){}
     }
     /* Same story for the keyed video overlays: another node material that
@@ -7644,7 +7646,7 @@ Net.sendJoinInfo(
     var _mc = document.getElementById('match-cd');
     if(_mc) _mc.classList.add('hidden');
     this._matchStartDelay = 0; this._matchCdShown = false; this._vsShown = false;
-    if(window.TankPick) TankPick.hideVs();
+    if(false && window.TankPick) TankPick.hideVs();
     this._cinematicPhase = false; this._cinematicTimer = 0;
     this._lastCdNum = undefined;
     // Reset HUD visibility and remove game-active so menu buttons work again
@@ -8032,19 +8034,19 @@ Net.sendJoinInfo(
           if(mcv) mcv.classList.add('hidden');
           var tspv = document.getElementById('tank-switch-panel');
           if(tspv) tspv.classList.add('hidden');
-          if(window.TankPick) TankPick.showVs(this);
+          if(false && window.TankPick) TankPick.showVs(this);
         }
         if(this._matchStartDelay <= 0){
           this._matchStartDelay = 0;
-          // Battle intro: brief splash right as the battle begins
-          // (after the player has chosen their tank during the countdown).
-          try { this._showBattleIntro(); } catch(e){ console.warn('battle intro', e); }
-          if(window.TankPick) TankPick.hideVs();
+          if(false && window.TankPick) TankPick.hideVs();
           var mc = document.getElementById('match-cd');
           if(mc) mc.classList.add('hidden');
           var tsp = document.getElementById('tank-switch-panel');
           if(tsp) tsp.classList.add('hidden');
           this._showHUDAfterCountdown();
+          // Battle intro: brief splash right as the battle begins
+          // (after the player has chosen their tank during the countdown).
+          try { this._showBattleIntro(); } catch(e){ console.warn('battle intro', e); }
           // Re-acquire pointer lock so the player can aim and drive
           try {
             if(this.cameraMode === 'dynamic'){
@@ -8054,7 +8056,7 @@ Net.sendJoinInfo(
           } catch(e){}
         } else {
           // Bot tank switching every 1.5s during countdown
-          if(window.TankPick && !this._vsShown) TankPick.refreshTeam();
+          if(false && window.TankPick && !this._vsShown) TankPick.refreshTeam();
           if(this._matchStartDelay > (CONFIG.VS_TIME || 3.5) + 0.5){
             this._botSwitchTimer = (this._botSwitchTimer || 0) + rawDt;
             if(this._botSwitchTimer > 1.5){
@@ -8647,12 +8649,10 @@ Net.sendJoinInfo(
     if(eEl) eEl.innerHTML = enemies.map(t => '<span class="bi-name">' + esc(t.name || 'Player') + '</span>').join('');
     overlay.classList.remove('hidden', 'bi-out');
     void overlay.offsetWidth;
-    requestAnimationFrame(() => {
-      overlay.classList.add('bi-in');
-      overlay.setAttribute('aria-hidden', 'false');
-    });
+    overlay.classList.add('bi-in');
+    overlay.setAttribute('aria-hidden', 'false');
     clearTimeout(this._battleIntroTimer);
-    this._battleIntroTimer = setTimeout(() => { try { this._hideBattleIntro(); } catch(e){} }, 1500);
+    this._battleIntroTimer = setTimeout(() => { try { this._hideBattleIntro(); } catch(e){} }, 2500);
   }
   _hideBattleIntro(){
     const overlay = document.getElementById('battle-intro');
@@ -8668,7 +8668,8 @@ Net.sendJoinInfo(
     }, 420);
   }
   _populateTankSwitchList(){
-    if(window.TankPick && this._tdmState){ TankPick.open(this); return; }
+    /* TankPick (friend's pre-battle menus) disabled - the user's tank selector (ts-grid) and the battle-intro (two-rectangle animation) are used instead. */
+      if(false && window.TankPick && this._tdmState){ TankPick.open(this); return; }
     const panel = document.getElementById('tank-switch-panel');
     const grid = document.getElementById('tank-switch-grid');
     const countEl = document.getElementById('ts-count');
@@ -8988,7 +8989,7 @@ Net.sendJoinInfo(
 
   _endCountdownPhase(){
     this._matchStartDelay = 0;
-    if(window.TankPick) TankPick.hideVs();
+    if(false && window.TankPick) TankPick.hideVs();
     const mc = document.getElementById('match-cd');
     if(mc) mc.classList.add('hidden');
     const tsp = document.getElementById('tank-switch-panel');
@@ -9496,6 +9497,7 @@ Net.sendJoinInfo(
        gone, not the whole BulletTrailManager. */
     for(let i=0;i<this.explosions.length;i++) this.explosions[i].update(dt);
     if(typeof Fireball !== 'undefined') Fireball.update(this.scene, dt);
+    if(typeof BrunoExplosion !== 'undefined') BrunoExplosion.update(this.scene, dt);
     if(typeof MortarBlast !== 'undefined') MortarBlast.update(this.scene, dt);
     if(typeof MuzzlePop !== 'undefined') MuzzlePop.update(this.scene, dt);
     { let w=0; for(let i=0;i<this.explosions.length;i++){const e=this.explosions[i]; if(e.dead){e.detach();} else { this.explosions[w++]=e; }} this.explosions.length=w; }
@@ -9676,6 +9678,7 @@ Net.sendJoinInfo(
     if(typeof VideoVFX !== 'undefined') VideoVFX.update();
     if(typeof SpraySystem !== 'undefined') SpraySystem.update();
     this._updateVideoVFX(dt);
+    if(typeof this._updateMuzzleFlashImg === 'function') this._updateMuzzleFlashImg(dt);
     // Ricochet labels
     if(this._ricoLabels){
       for(let i=0;i<this._ricoLabels.length;i++){const l=this._ricoLabels[i]; l.life -= dt; l.sprite.material.opacity = Math.max(0, l.life / l.maxLife); }
@@ -14593,7 +14596,10 @@ _initMortarMarker(){
        two of them. The functions are still there, unused, in case the art
        ever wants to come back. */
     if(typeof MuzzlePop !== 'undefined' && !(this.settings && this.settings.muzzleFx === false)){
-      MuzzlePop.play(this.scene, pos, dir, tank === this.localTank, this.camera ? this.camera.position : null, tank);
+      /* The nozzle-flash image replaces the shader flash once it has loaded; until the
+         image is on the server (it is not yet) the shader flash keeps playing. */
+      if(this._muzzleFlashReady && typeof this._muzzleFlashImg === 'function') this._muzzleFlashImg(pos, dir);
+      else MuzzlePop.play(this.scene, pos, dir, tank === this.localTank, this.camera ? this.camera.position : null, tank);
       /* The point light on the barrel stays: the cartoon cloud is the SHAPE of
          the shot, and the light is what makes the tank's own metal flare when
          it fires. Without it the gun looks like it is firing silently. */
@@ -14674,6 +14680,82 @@ _initMortarMarker(){
 
     this._picFlashes.push({mesh: m, life: FLASH_LIFE, maxLife: FLASH_LIFE, w: W, h: H});
   }
+
+  _muzzleFlashImgTex(){
+    /* Its own field: storing the texture under the method's name meant the method
+       always returned itself and the image never showed. */
+    if(!this._muzzleFlashTexture){
+      this._muzzleFlashTexture = new THREE.TextureLoader().load('assets/muzzle-flash-img.png',
+        () => { this._muzzleFlashReady = true; }, undefined, () => { this._muzzleFlashReady = false; });
+      this._muzzleFlashTexture.colorSpace = THREE.SRGBColorSpace;
+    }
+    return this._muzzleFlashTexture;
+  }
+
+  _muzzleFlashImg(pos, dir){
+    if(this.settings && this.settings.muzzleFx === false) return;
+    const tex = this._muzzleFlashImgTex();
+    if(!tex.image) return;
+    if(!this._muzzleFlashImgGeo) this._muzzleFlashImgGeo = new THREE.PlaneGeometry(1, 1);
+    if(!this._muzzleFlashImgs) this._muzzleFlashImgs = [];
+    const LIFE = 0.3;
+    const W0 = 2.0;   // initial width (wide)
+    const H0 = 1.0;   // initial height (short)
+    const W1 = 0.6;   // final width (narrow)
+    const H1 = 3.0;   // final height (long)
+
+    let m = null;
+    // recycle oldest if too many
+    if(this._muzzleFlashImgs.length >= 8){
+      const oldest = this._muzzleFlashImgs[0];
+      oldest.life = LIFE; oldest.maxLife = LIFE;
+      m = oldest.mesh;
+    }
+    if(!m){
+      m = new THREE.Mesh(this._muzzleFlashImgGeo, new THREE.MeshBasicMaterial({
+        map: tex, transparent: true, opacity: 1, depthWrite: false,
+        side: THREE.DoubleSide, toneMapped: false
+      }));
+      m.frustumCulled = false;
+      m.renderOrder = 999;
+    }
+    this.scene.add(m);
+
+    const rawX = dir ? (dir.x || 0) : 0;
+    const rawZ = dir ? (dir.z || 0) : 1;
+    const len = Math.hypot(rawX, rawZ) || 1;
+    const fx = rawX / len, fz = rawZ / len;
+
+    m.rotation.order = 'YXZ';
+    m.rotation.set(-Math.PI / 2, Math.atan2(-fz, fx), 0);
+    m.position.set(pos.x + fx * W0 * 0.2, pos.y + 0.1, pos.z + fz * W0 * 0.2);
+    m.scale.set(W0, H0, 1);
+    m.material.opacity = 1;
+    m.visible = true;
+
+    this._muzzleFlashImgs.push({mesh: m, life: LIFE, maxLife: LIFE, w0: W0, h0: H0, w1: W1, h1: H1});
+  }
+
+  _updateMuzzleFlashImg(dt){
+    if(!this._muzzleFlashImgs) return;
+    for(let i = this._muzzleFlashImgs.length - 1; i >= 0; i--){
+      const e = this._muzzleFlashImgs[i];
+      e.life -= dt;
+      if(e.life <= 0){
+        this.scene.remove(e.mesh);
+        this._muzzleFlashImgs.splice(i, 1);
+        continue;
+      }
+      const t = 1 - (e.life / e.maxLife); // 0..1
+      // scale: wide/short -> narrow/long
+      const w = e.w0 + (e.w1 - e.w0) * t;
+      const h = e.h0 + (e.h1 - e.h0) * t;
+      e.mesh.scale.set(w, h, 1);
+      // fade out in last half
+      e.mesh.material.opacity = t < 0.5 ? 1 : (1 - (t - 0.5) * 2);
+    }
+  }
+
 
   _ensureHelixVideo(tank){
     if(this._helixVideos.has(tank.id)) return;
@@ -15371,7 +15453,10 @@ spawnExplosion(x, y, z, color, count, style){
        several tank-lengths across and swallowed the wrecks of everything near
        it. 13 / 1.5 = 8.7, which still covers the tank it came from but leaves
        the rest of the fight readable. */
-    if(typeof Fireball !== 'undefined') Fireball.spawn(this.scene, tank.x, y1 + 2.0, tank.z, 8.7);
+    /* Old Fireball explosion DISABLED — replaced with Bruno Simon single-sphere explosion below. */
+      /* if(typeof Fireball !== 'undefined') Fireball.spawn(this.scene, tank.x, y1 + 2.0, tank.z, 8.7); */
+     /* Bruno Simon-style single-sphere explosion (optimized, one draw call) */
+     if(typeof BrunoExplosion !== 'undefined') BrunoExplosion.spawn(this.scene, tank.x, y1 + 2.0, tank.z, 8.7);
     this.spawnBurst(tank.x, y1 + 0.3, tank.z, {count: 18, tex: ['spark','ember'], speed: 18, size: 0.55, life: 0.6, rise: 2.5, gravity: 16, blend: 'add', spin: 9});
     this.spawnBurst(tank.x, y1 + 0.30, tank.z, {count: 10, tex: ['shard','hex'], speed: 6.5, size: 0.85, life: 0.8, rise: 3, gravity: 9, spin: 6});
     // Flower layer: heavy smolder bloom (fancy only)
