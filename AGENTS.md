@@ -761,3 +761,9 @@ Fog smoothing (same day): `paint` draws `shownR/shownB`, a median-filtered, ease
 ## 2026-11-02, sixteenth pass (Claude Code) — SECOND DEV MERGE, 8 DEGREE SHOTS
 
 Second set of dev deploys from the other copy (6b04bf0; served as 56f1fad7, newest 46621e78 is a 404). Merged only what changed since c6aa0edc, three-way against c6aa0edc: TankPick pick/VS screens are switched off (`if(false && window.TankPick)`, `VS_TIME: 0`, tank-pick.js no longer loaded) in favour of the old bottom selector restyled, Bruno sphere explosion on tank death (`js/bruno-explosion.js`), nozzle-flash image. Fixed in their code: `_muzzleFlashImgTex` stored the texture under its own method name, so the image never showed and there was no muzzle flash at all; the texture is `_muzzleFlashTexture` now and `MuzzlePop` plays until `assets/muzzle-flash-img.png` exists (it is not deployed yet). `CONFIG.SHOT_PITCH_DEG` is 8. Tag `before-dev-merge2-20261102` is the state before. Known, not fixed: a tank can rarely fall through the map at match start (the rescue puts it back; the camera shows black meanwhile).
+
+---
+
+## 2026-11-03, seventeenth pass (Claude Code) — THIRD DEV MERGE
+
+The other copy deployed again (1ab6679 / fa2c456 / 30fa1c5, and to PRODUCTION as 113b6568, with its DEV banner and login wall). Took only what changed since 56f1fad7: Google Fonts link, HUD score icons + `#cash-indicator`, rounded-rectangle HP plate and per-shell segmented reload bar (tank.js, hpbar-styles.js), `VS_TIME: 3.5`, restyled bottom tank selector and the "BATTLE UI REWORK" CSS block. Their style.css is double-encoded UTF-8 throughout (lossy, cannot be decoded back): only their new ASCII-only rules were appended; never take that file whole. Tag `before-dev-merge3-20261103`.

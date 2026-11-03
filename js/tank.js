@@ -2945,12 +2945,12 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       /* The module failed to load. Rather than draw no bar at all, fall back to
          the single most conservative shape: one solid fill inside the plate. */
       g.save();
-      g.beginPath(); rr(pX + 4, pY + 4, pW - 8, pH - 8, (pH - 8) / 2); g.clip();
+      g.beginPath(); rr(pX + 4, pY + 4, pW - 8, pH - 8, 4); g.clip();
       g.fillStyle = OUT; g.fillRect(pX + 4, pY + 4, pW - 8, pH - 8);
       g.fillStyle = hpCol; g.fillRect(pX + 4, pY + 4, (pW - 8) * fill, pH - 8);
       g.restore();
       g.strokeStyle = OUT; g.lineWidth = 4;
-      g.beginPath(); rr(pX + 2, pY + 2, pW - 4, pH - 4, pH / 2 - 2); g.stroke();
+      g.beginPath(); rr(pX + 2, pY + 2, pW - 4, pH - 4, 4); g.stroke();
     }
 
     // ---- reload line: you and your team only ----
@@ -2988,21 +2988,33 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
          throws inside roundRect, which aborts _drawHp before the texture is
          flagged for upload: the canvas then looks correct when read back
          directly but the plate on screen never updates. */
-      g.save();
-      g.beginPath(); rr(rPx, rPy, rPw, rPh, rPh / 2); g.clip();
-      // track: a warmer, darker brown than the health bar's navy, so the two
-      // bars never read as one component
-      g.fillStyle = '#33220f'; g.fillRect(rPx, rPy, rPw, rPh);
-      g.fillStyle = '#241705'; g.fillRect(rPx, rPy + rPh * 0.6, rPw, rPh * 0.4);
-      if(rPct > 0.002){
-        const w = rPw * rPct;
-        g.fillStyle = '#c2660a'; g.fillRect(rPx, rPy, w, rPh);
-        g.fillStyle = '#f0a03c'; g.fillRect(rPx, rPy, w, rPh * 0.44);
-        g.fillStyle = '#8f4706'; g.fillRect(rPx, rPy + rPh * 0.82, w, rPh * 0.18);
+      const segCount = Math.max(1, (info && info.magSize > 0) ? info.magSize : 1);
+      const loadedSegs = info ? Math.max(0, Math.min(segCount, info.mag || 0)) : segCount;
+      const segGap = 3;
+      const segW = (rPw - segGap * (segCount - 1)) / segCount;
+      const segR = Math.min(4, rPh / 2);
+      for(let i = 0; i < segCount; i++){
+        const sx = rPx + i * (segW + segGap);
+        g.fillStyle = '#33220f'; rr(sx, rPy, segW, rPh, segR); g.fill();
+        g.fillStyle = '#241705'; g.fillRect(sx, rPy + rPh * 0.6, segW, rPh * 0.4);
       }
-      g.restore();
+      for(let i = 0; i < segCount; i++){
+        const sx = rPx + i * (segW + segGap);
+        let frac = 0;
+        if(i < loadedSegs) frac = 1;
+        else if(i === loadedSegs && active) frac = rPct;
+        if(frac > 0.002){
+          const fw = segW * frac;
+          g.fillStyle = '#ffb12b'; rr(sx, rPy, fw, rPh, segR); g.fill();
+          g.fillStyle = '#ffd27a'; g.fillRect(sx, rPy, fw, rPh * 0.44);
+          g.fillStyle = '#c2660a'; g.fillRect(sx, rPy + rPh * 0.82, fw, rPh * 0.18);
+        }
+      }
       g.strokeStyle = OUT; g.lineWidth = 3;
-      g.beginPath(); rr(rPx - 1, rPy - 1, rPw + 2, rPh + 2, (rPh + 2) / 2); g.stroke();
+      for(let i = 0; i < segCount; i++){
+        const sx = rPx + i * (segW + segGap);
+        g.beginPath(); rr(sx - 1, rPy - 1, segW + 2, rPh + 2, segR + 1); g.stroke();
+      }
     }
 
     if(this._hpTex) this._hpTex.needsUpdate = true;

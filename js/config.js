@@ -300,7 +300,7 @@ const CONFIG = {
   FOG_VIEW_SCALE: 0.875,
   /* Pre-battle: seconds to choose a tank, then the animated VS card. */
   PICK_TIME: 15,
-  VS_TIME: 0,
+  VS_TIME: 3.5,
   SUPER_COOLDOWN: 60,   // seconds between super uses
 
   // Networking

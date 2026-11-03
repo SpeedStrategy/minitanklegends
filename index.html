@@ -19,7 +19,11 @@
 
 <title>Mini Tank Legends Cline</title>
 
-<link rel="stylesheet" href="css/style.css?v=20261102u">
+<!-- Google Fonts: Lilita One / Fredoka / Nunito = the game's display font. DO NOT remove. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Lilita+One&family=Nunito:wght@700;800;900&display=swap">
+<link rel="stylesheet" href="css/style.css?v=20261103a">
 <link rel="stylesheet" href="css/results.css?v=20261011d">
 
 <!--
@@ -1655,9 +1659,12 @@
            The cash cell is live — it counts up as kills are scored, instead of
            only being visible on the profile page after the battle is over. -->
       <div id="score-strip">
-        <div class="score-cell"><span class="score-cap">DMG</span><span class="score-val" id="score-dmg">0</span></div>
-        <div class="score-cell"><span class="score-cap">KILLS</span><span class="score-val" id="score-kills">0</span></div>
-        <div class="score-cell"><span class="score-cap">CASH</span><span class="score-val" id="score-cash">0</span></div>
+        <div class="score-cell"><span class="score-icon">&#9876;</span><span class="score-val" id="score-dmg">0</span></div>
+          <div class="score-cell"><span class="score-icon">&#9760;</span><span class="score-val" id="score-kills">0</span></div>
+      </div>
+
+      <div id="hp-wrap"><div id="hp-bar"></div><span id="hp-text">100 / 100</span></div>
+        <div id="cash-indicator" class="hidden"><span class="cash-icon">&#128176;</span><span id="score-cash">0</span></div>
       </div>
 
       <div id="hp-wrap"><div id="hp-bar"></div><span id="hp-text">100 / 100</span></div>
@@ -2410,7 +2417,7 @@
     const GAME_SCRIPTS = [
       'js/toon.js?v=20261030a',
       'js/xray.js?v=20261008p',
-      'js/config.js?v=20261102u',
+      'js/config.js?v=20261103a',
       'js/vfx.js?v=1787330007',
       'js/fireball.js?v=20260929m',
       'js/mortar-blast.js?v=20261006a',
@@ -2428,8 +2435,8 @@
       /* BEFORE tank.js: Tank._drawHp calls HPBarStyles.draw for the nameplate,
          and falls back to a plain solid bar if the module is not there yet. The
          style preview page loads this same file to render the five options. */
-      'js/hpbar-styles.js?v=20261006a',
-      'js/tank.js?v=20261102m',
+      'js/hpbar-styles.js?v=20261103a',
+      'js/tank.js?v=20261103a',
       'js/tank-sprays.js?v=20261012b',
       /* Styles (cosmetics): tank.js calls TankStyles.apply once the model is
          on, so the module has to exist by the tank build — place it with the

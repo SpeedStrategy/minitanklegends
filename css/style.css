@@ -13418,3 +13418,172 @@ body.is-mobile #menu-profile .profile-card { margin: 8px auto 16px; max-height: 
   .ts-btn,.ts-nav-btn{transition:none !important}
 }
 
+/* ---- Pre-battle tank selector restyle (merged from the dev copy, 2026-11-03) ---- */
+/* ============================================================
+   TANK SELECTOR - STYLIZED (bottom)
+   Dark gray + white palette, black outlines, custom shapes,
+   smooth hover animations. No plain square frames.
+   ============================================================ */
+.tank-switch-panel{
+  bottom: 20px; left: 50%; right: auto; transform: translateX(-50%);
+  width: min(94vw, 1180px);
+  background: linear-gradient(160deg, #1a1c22 0%, #0d0f14 100%);
+  border: 3px solid #000;
+  border-radius: 0;
+  clip-path: polygon(14px 0, calc(100% - 14px) 0, 100% 14px, 100% calc(100% - 14px), calc(100% - 14px) 100%, 14px 100%, 0 calc(100% - 14px), 0 14px);
+  box-shadow: 0 18px 50px rgba(0,0,0,.85), inset 0 1px 0 rgba(255,255,255,.06), 0 0 0 1px rgba(255,255,255,.04);
+  padding: 16px 20px 18px;
+  pointer-events: auto;
+  position: fixed;
+  z-index: 210;
+}
+.tank-switch-panel:not(.hidden){animation:tsPanelIn .35s cubic-bezier(.2,.8,.2,1) both}
+@keyframes tsPanelIn{from{opacity:0;transform:translateX(-50%) translateY(40px) scale(.96)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
+
+.tank-switch-header{
+  display:flex; align-items:center; justify-content:space-between;
+  margin-bottom:14px; padding:0 4px;
+  border-bottom: 2px solid #000;
+  padding-bottom: 10px;
+}
+.tank-switch-header .ts-label{
+  font-size: 15px; letter-spacing: 4px; font-weight: 900;
+  color: #ffffff;
+  text-transform: uppercase;
+  text-shadow: 0 2px 0 #000;
+}
+.tank-switch-header .ts-count{
+  font-size: 12px; color: #ffffff; font-weight: 800;
+  border: 2.5px solid #000; background: #0e1015;
+  padding: 5px 12px; border-radius: 0;
+  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
+  letter-spacing: 1.2px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 3px 0 #000;
+}
+
+.tank-switch-scroll{display:flex;align-items:center;gap:12px}
+.tank-switch-grid{
+  display:grid; grid-template-columns:repeat(5, 1fr);
+  grid-template-rows:repeat(2, 1fr); gap:12px;
+  height:164px; overflow:hidden; width:100%;
+}
+.tank-switch-grid::-webkit-scrollbar{height:5px}
+.tank-switch-grid::-webkit-scrollbar-thumb{background:#000;border-radius:4px;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
+
+.ts-btn{
+  width:100%; height:74px;
+  border: 3px solid #000;
+  border-radius: 0;
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  background: linear-gradient(180deg, #2a2e36, #16191f);
+  cursor: pointer; display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  transition: all .2s cubic-bezier(.2,.85,.25,1);
+  position: relative; padding: 7px; min-width: 105px;
+  box-shadow: 0 5px 0 #000, inset 0 1px 0 rgba(255,255,255,.04);
+  overflow: hidden;
+}
+.ts-btn::before{
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,.08) 0%, transparent 50%);
+  opacity: 0; transition: opacity .2s;
+  pointer-events: none;
+}
+.ts-btn:hover{
+  transform: translateY(-4px) scale(1.04);
+  border-color: #000;
+  background: linear-gradient(180deg, #3a3f4a, #20242c);
+  box-shadow: 0 8px 0 #000, 0 0 20px rgba(255,255,255,.12), inset 0 1px 0 rgba(255,255,255,.08);
+}
+.ts-btn:hover::before{ opacity: 1; }
+.ts-btn.active{
+  border-color: #000;
+  background: linear-gradient(180deg, #3a3a3a, #1a1a1a);
+  box-shadow: 0 5px 0 #000, 0 0 24px rgba(255,255,255,.18), inset 0 2px 0 rgba(255,255,255,.06);
+  transform: translateY(-2px) scale(1.05);
+}
+.ts-btn.active::after{
+  content: '';
+  position: absolute; inset: -3px;
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  border: 2px solid #fff;
+  opacity: .5;
+  animation: tsActivePulse 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes tsActivePulse{0%,100%{opacity:.3;transform:scale(1)}50%{opacity:.8;transform:scale(1.03)}}
+.ts-btn img{
+  width: 44px; height: 44px; object-fit: contain;
+  mix-blend-mode: screen; pointer-events: none;
+  filter: drop-shadow(0 2px 4px rgba(0,0,0,.7));
+  transition: transform .2s;
+}
+.ts-btn:hover img{transform: scale(1.12) translateY(-2px);}
+.ts-btn .ts-name{
+  font-size: 10px; color: #e8e8e8; margin-top: 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 100%; text-align: center;
+  font-weight: 800; letter-spacing: .4px;
+  text-shadow: 0 1px 2px rgba(0,0,0,.9);
+  text-transform: uppercase;
+}
+.ts-star{
+  position: absolute; top: 3px; right: 4px;
+  width: 18px; height: 18px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; color: rgba(255,255,255,.25);
+  transition: all .18s; pointer-events: auto; line-height: 1;
+}
+.ts-star:hover{color: #fff; transform: scale(1.25);}
+.ts-star.on{color: #fff; text-shadow: 0 0 8px rgba(255,255,255,.7);}
+.ts-nav-btn{
+  background: linear-gradient(180deg, #2a2e36, #16191f);
+  border: 3px solid #000; border-radius: 0;
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  color: #fff; font-size: 16px; font-weight: 700;
+  width: 36px; height: 36px; cursor: pointer; line-height: 1; padding: 0;
+  box-shadow: 0 4px 0 #000;
+  transition: transform .12s, filter .12s, box-shadow .12s;
+  display: flex; align-items: center; justify-content: center;
+.ts-nav-btn:hover{filter: brightness(1.3); box-shadow: 0 4px 0 #000, 0 0 16px rgba(255,255,255,.25);}
+.ts-nav-btn:active{transform: translateY(2px); box-shadow: 0 2px 0 #000;}
+
+/* entrance animation for the panel */
+@keyframes tsPanelIn{from{opacity:0;transform:translateX(-50%) translateY(40px) scale(.96)}to{opacity:1;transform:translateX(-50%) translateY(0) scale(1)}}
+.tank-switch-panel:not(.hidden){animation:tsPanelIn .35s cubic-bezier(.2,.8,.2,1) both}
+
+/* BATTLE UI REWORK appended */
+#hp-wrap { border-radius: 8px !important; }
+#cash-indicator { position: absolute; left: calc(50% + (var(--hud-bar-w) / 2) + 10px); bottom: var(--hud-bottom); display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 8px; background: rgba(18,20,26,.85); border: 2px solid #000; box-shadow: 0 3px 0 #000; color: #fff; font-weight: 800; font-size: 13px; white-space: nowrap; pointer-events: none; }
+#cash-indicator.hidden { display: none; }
+#cash-indicator .cash-icon { font-size: 16px; line-height: 1; }
+#score-strip .score-cell { background: transparent; border: 0; box-shadow: none; padding: 0; gap: 4px; }
+#score-strip .score-icon { font-size: 15px; line-height: 1; filter: drop-shadow(0 1px 1px #000); }
+#score-strip .score-val { text-shadow: 0 1px 2px rgba(0,0,0,.8); }
+#minimap-btn, #menu-btn { background: #383838; border: 3px solid #000; border-radius: 12px; box-shadow: 0 4px 0 #000, 0 8px 16px rgba(0,0,0,.45); }
+#minimap-btn:hover, #menu-btn:hover { transform: translateY(-2px); box-shadow: 0 6px 0 #000, 0 10px 18px rgba(0,0,0,.5); }
+#minimap-btn:active, #menu-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #000; }
+#super-btn { border: 3px solid #000; box-shadow: 0 5px 0 #000; background: #383838; }
+#super-btn::before { background: linear-gradient(160deg, #4a4a4a, #2a2a2a); }
+#super-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #000; }
+body.tkp-open #tank-switch-panel.tank-switch-panel:not(.hidden) { background: linear-gradient(180deg, #1a2233, #0a0e16); border: 4px solid #000; border-radius: 18px; box-shadow: 0 10px 0 #000; }
+.tkp-team, .tkp-main { border: 3px solid #000; border-radius: 14px; box-shadow: 0 6px 0 #000; }
+.tkp-card { background: linear-gradient(180deg, #4f5f7a, #2a3344); border: 3px solid #000; border-radius: 14px; box-shadow: 0 5px 0 #000; transition: transform .12s, box-shadow .12s; }
+.tkp-card.on { background: linear-gradient(180deg, #ffc94a, #ff9f1a); color: #111; border-color: #000; transform: translateY(-4px); box-shadow: 0 8px 0 #000, 0 0 0 3px #fff; }
+.tkp-card img { filter: drop-shadow(0 4px 4px rgba(0,0,0,.45)); }
+.tkp-name { text-shadow: 0 3px 0 #000; }
+.tkp-bar i { border: 2px solid #000; border-radius: 6px; }
+.tkp-mate { border: 3px solid #000; border-radius: 10px; box-shadow: 0 3px 0 #000; }
+.vs-row.foes { background: linear-gradient(120deg, #c62b2b, #7a1616); }
+.vs-row.mine { background: linear-gradient(120deg, #2b6fd6, #143f85); }
+.vs-card { border: 3px solid #000; border-radius: 14px; box-shadow: 0 6px 0 #000; background: rgba(0,0,0,.35); }
+.vs-mid span { border: 4px solid #000; box-shadow: 0 6px 0 #000; border-radius: 50%; }
+/* Fullscreen prompt: make the frame readable */
+.fullscreen-overlay .menu-card {
+  border: 3px solid #000;
+  box-shadow: 0 10px 0 #000, 0 24px 48px rgba(0,0,0,.65);
+  background: #1a1c22;
+}
+.fullscreen-overlay .fullscreen-icon { opacity: 0.85; }
+.fullscreen-overlay h2 { text-shadow: 0 2px 0 #000; }

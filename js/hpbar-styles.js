@@ -207,9 +207,9 @@
     const painter = painters[style];
 
     const pX = o.x, pY = o.y, pW = o.w, pH = o.h;
-    const pR = pH / 2;                       /* the plate is a full pill */
+    const pR = 6;                            /* slightly rounded rectangle, not a pill */
     const kX = pX + 4, kY = pY + 4, kW = pW - 8, kH = pH - 8;
-    const kR = kH / 2;
+    const kR = Math.min(4, kH / 2);            /* fill clip radius, matches pR */
 
     g.save();
     g.beginPath(); rr(g, kX, kY, kW, kH, kR); g.clip();
