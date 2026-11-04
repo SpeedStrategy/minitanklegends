@@ -385,10 +385,11 @@ function apply(tank){
   try{
     if(!tank || !tank.root || !tank.def || !tank.def.id) return;
     var styleId = equippedForTank(tank.def.id);
-    if(!styleId) return;
-    applyToModel(tank.root, styleId);
+    if(!styleId) return Promise.resolve(false);
+    return applyToModel(tank.root, styleId);
   }catch(e){
     console.warn('TankStyles.apply failed:', e);
+    return Promise.resolve(false);
   }
 }
 

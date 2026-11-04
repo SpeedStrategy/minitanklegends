@@ -139,9 +139,11 @@ const nonAscii = (out.match(/[^\x00-\x7F]/g) || []).length;
    (duplicate-U cleanup + webp asset pass), taking the non-ASCII count from
    the old 129 to 46 — 45 real characters plus the (restored) BOM. The BOM
    itself was missing from disk even at HEAD; it is restored and asserted
-   above, and 46 is the honest current count, re-verified with a byte scan. */
-if (nonAscii !== 46) {
-  problems.push(`non-ASCII count is ${nonAscii}, expected 46 — the file has been ` +
+   above, and 46 is the honest current count, re-verified with a byte scan.
+   2026-11-04: 37. The old platoon markup (9 non-ASCII characters) was
+   replaced by the 3-seat room, which writes its symbols as entities. */
+if (nonAscii !== 37) {
+  problems.push(`non-ASCII count is ${nonAscii}, expected 37 — the file has been ` +
                 `damaged or is being read/written with the wrong encoding`);
 }
 

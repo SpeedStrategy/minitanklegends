@@ -64,11 +64,28 @@ const FogOfWar = (() => {
         const a = i / RAYS * Math.PI * 2;
         _dir.x = Math.sin(a); _dir.z = Math.cos(a);
         try {
-          const hit = pw.castRay(ray, R, true, undefined, undefined, undefined, undefined, notActor);
-          if(hit){
+          /* Ground you could drive up is not a wall. A tank in a dip used to cast
+             straight into the slope around it and see nothing, which blacked out
+             the whole screen. Only steep faces stop sight; a ray that meets a
+             slope carries on along it from a little above the contact. */
+          let start = 0, ox = t.x, oy = y, oz = t.z;
+          for(let k = 0; k < 4; k++){
+            ray.origin = { x: ox, y: oy, z: oz };
+            const hit = pw.castRayAndGetNormal ? pw.castRayAndGetNormal(ray, R - start, true, undefined, undefined, undefined, undefined, notActor)
+                                               : pw.castRay(ray, R - start, true, undefined, undefined, undefined, undefined, notActor);
+            if(!hit) break;
             const toi = hit.timeOfImpact != null ? hit.timeOfImpact : hit.toi;
+            if(toi == null) break;
+            const ny = hit.normal ? Math.abs(hit.normal.y) : 0;
+            if(ny > 0.55){
+              start += toi + 0.5;
+              if(start >= R) break;
+              ox += _dir.x * (toi + 0.5); oz += _dir.z * (toi + 0.5); oy += 3;
+              continue;
+            }
             /* Behind a wall there is no half-fog either: the wall stops it all. */
-            if(toi != null){ r = Math.min(R, toi + WALL_PEEK); b = r + 0.5; }
+            r = Math.min(R, start + toi + WALL_PEEK); b = r + 0.5;
+            break;
           }
         } catch(e){}
       }

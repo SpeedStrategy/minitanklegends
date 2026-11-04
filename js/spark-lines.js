@@ -160,6 +160,8 @@ const SparkLines = (() => {
     /* Fire `count` glowing lines from one impact point. (ax, az) is the
        direction pointing AWAY from the tank, on the ground plane. */
     spawn(sceneIn, hx, hy, hz, ax, az, opts){
+      /* Sparks are drawn by CartoonFX now (stretched, hot, gravity-arced). */
+      if(typeof CartoonFX !== 'undefined'){ CartoonFX.sparks(sceneIn, hx, hy, hz, ax, az, opts); return; }
       const o = opts || {};
       if(!build()) return;
       const n = Math.max(1, Math.min(12, o.count | 0 || (4 + (Math.random() * 4 | 0))));

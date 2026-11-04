@@ -152,3 +152,8 @@ myself are marked *(mine)*.
 | 85 | PC steering inverted: D turned the hull counter-clockwise (left), A clockwise. Phones were already correct. | Fixed |
 | 86 | Tanks spawned at stray angles from map markers, red facing away from the enemy, and the camera sat crooked. `_alignSpawns` squares everyone to the map facing the enemy side, camera straight behind. | Fixed |
 | 87 | A second copy (deploys 3b52e9a4, c6aa0edc on Nov 1-2) was built from Oct 31 code plus the old dev/index.html, so dev lost the Nov 1 work and regained the login wall and DEV banner. Merged by hand; see AGENTS.md. | Fixed |
+| 88 | Sprays sat in a different place in battle than in the tank menu: stamps were projected against the battle pose (hull heading lives below root). Projected in the rest pose now. | Fixed |
+| 89 | Battle and menu painted GLB tanks with team/def colours instead of the model's own. | Fixed |
+| 90 | Platoon voice never connected: no peer answered incoming calls. | Fixed |
+| 91 | A tank in a dip fogged its whole view: fog rays stopped at the surrounding slope. | Fixed |
+| 92 | Third dev merge: missing `}` in style.css silently disabled every rule after `.ts-nav-btn`; duplicate `#hp-wrap` line closed `#hud` early so HUD parts lived outside it. | Fixed |

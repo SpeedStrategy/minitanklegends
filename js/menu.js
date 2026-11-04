@@ -1795,71 +1795,42 @@ const Menu = {
     this._mainPreviewTurretGroup = null;
     this._mainPreviewTrails = [];
     
-    // Try to load real tank model
+    /* THE SAME TANK AS EVERYWHERE ELSE. This used to load the raw GLB and frame
+       it by hand, so the main menu showed a different object from the battle and
+       the tank menu (no outlines, no style, no sprays). It now builds the very
+       same Tank class both of those use, then fits it to the preview. */
     let modelLoaded = false;
-    if(def.model && window.Models && window.Models.hasModel(def.model)){
-      try{
-        const grp = await window.Models.load(def.model);
-        if(grp && previewTank && scene){
-          const scale = (def.modelScale || 1.0) * 2.0;
-          grp.scale.setScalar(scale);
-          
-          if(def.modelYaw != null){
-            grp.rotation.y = def.modelYaw * Math.PI / 180;
-          }
-          if(def.modelFlipY){
-            grp.rotation.y += Math.PI;
-          }
-          
-          /* Frame every model the same way. Models are authored with their
-             origin anywhere (often at a track or the barrel root), and
-             modelScale is tuned for the battle camera, so centring only Y left
-             most tanks oversized and pushed off to one side. Fit the larger
-             footprint edge to the cube hull's length, then centre on all axes. */
-          let box3 = new THREE.Box3().setFromObject(grp);
-          const size = box3.getSize(new THREE.Vector3());
-          const footprint = Math.max(size.x, size.z);
-          if(footprint > 0.001){
-            grp.scale.multiplyScalar(4.4 / footprint);
-            box3 = new THREE.Box3().setFromObject(grp);
-          }
-          const center = box3.getCenter(new THREE.Vector3());
-          grp.position.x -= center.x;
-          grp.position.y -= center.y;
-          grp.position.z -= center.z;
-
-          grp.traverse(child => {
-            if(child.isMesh){
-              child.castShadow = true;
-              child.receiveShadow = true;
-            }
-          });
-          
-          previewTank.add(grp);
-          /* THE PREVIEW'S AIM LOOP YAWS WHATEVER THIS POINTS AT.
-
-             It used to be handed `grp` — the entire model — because that was the
-             easiest object to hold. The loop then wrote `rotation.y` on it every
-             frame to make the tank appear to aim, which for a loaded model means
-             the WHOLE TANK swings round as if it were a turret, on top of the
-             `previewTank.rotation.y = heading` it is already being given for
-             driving. On top of that it lerped a group whose rotation.y was set
-             to modelYaw, so a -90 degree authored facing was immediately dragged
-             toward ~0 and the tank presented its side.
-
-             Only an actual turret node may be yawed. Most of the roster is
-             authored without a separate one (the battle loader splits those parts
-             out by height at runtime), and for those the honest answer is no
-             turret sway at all — which looks far better than the whole hull
-             pivoting in place. */
-          this._mainPreviewTurretGroup = this._findPreviewTurret(grp);
-          modelLoaded = true;
-        }
-      }catch(err){
-        console.warn('Failed to load tank model for preview:', def.model, err);
-      }
+    let tankObj = null;
+    try {
+      tankObj = new Tank(Object.assign({}, def, { playAnims: false }), { physicsWorld: null });
+    } catch(err){ console.warn('Preview tank build failed:', err); tankObj = null; }
+    if(tankObj && tankObj.root){
+      this._mainPreviewTankObj = tankObj;
+      if(tankObj._overlayGroup) tankObj._overlayGroup.visible = false;
+      tankObj.root.position.set(0, 0, 0);
+      const fit = new THREE.Group();
+      fit.add(tankObj.root);
+      previewTank.add(fit);
+      const frame = () => {
+        fit.scale.setScalar(1); fit.position.set(0, 0, 0); fit.updateMatrixWorld(true);
+        let box = new THREE.Box3().setFromObject(tankObj.root);
+        const size = box.getSize(new THREE.Vector3());
+        const footprint = Math.max(size.x, size.z);
+        if(footprint > 0.001){ fit.scale.setScalar(4.4 / footprint); fit.updateMatrixWorld(true); box = new THREE.Box3().setFromObject(tankObj.root); }
+        const c = box.getCenter(new THREE.Vector3());
+        fit.position.set(-c.x, -c.y, -c.z);
+      };
+      frame();
+      const ready = (tankObj._modelReady && tankObj._modelReady.then) ? tankObj._modelReady : Promise.resolve();
+      ready.catch(() => null).then(() => {
+        if(this._mainPreviewTank !== previewTank) return;
+        frame();
+        try { if(window.TankStyles && TankStyles.applyToPreview) TankStyles.applyToPreview(fit, def.id); } catch(e){}
+        try { if(window.TankSprays) TankSprays.apply(tankObj, { preview: true }); } catch(e){}
+      });
+      modelLoaded = true;
     }
-    
+
     if(!modelLoaded){
       // Fallback to box tank
       const bodyMat = Toon.mat({color: def.color});
@@ -1869,34 +1840,6 @@ const Menu = {
       bodyMesh.castShadow = true;
       previewTank.add(bodyMesh);
       try{ previewTank.add(Tank.createOutlineMesh(bodyMesh)); }catch(e){}
-
-      const treadMat = Toon.mat({color: 0x222226});
-      [-1, 1].forEach(s => {
-        const t = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, b.l+0.2), treadMat);
-        t.position.set(s*(b.w/2+0.05), 0.25, 0);
-        t.castShadow = true;
-        previewTank.add(t);
-      });
-
-      const turretGroup = new THREE.Group();
-      const tDef = def.turret;
-      const turretMat = Toon.mat({color: def.turretColor});
-      const turretMesh = new THREE.Mesh(new THREE.BoxGeometry(tDef.w, tDef.h, tDef.l), turretMat);
-      turretMesh.position.y = tDef.h/2;
-      turretMesh.castShadow = true;
-      turretGroup.add(turretMesh);
-      try{ turretGroup.add(Tank.createOutlineMesh(turretMesh)); }catch(e){}
-
-      const barrelMat = Toon.mat({color: 0x2a2a2e});
-      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(def.barrelR, def.barrelR, def.barrelLen, 10), barrelMat);
-      barrel.rotation.x = Math.PI/2;
-      barrel.position.set(0, tDef.h*0.4, tDef.l/2 + def.barrelLen/2);
-      barrel.castShadow = true;
-      turretGroup.add(barrel);
-
-      turretGroup.position.y = b.h;
-      previewTank.add(turretGroup);
-      this._mainPreviewTurretGroup = turretGroup;
     }
     
     scene.add(previewTank);
@@ -1999,6 +1942,7 @@ const Menu = {
 
   _stopMainPreview(){
     if(window.Garage) Garage.stop();
+    if(this._mainPreviewTankObj){ try { this._mainPreviewTankObj.dispose(); } catch(e){} this._mainPreviewTankObj = null; }
     if(this._mainPreviewResizeHandler){
       window.removeEventListener('resize', this._mainPreviewResizeHandler);
       this._mainPreviewResizeHandler = null;

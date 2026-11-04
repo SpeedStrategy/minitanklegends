@@ -339,8 +339,83 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
        sweep then deletes. Safe no-op when nothing is equipped. */
     if(window.TankStyles){
       const _readyS = (this._modelReady && typeof this._modelReady.then === 'function') ? this._modelReady : Promise.resolve();
-      _readyS.catch(()=>null).then(()=>{ if(window.TankStyles) TankStyles.apply(this); });
+      _readyS.catch(()=>null)
+        .then(()=> window.TankStyles ? TankStyles.apply(this) : null)
+        .catch(()=>null)
+        .then(()=>{ if(opts && opts.physicsWorld) this._mergeStaticParts(); });
+    } else if(opts && opts.physicsWorld && this._modelReady && this._modelReady.then){
+      this._modelReady.catch(()=>null).then(()=> this._mergeStaticParts());
     }
+  }
+
+  /* FEWER DRAW CALLS PER TANK. A GLB tank arrives as many small meshes, each
+     with its own outline, and every one is a separate draw call: about ten per
+     tank, so a crowd of tanks on screen was most of the frame's draw calls.
+     Everything that never moves relative to its part (hull or turret) is merged
+     per material into that part: same triangles, same materials, same outline,
+     far fewer calls. Anything that moves on its own (gun recoil, pitch, animated
+     nodes, the turret pivot) is left alone, and the originals are hidden, not
+     deleted, so code that walks the model still finds them. Battle tanks only:
+     the tank menu raycasts the separate meshes to place sprays. */
+  _mergeStaticParts(){
+    if(this._partsMerged || !this.root || typeof THREE === 'undefined') return;
+    this._partsMerged = true;
+    try {
+      const dynamic = new Set([this._recoilNode, this._pitchGroup, this._modelTurretPivot, this.turretGroup].filter(Boolean));
+      if(this._animNodes) this._animNodes.forEach(n => dynamic.add(n));
+      const roots = [this.bodyGroup, this.turretGroup, this._modelTurretPivot].filter(Boolean);
+      for(const R of roots){
+        R.updateWorldMatrix(true, true);
+        const inv = new THREE.Matrix4().copy(R.matrixWorld).invert();
+        const buckets = new Map();
+        R.traverse(o => {
+          if(!o.isMesh || o.isSkinnedMesh || o.isInstancedMesh || !o.visible) return;
+          if(!o.material || Array.isArray(o.material)) return;
+          const ud = o.userData || {};
+          if(ud.isOverlay || ud.isSpray || ud.noBatch || ud.merged) return;
+          const g = o.geometry;
+          if(!g || !g.attributes.position || !g.attributes.normal || g.morphAttributes && Object.keys(g.morphAttributes).length) return;
+          /* Static relative to R: nothing between it and R moves by itself. */
+          for(let p = o; p && p !== R; p = p.parent){
+            if(dynamic.has(p) || p.visible === false || (p !== o && roots.indexOf(p) >= 0)) return;
+            if(!p.parent) return;
+          }
+          const sig = o.material.uuid + '|' + (g.attributes.uv ? 'u' : '') + (g.attributes.color ? 'c' : '') + '|' + (o.castShadow ? 's' : '');
+          let b = buckets.get(sig);
+          if(!b){ b = []; buckets.set(sig, b); }
+          b.push(o);
+        });
+        buckets.forEach(list => {
+          if(list.length < 2) return;
+          let verts = 0;
+          const geos = list.map(m => {
+            let g = m.geometry.index ? m.geometry.toNonIndexed() : m.geometry.clone();
+            for(const k of Object.keys(g.attributes)) if(['position','normal','uv','color'].indexOf(k) < 0) g.deleteAttribute(k);
+            g.applyMatrix4(new THREE.Matrix4().multiplyMatrices(inv, m.matrixWorld));
+            verts += g.attributes.position.count;
+            return g;
+          });
+          const merged = new THREE.BufferGeometry();
+          for(const k of Object.keys(geos[0].attributes)){
+            const a0 = geos[0].attributes[k];
+            const arr = new Float32Array(verts * a0.itemSize);
+            let at = 0;
+            for(const g of geos){ const a = g.attributes[k]; arr.set(a.array, at); at += a.array.length; }
+            merged.setAttribute(k, new THREE.BufferAttribute(arr, a0.itemSize, a0.normalized));
+          }
+          geos.forEach(g => g.dispose());
+          merged.computeBoundingSphere();
+          merged.computeBoundingBox();
+          const mesh = new THREE.Mesh(merged, list[0].material);
+          mesh.castShadow = list[0].castShadow;
+          mesh.receiveShadow = list[0].receiveShadow;
+          mesh.renderOrder = list[0].renderOrder;
+          mesh.userData = Object.assign({}, list[0].userData, { merged: true });
+          R.add(mesh);
+          for(const m of list) m.visible = false;
+        });
+      }
+    } catch(e){ console.warn('tank part merge failed:', e); }
   }
 
   _createPhysBody(){
@@ -529,7 +604,12 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     if(!wanted.length) return;
     try{
       const mixer = new THREE.AnimationMixer(this.root);
+      this._animNodes = new Set();
       for(const clip of wanted){
+        for(const tr of (clip.tracks || [])){
+          const node = this.root.getObjectByName(String(tr.name).split('.')[0]);
+          if(node) this._animNodes.add(node);
+        }
         const action = mixer.clipAction(clip);
         action.setLoop(THREE.LoopRepeat, Infinity);
         action.clampWhenFinished = true;
@@ -1992,7 +2072,9 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
          material's own base colour, its map and its normal map, and only
          converts the shader class so it still toon-shades with everything else.
          ============================================================================ */
-      const keepPaint = this.def.keepModelPaint === true;
+      /* Every tank keeps the colours its GLB was made with; a def can still opt
+         out with keepModelPaint: false. */
+      const keepPaint = this.def.keepModelPaint !== false;
       const applyMatColor = (m, col) => {
         const mats = Array.isArray(m.material) ? m.material : [m.material];
         const converted = mats.map(mat => {
@@ -2383,7 +2465,8 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       const colored = mats.map(m => {
         let c;
         if(!m.map){
-          c = Toon.mat({color: new THREE.Color(col)});
+          /* The model's own colour, not a team or tank tint. */
+          c = Toon.mat({color: (m.color && this.def.keepModelPaint !== false) ? m.color.clone() : new THREE.Color(col)});
         } else {
           c = m.clone();
           c.alphaTest = Math.max(c.alphaTest || 0, 0.5);

@@ -23,7 +23,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Lilita+One&family=Nunito:wght@700;800;900&display=swap">
-<link rel="stylesheet" href="css/style.css?v=20261103a">
+<link rel="stylesheet" href="css/style.css?v=20261104c">
 <link rel="stylesheet" href="css/results.css?v=20261011d">
 
 <!--
@@ -1076,339 +1076,67 @@
 
         <!-- PLATOON -->
     <div class="menu hidden" id="menu-platoon">
-      <div class="platoon-overlay">
-        <div class="platoon-card pl-lobby">
-
-          <style>
-            /* ===== FULLSCREEN FIT LOBBY ===== */
-            .pl-lobby {
-              position: fixed; inset: 0; z-index: 40;
-              width: 100vw; height: 100dvh; max-width: none; max-height: none;
-              margin: 0; padding: clamp(6px, 1.1vmin, 12px);
-              overflow: hidden;
-              background: radial-gradient(120% 90% at 50% 0%, #232834 0%, #101318 62%, #0b0e12 100%);
-              display: flex; flex-direction: column; gap: clamp(4px, .9vmin, 10px);
-              text-align: left; box-sizing: border-box;
-              --pl-sq: clamp(64px, 17vmin, 190px);
-            }
-            .pl-lobby * { box-sizing: border-box; font-family: 'Lilita One', sans-serif; margin: 0; }
-            .pl-lobby button { cursor: pointer; }
-            .pl-hidden { display: none !important; }
-
-            /* TOP BAR */
-            .pl-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: wrap; flex-shrink: 0; }
-            .pl-mode-wrap { display: flex; align-items: center; gap: 6px; }
-            .pl-mode-wrap label { color: #9aa0ab; font-size: 11px; letter-spacing: 1.5px; white-space: nowrap; }
-            .pl-mode-wrap select { background: #101318; color: #fff; border: 2px solid #000; border-radius: 6px; padding: 6px 8px; font-size: 13px; cursor: pointer; outline: none; box-shadow: 0 3px 0 #000; max-width: 46vw; }
-            .pl-select-note { color: #64748b; font-size: 9px; letter-spacing: 1px; }
-            .pl-room-box { display: flex; align-items: center; gap: 5px; }
-            .pl-room-label { color: #9aa0ab; font-size: 10px; letter-spacing: 1.5px; }
-            .pl-room-code { background: #0b0e12; border: 2px solid #000; border-radius: 6px; padding: 5px 10px; font-size: 16px; letter-spacing: 3px; color: #fbbf24; min-width: 78px; text-align: center; box-shadow: 0 3px 0 #000; }
-            .pl-join-input { background: #101318; border: 2px solid #000; border-radius: 6px; color: #fff; padding: 6px 8px; width: 64px; font-size: 13px; letter-spacing: 2px; text-align: center; outline: none; text-transform: uppercase; box-shadow: 0 3px 0 #000; }
-
-            .pl-btn { border: 2px solid #000; border-radius: 8px; padding: 7px 12px; font-size: 12px; cursor: pointer; letter-spacing: 1px; box-shadow: 0 4px 0 #000; color: #fff; transition: transform .12s, filter .12s, box-shadow .12s; white-space: nowrap; display: inline-flex; align-items: center; gap: 5px; justify-content: center; }
-            .pl-btn:hover { filter: brightness(1.1); }
-            .pl-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 #000; }
-            .pl-btn:disabled { filter: grayscale(.7) brightness(.7); cursor: not-allowed; }
-            .pl-btn-orange { background: linear-gradient(160deg, #fbbf24 0%, #f97316 55%, #ea580c 100%); color: #241505; }
-            .pl-btn-gold { background: linear-gradient(160deg, #fde68a 0%, #fbbf24 45%, #f59e0b 100%); color: #241505; }
-            .pl-btn-red { background: linear-gradient(160deg, #f87171 0%, #b91c1c 100%); }
-            .pl-btn-gray { background: linear-gradient(160deg, #4b5563 0%, #1f2937 100%); }
-            .pl-btn-sm { padding: 5px 9px; font-size: 10px; border-radius: 6px; box-shadow: 0 3px 0 #000; }
-            .pl-switch { background: linear-gradient(160deg, #38bdf8 0%, #0369a1 100%); color: #fff; border: 2px solid #000; border-radius: 8px; padding: 7px 12px; font-size: 12px; cursor: pointer; letter-spacing: 1px; box-shadow: 0 4px 0 #000; transition: transform .12s, filter .12s; display: inline-flex; align-items: center; gap: 5px; }
-            .pl-switch:hover { filter: brightness(1.15); }
-            .pl-switch:active { transform: translateY(2px); box-shadow: 0 2px 0 #000; }
-            .pl-switch:disabled { filter: grayscale(.8) brightness(.7); cursor: not-allowed; }
-            /* switch team + mini spectator slot below it */
-            .pl-switch-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; flex-shrink: 0; }
-            .pl-switch-wrap .pl-slots { flex: none; display: flex; }
-            .pl-switch-wrap .pl-slot { flex: none; width: clamp(34px, 5vmin, 52px); height: clamp(34px, 5vmin, 52px); max-height: none; border-radius: 9px; }
-            .pl-switch-wrap .pl-plus { font-size: clamp(12px, 2.6vmin, 20px); }
-            .pl-switch-wrap .pl-open-label { font-size: 7px; letter-spacing: 1px; }
-            .pl-switch-wrap .pl-slot-name { font-size: 8px; }
-            .pl-switch-wrap .pl-slot.pl-spec { border-color: rgba(154,160,171,.55); background: rgba(154,160,171,.07); }
-            .pl-switch-wrap .pl-vico, .pl-switch-wrap .pl-tk { display: none !important; }
-            /* drag grips ï¿½ grab the menu by its edges to move it */
-            .pl-grip { position: absolute; z-index: 61; touch-action: none; cursor: move; }
-            .pl-grip-t, .pl-grip-b { left: 14px; right: 14px; height: 9px; }
-            .pl-grip-t { top: 0; } .pl-grip-b { bottom: 0; }
-            .pl-grip-l, .pl-grip-r { top: 14px; bottom: 14px; width: 9px; }
-            .pl-grip-l { left: 0; } .pl-grip-r { right: 0; }
-            .pl-grip-tl, .pl-grip-tr, .pl-grip-bl, .pl-grip-br { width: 14px; height: 14px; }
-            .pl-grip-tl { top: 0; left: 0; } .pl-grip-tr { top: 0; right: 0; }
-            .pl-grip-bl { bottom: 0; left: 0; } .pl-grip-br { bottom: 0; right: 0; }
-            .pl-grip:hover { background: rgba(251,191,36,.18); }
-
-/* MIDDLE: two teams + center column */
-            .pl-middle { flex: 1; min-height: 0; display: flex; gap: clamp(6px, 1.2vmin, 14px); }
-            .pl-team { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: rgba(255,255,255,.03); border: 2px solid rgba(255,255,255,.08); border-radius: 12px; padding: clamp(6px, 1vmin, 10px); }
-            .pl-team-head { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 5px; flex-wrap: wrap; }
-            .pl-team-head b { font-size: 14px; letter-spacing: 2px; color: #fff; }
-            .pl-team-1 .pl-team-head b { color: #fbbf24; }
-            .pl-team-2 .pl-team-head b { color: #60a5fa; }
-            .pl-team-count { font-size: 10px; color: #9aa0ab; }
-            .pl-ghost-hint { display: none; font-size: 9px; letter-spacing: 1px; color: rgba(255,255,255,.55); background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.25); border-radius: 999px; padding: 2px 8px; }
-            /* 12 rows per team: 9 main/locked + divider + 2 spectators, stretched to fill the column */
-            .pl-slots { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: clamp(2px, .5vmin, 6px); align-items: center; justify-content: space-evenly; }
-            .pl-slot { width: min(100%, var(--pl-sq)); flex: 1 1 0; min-height: 0; max-height: 92px; background: #161a21; border: 2px solid #000; border-radius: 12px; box-shadow: 0 4px 0 #000; position: relative; display: flex; align-items: center; justify-content: center; transition: transform .15s ease, border-color .15s ease, background .15s ease, box-shadow .15s ease; }
-            .pl-slot.pl-open { border: 2px dashed rgba(255,255,255,.35); background: rgba(255,255,255,.02); box-shadow: none; cursor: pointer; }
-            .pl-slot.pl-open:hover { transform: translateY(-3px) scale(1.03); border-color: #fbbf24; background: rgba(251,191,36,.06); box-shadow: 0 6px 0 #000, 0 0 20px rgba(251,191,36,.25); }
-            .pl-slot.pl-you { border-color: #fbbf24; box-shadow: 0 4px 0 #000, 0 0 16px rgba(251,191,36,.4); }
-            .pl-slot.pl-lock { cursor: not-allowed; filter: grayscale(.5) brightness(.85); }
-            .pl-slot.pl-spec { border-style: dashed; border-color: rgba(154,160,171,.55); background: rgba(154,160,171,.07); box-shadow: none; }
-            .pl-slot.pl-spec .pl-plus { color: rgba(154,160,171,.8); font-size: clamp(14px, 3.4vmin, 24px); }
-            .pl-slot.pl-spec .pl-open-label { color: rgba(154,160,171,.85); }
-            /* divider above the spectator slots */
-            .pl-spec-div { width: calc(100% - 6px); flex: 0 0 auto; text-align: center; font-size: 8px; letter-spacing: 3px; color: rgba(154,160,171,.8); border-top: 2px dashed rgba(154,160,171,.3); padding: 1px 0 0; margin: 2px 0 1px; }
-            .pl-slot.pl-pop { animation: plSlotPop .35s cubic-bezier(.34,1.56,.64,1); }
-            @keyframes plSlotPop { 0% { transform: scale(1.14); } 100% { transform: scale(1); } }
-            .pl-slot-body { display: flex; flex-direction: column; align-items: center; gap: clamp(3px, .6vmin, 6px); }
-            .pl-plus { font-size: clamp(24px, 6vmin, 40px); color: rgba(255,255,255,.45); line-height: 1; }
-            .pl-open-label { font-size: 9px; letter-spacing: 2px; color: rgba(255,255,255,.35); }
-            .pl-slot-name { font-size: clamp(10px, 2.2vmin, 15px); color: #fff; letter-spacing: 1px; text-align: center; max-width: 96%; padding: 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-            .pl-slot.pl-you .pl-slot-name { color: #fbbf24; }
-            .pl-slot-ready { position: absolute; top: -8px; right: -8px; font-size: 9px; letter-spacing: 1px; padding: 3px 8px; border-radius: 999px; background: rgba(249,115,22,.18); color: #fb923c; border: 1px solid rgba(249,115,22,.55); animation: plPop .25s cubic-bezier(.34,1.56,.64,1); }
-            @keyframes plPop { 0% { transform: scale(.5); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
-/* ONE crown, follows the owner */
-            .pl-crown { position: absolute; top: -14px; left: 50%; transform: translateX(-50%); z-index: 2; color: #ffb12b; filter: drop-shadow(0 2px 3px rgba(0,0,0,.6)); animation: plCrown .8s ease-in-out infinite alternate; }
-            @keyframes plCrown { from { transform: translateX(-50%) translateY(0) rotate(-3deg); } to { transform: translateX(-50%) translateY(-2px) rotate(3deg); } }
-            /* voice state icon (bottom-right corner of slot) */
-            .pl-vico { position: absolute; bottom: 3px; right: 3px; z-index: 2; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; color: #34d399; background: rgba(0,0,0,.55); border-radius: 50%; }
-            .pl-vico.pl-vico-deaf { color: #f87171; }
-            .pl-vico.pl-vico-muted { color: #f87171; }
-            /* talk level bar */
-            .pl-tk { position: absolute; bottom: 3px; right: 26px; display: flex; flex-direction: column; align-items: center; gap: 1px; opacity: 0; transition: opacity .12s linear; pointer-events: none; }
-            .pl-tk-bar { width: 4px; height: 18px; background: rgba(52,211,153,.2); border-radius: 2px; overflow: hidden; position: relative; }
-            .pl-tk-bar::after { content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 0; background: linear-gradient(180deg, #a3e635, #34d399); transition: height .1s linear; }
-            .pl-tk-live .pl-tk-bar::after { height: 100%; }
-            .pl-tk.pl-tk-deaf { opacity: 1; }
-            .pl-tk.pl-tk-deaf .pl-tk-bar { background: rgba(248,113,113,.4); }
-            .pl-tk.pl-tk-deaf .pl-tk-bar::after { height: 100%; background: linear-gradient(180deg, #f87171, #ef4444); }
-            .pl-tk-muted .pl-tk-bar::after { background: #f87171; }
-            /* team 2 locked */
-            .pl-team.pl-ghost { opacity: .3; filter: grayscale(.6); border-style: dashed; cursor: pointer; transition: opacity .25s ease, filter .25s ease; }
-            .pl-team.pl-ghost:hover { opacity: .55; filter: grayscale(.3); }
-            .pl-team.pl-ghost .pl-ghost-hint { display: inline; }
-
-/* CENTER COLUMN */
-            .pl-center { width: clamp(200px, 34vw, 500px); flex-shrink: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: clamp(4px, .8vmin, 8px); min-height: 0; }
-            /* chat, wide square frame */
-            .pl-chat { width: 100%; aspect-ratio: 1 / 1; max-height: 62vh; flex: none; display: flex; flex-direction: column; background: rgba(0,0,0,.35); border: 2px solid rgba(255,255,255,.1); border-radius: 10px; padding: clamp(4px, .7vmin, 7px); }
-            .pl-chat-list { flex: 1; min-height: 0; overflow-y: auto; font-size: 11px; line-height: 1.45; color: #cbd5e1; scrollbar-width: thin; }
-            .pl-chat-row b { color: #fbbf24; font-weight: normal; }
-            .pl-chat-self b { color: #38bdf8; }
-            .pl-chat-tag { display: inline-block; font-size: 9px; padding: 0 5px; border-radius: 999px; margin-right: 4px; vertical-align: 1px; }
-            .pl-chat-tag.t1 { background: rgba(251,191,36,.15); color: #fbbf24; }
-            .pl-chat-tag.t2 { background: rgba(96,165,250,.15); color: #60a5fa; }
-            .pl-chat-tag.sp { background: rgba(154,160,171,.15); color: #9aa0ab; }
-            .pl-chat-in { display: flex; gap: 5px; margin-top: 4px; flex-shrink: 0; }
-            .pl-chat-input { flex: 1; min-width: 0; background: #101318; border: 2px solid #000; border-radius: 6px; color: #fff; padding: 5px 8px; font-size: 11px; outline: none; box-shadow: 0 3px 0 #000; }
-            /* voice row */
-            .pl-voice { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; flex-shrink: 0; justify-content: center; }
-            .pl-mic-status { font-size: 10px; color: #9aa0ab; letter-spacing: 1px; }
-            .pl-mic-on { background: rgba(251,191,36,.15); color: #fbbf24; border: 1px solid rgba(251,191,36,.5); border-radius: 999px; padding: 2px 8px; font-size: 9px; letter-spacing: 2px; }
-
-            /* voice panel popup */
-            .pl-vpanel { display: none; }
-            .pl-vpanel-on { display: flex; position: fixed; z-index: 120; left: 50%; top: 50%; transform: translate(-50%,-50%); width: min(420px, 92vw); max-height: 82vh; flex-direction: column; gap: 8px; background: linear-gradient(160deg, #23262e 0%, #101318 100%); border: 3px solid #000; border-radius: 14px; box-shadow: 0 5px 0 #000, 0 0 40px rgba(251,191,36,.3); padding: 14px; }
-            .pl-vpanel-on .pl-vtools { display: flex; gap: 6px; flex-wrap: wrap; }
-            .pl-vlist { display: flex; flex-direction: column; gap: 5px; overflow-y: auto; min-height: 0; }
-            .pl-vrow { display: flex; align-items: center; gap: 7px; background: rgba(255,255,255,.04); border-radius: 8px; padding: 5px 7px; flex-wrap: wrap; }
-            .pl-vinfo { display: flex; align-items: center; gap: 7px; min-width: 110px; }
-            .pl-vname { font-size: 12px; color: #fff; letter-spacing: 1px; }
-            .pl-vteam { font-size: 9px; color: #9aa0ab; background: rgba(255,255,255,.08); border-radius: 999px; padding: 1px 7px; }
-            .pl-vmuted { font-size: 10px; color: #f87171; letter-spacing: 1px; }
-            .pl-vvol { width: 60px; accent-color: #fbbf24; }
-            .pl-vbar { flex: 1; min-width: 50px; height: 7px; background: rgba(255,255,255,.08); border-radius: 999px; overflow: hidden; }
-            .pl-vbar-fill { display: block; height: 100%; width: 4%; background: linear-gradient(90deg, #34d399, #a3e635); border-radius: 999px; transition: width .1s linear; }
-
-            /* results */
-            .pl-results { background: rgba(52,211,153,.07); border: 2px solid rgba(52,211,153,.35); border-radius: 10px; padding: 6px 10px; flex-shrink: 0; }
-            .pl-results-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 3px; flex-wrap: wrap; }
-            .pl-results-head b { color: #34d399; letter-spacing: 2px; font-size: 12px; }
-            .pl-results-head span { color: #fbbf24; font-size: 11px; letter-spacing: 1px; }
-            .pl-rrow { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: #e2e8f0; padding: 2px 0; }
-            .pl-rrow b { color: #fff; font-weight: normal; }
-            .pl-r-mvp { color: #fbbf24; font-size: 10px; letter-spacing: 1px; }
-
-            /* bottom bar */
-            .pl-bottom { display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-shrink: 0; }
-            .pl-actions { display: flex; align-items: center; gap: 6px; margin-left: auto; }
-            .pl-ready-wrap { display: flex; align-items: center; gap: 6px; }
-            .pl-ready-wrap .pl-btn { min-width: 116px; }
-            #pl-start.pl-btn { font-size: 13px; padding: 9px 12px; animation: plPulse .9s infinite alternate; }
-            @keyframes plPulse { from { box-shadow: 0 4px 0 #000, 0 0 0 rgba(251,191,36,0); } to { box-shadow: 0 4px 0 #000, 0 0 18px rgba(251,191,36,.55); } }
-            .pl-status { font-size: 11px; color: #9aa0ab; letter-spacing: 1px; text-align: center; flex-shrink: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-            .pl-toast-anim { animation: plToast .35s ease; }
-            @keyframes plToast { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-
-            /* overlays */
-            .pl-cd { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.55); pointer-events: none; }
-            .pl-cd-box { background: linear-gradient(160deg, #23262e 0%, #101318 100%); border: 3px solid #000; border-radius: 18px; box-shadow: 0 5px 0 #000, 0 0 40px rgba(251,191,36,.35); padding: 22px 40px; text-align: center; pointer-events: auto; }
-            .pl-cd-label { font-size: 13px; letter-spacing: 3px; color: #9aa0ab; }
-            .pl-cd-num { font-size: 72px; color: #fbbf24; text-shadow: 0 4px 0 #000; animation: plCdPop .9s infinite; }
-            @keyframes plCdPop { 0% { transform: scale(1.25); } 100% { transform: scale(1); } }
-            .pl-modal { position: fixed; inset: 0; z-index: 100; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.75); }
-            .pl-modal.hidden { display: none; }
-            .pl-modal-box { background: linear-gradient(160deg, #23262e 0%, #101318 100%); border: 3px solid #000; border-radius: 16px; box-shadow: 0 5px 0 #000, 0 0 40px rgba(251,191,36,.35); padding: 22px 28px; text-align: center; min-width: 250px; }
-            .pl-modal-title { font-size: 15px; letter-spacing: 2px; color: #fbbf24; margin-bottom: 10px; }
-            .pl-modal-text { font-size: 12px; color: #cbd5e1; margin-bottom: 16px; line-height: 1.5; }
-            .pl-modal-actions { display: flex; gap: 10px; justify-content: center; }
-            .pl-vote-btn { background: linear-gradient(160deg, #64748b 0%, #334155 100%); color: #fff; border: 2px solid #000; border-radius: 6px; padding: 7px 10px; font-size: 11px; cursor: pointer; letter-spacing: 1px; box-shadow: 0 3px 0 #000; transition: transform .12s, filter .12s; }
-            .pl-vote-btn:hover { filter: brightness(1.15); }
-            .pl-vote-btn:active { transform: translateY(2px); box-shadow: 0 1px 0 #000; }
-            .pl-vote-btn:disabled { filter: grayscale(.6) brightness(.7); cursor: not-allowed; }
-            .pl-vote-btn.pl-vote-on { background: linear-gradient(160deg, #fbbf24 0%, #f97316 100%); color: #241505; }
-
-/* tiny screens */
-            @media (max-width: 420px) {
-              .pl-lobby { --pl-sq: clamp(42px, 12vw, 56px); gap: 4px; padding: 5px; }
-              .pl-mode-wrap label, .pl-room-label { display: none; }
-              .pl-team { padding: 5px; }
-              .pl-center { width: clamp(150px, 40vw, 190px); }
-              .pl-top .pl-btn { padding: 5px 8px; font-size: 10px; }
-              .pl-slot { max-height: 64px; }
-              .pl-grip-t, .pl-grip-b { height: 13px; }
-              .pl-grip-l, .pl-grip-r { width: 13px; }
-              .pl-grip-tl, .pl-grip-tr, .pl-grip-bl, .pl-grip-br { width: 18px; height: 18px; }
-            }
-            /* very short landscape */
-            @media (max-height: 420px) {
-              .pl-lobby { --pl-sq: clamp(34px, 11vh, 48px); }
-              .pl-center { width: clamp(140px, 30vw, 240px); }
-              .pl-chat { max-height: 46vh; }
-              .pl-chat-list { font-size: 10px; }
-              .pl-slot { max-height: 44px; }
-            }
-            /* mobile: 12 slots as 2 columns x 6 rows so taps are big; spectators end up on the bottom row */
-            @media (max-width: 768px) {
-              .pl-team .pl-slots { display: grid; grid-template-columns: 1fr 1fr; grid-auto-rows: 1fr; gap: clamp(3px, .6vmin, 7px); }
-              .pl-team .pl-slots .pl-spec-div { grid-column: 1 / -1; width: auto; }
-              .pl-team .pl-slot { width: 100%; }
-            }
-          </style>
-
-          <!-- TOP BAR -->
-          <div class="pl-top">
-            <div class="pl-mode-wrap">
-              <label>GAME MODE</label>
-<select id="pl-mode">
-                <option value="gladiator">GLADIATOR</option>
-                <option value="sandbox">SANDBOX</option>
-                <option value="platform-king">PLATFORM KING</option>
-                <option value="custom">CUSTOM</option>
-              </select>
-              <button class="pl-vote-btn" id="pl-vote" title="Host: enable player voting. Locks until the battle ends.">ENABLE VOTING</button>
-            </div>
-            <div class="pl-switch-wrap">
-              <button class="pl-switch" id="pl-switch" title="Move to the other team (custom mode only)"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M8.59 16.34l4.58-4.59-4.58-4.59L10 5.75l6 6-6 6z"/><path d="M15.41 7.66l-4.58 4.59 4.58 4.59L14 18.25l-6-6 6-6z"/></svg> SWITCH TEAM</button>
-              <div class="pl-slots" id="pl-slots-0"></div>
-              <span id="pl-cs0" class="pl-hidden"></span>
-            </div>
-            <div class="pl-room-box">
-              <span class="pl-room-label">GAME CODE</span>
-              <span class="pl-room-code" id="pl-room-code">----</span>
-              <span class="pl-room-label" id="pl-seat-count" style="margin-left:6px">0/3</span>
-              <button class="pl-btn pl-btn-sm pl-btn-gray" id="pl-copy">COPY</button>
-              <input class="pl-join-input" id="pl-join-code" maxlength="4" placeholder="XXXX" spellcheck="false">
-              <button class="pl-btn pl-btn-sm pl-btn-orange" id="pl-join">JOIN</button>
-            </div>
+      <div class="pt-room">
+        <div class="pt-top">
+          <div class="pt-back" id="pl-back" role="button">&#8592; BACK</div>
+          <h2 class="pt-title">PLATOON</h2>
+          <div class="pt-code-box">
+            <span class="pt-code-label">ROOM</span>
+            <span class="pt-code" id="pl-room-code">----</span>
+            <button class="pt-btn pt-btn-gray pt-sm" id="pl-copy" type="button">COPY</button>
           </div>
+          <div class="pt-join">
+            <input class="pt-input" id="pl-join-code" maxlength="4" placeholder="CODE" autocomplete="off">
+            <button class="pt-btn pt-btn-blue pt-sm" id="pl-join" type="button">JOIN</button>
+            <button class="pt-btn pt-btn-gray pt-sm" id="pl-new" type="button">NEW ROOM</button>
+          </div>
+        </div>
 
-          <!-- MIDDLE: TEAM 1 (left) + center + TEAM 2 (right) -->
-          <div class="pl-middle">
-<div class="pl-team pl-team-1" id="pl-team-1">
-              <div class="pl-team-head"><b>TEAM 1</b><span class="pl-team-count" id="pl-c1">0/12</span></div>
-              <div class="pl-slots" id="pl-slots-1"></div>
-            </div>
+        <div class="pt-main">
+          <div class="pt-seats" id="pl-seats"></div>
 
-            <div class="pl-center">
-              <!-- CHAT (center of the screen, both teams talk here) -->
-              <div class="pl-chat">
-                <div class="pl-chat-list" id="pl-chat-list"></div>
-                <div class="pl-chat-in">
-                  <input class="pl-chat-input" id="pl-chat-input" maxlength="140" placeholder="Type a messageï¿½" spellcheck="false">
-                  <button class="pl-btn pl-btn-sm pl-btn-orange" id="pl-chat-send">SEND</button>
-                </div>
+          <div class="pt-side">
+            <div class="pt-panel pt-voice">
+              <div class="pt-panel-head">VOICE</div>
+              <div class="pt-voice-row">
+                <button class="pt-btn pt-btn-orange" id="pl-mic" type="button">&#127908; MIC OFF</button>
+                <button class="pt-btn pt-btn-gray" id="pl-deafen" type="button">&#128264; SOUND ON</button>
               </div>
-
-              <!-- VOICE -->
-              <div class="pl-voice">
-                <button class="pl-btn pl-btn-sm pl-btn-gray" id="pl-mic"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 14c1.66 0 2.99-1.34 2.99-3L15 5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.3-3c.4 0 .73.17 1 .44v-3.89c0-.83-.67-1.5-1.5-1.5h-2.41c-.83 0-1.5.67-1.5 1.5v3.89c.27-.27.6-.44 1-.44z"/></svg> VOICE: OFF</button>
-                <button class="pl-btn pl-btn-sm pl-btn-gray" id="pl-vopts"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.59-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.56.24-1.09.56-1.59.94l-2.39-.96c-.22-.07-.47 0-.59.22L2.74 8.87c-.12.2-.07.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.12.22-.07.47.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.59.94l.36 2.54c.04.24.24.41.48.41h3.84c.24 0 .43-.17.47-.41l.36-2.54c.56-.24 1.09-.56 1.59-.94l2.39.96c.22.07.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg> VOICE SETTINGS</button>
-                <span class="pl-mic-status" id="pl-mic-status">Click VOICE to enable lobby voice chat</span>
-                <span class="pl-mic-on" id="pl-mic-tag" style="display:none">VOICE LIVE</span>
-              </div>
+              <div class="pt-meter"><span id="pl-mic-meter"></span></div>
+              <label class="pt-opt"><input type="checkbox" id="pl-ptt"> Push to talk (hold <b>V</b>)</label>
+              <label class="pt-opt">Microphone
+                <select class="pt-select" id="pl-mic-device"><option value="">Default</option></select>
+              </label>
+              <label class="pt-opt">Friends volume
+                <input type="range" id="pl-master-vol" min="0" max="150" value="100">
+              </label>
+              <div class="pt-hint" id="pl-mic-status">Voice is off. Turn your mic on to talk.</div>
             </div>
 
-            <div class="pl-team pl-team-2 pl-ghost" id="pl-team-2">
-              <div class="pl-team-head"><b>TEAM 2</b><span class="pl-ghost-hint">LOCKED ï¿½ CLICK TO ENABLE CUSTOM</span><span class="pl-team-count" id="pl-c2">0/12</span></div>
-              <div class="pl-slots" id="pl-slots-2"></div>
-            </div>
-          </div>
-
-          <!-- LAST MATCH RESULTS -->
-          <div class="pl-results hidden" id="pl-results">
-            <div class="pl-results-head"><b>LAST MATCH</b><span id="pl-results-mvp"></span></div>
-            <div id="pl-results-list"></div>
-          </div>
-
-          <!-- BOTTOM BAR -->
-          <div class="pl-bottom">
-            <button class="pl-btn pl-btn-orange" id="pl-collections">COLLECTIONS</button>
-            <div class="pl-actions">
-              <button class="pl-btn pl-btn-red" id="pl-delete" style="display:none">DELETE ROOM</button>
-              <button class="pl-btn pl-btn-gray" id="pl-back">BACK</button>
-              <div class="pl-ready-wrap">
-                <button class="pl-btn pl-btn-gold" id="pl-start" style="display:none">START BATTLE</button>
-                <button class="pl-btn pl-btn-orange" id="pl-ready">READY</button>
+            <div class="pt-panel pt-chat">
+              <div class="pt-panel-head">CHAT</div>
+              <div class="pt-chat-list" id="pl-chat-list"></div>
+              <div class="pt-chat-in">
+                <input class="pt-input" id="pl-chat-input" maxlength="140" placeholder="Say something..." autocomplete="off">
+                <button class="pt-btn pt-btn-blue pt-sm" id="pl-chat-send" type="button">SEND</button>
               </div>
             </div>
           </div>
+        </div>
 
-          <div class="pl-status" id="pl-status"></div>
+        <div class="pt-bottom">
+          <label class="pt-mode">MODE
+            <select class="pt-select" id="pl-mode"></select>
+          </label>
+          <div class="pt-status" id="pl-status"></div>
+          <button class="pt-btn pt-btn-gray pt-big" id="pl-ready" type="button">READY</button>
+          <button class="pt-btn pt-btn-orange pt-big" id="pl-start" type="button">START</button>
+        </div>
 
-          <!-- COUNTDOWN OVERLAY -->
-          <div class="pl-cd hidden" id="pl-cd">
-            <div class="pl-cd-box">
-              <div class="pl-cd-label">MATCH STARTS IN</div>
-              <div class="pl-cd-num">3</div>
-            </div>
-          </div>
-
-          <!-- CONFIRM MODAL (for leaving the crown seat) -->
-          <div class="pl-modal hidden" id="pl-confirm-modal">
-            <div class="pl-modal-box">
-              <div class="pl-modal-title">LEAVE OWNER SEAT?</div>
-              <div class="pl-modal-text">Are you sure you want to leave the owner position? Another player may take it.</div>
-              <div class="pl-modal-actions">
-                <button class="pl-btn pl-btn-red" id="pl-confirm-yes">YES, LEAVE</button>
-                <button class="pl-btn pl-btn-gray" id="pl-confirm-no">CANCEL</button>
-              </div>
-            </div>
-          </div>
-
-          <!-- VOICE SETTINGS POPUP -->
-          <div class="pl-vpanel" id="pl-vpanel">
-            <div class="pl-vtools">
-              <button class="pl-btn pl-btn-sm pl-btn-gray" id="pl-vdeaf">DEAFEN: OFF</button>
-              <button class="pl-btn pl-btn-sm pl-btn-gray" id="pl-vptt">PTT: AUTO</button>
-              <button class="pl-btn pl-btn-sm pl-btn-gray" id="pl-vptt-hold"><svg viewBox="0 0 24 24" fill="currentColor" width="12" height="12"><path d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16.01H3V4.98h18v14.03z"/></svg> HOLD TO TALK</button>
-              <button class="pl-btn pl-btn-sm pl-btn-red" id="pl-vclose">CLOSE</button>
-            </div>
-            <div class="pl-vlist" id="pl-vlist"></div>
-          </div>
-
-          <!-- DRAG GRIPS (grab the menu by its edges to move it) -->
-          <div class="pl-grip pl-grip-t" data-dir="t"></div>
-          <div class="pl-grip pl-grip-b" data-dir="b"></div>
-          <div class="pl-grip pl-grip-l" data-dir="l"></div>
-          <div class="pl-grip pl-grip-r" data-dir="r"></div>
-          <div class="pl-grip pl-grip-tl" data-dir="tl"></div>
-          <div class="pl-grip pl-grip-tr" data-dir="tr"></div>
-          <div class="pl-grip pl-grip-bl" data-dir="bl"></div>
-          <div class="pl-grip pl-grip-br" data-dir="br"></div>
-
+        <div class="pt-cd hidden" id="pl-cd"><span class="pt-cd-num">3</span></div>
+        <div class="pt-results hidden" id="pl-results">
+          <div class="pt-panel-head">LAST MATCH</div>
+          <div id="pl-results-list"></div>
         </div>
       </div>
     </div>
@@ -1663,9 +1391,7 @@
           <div class="score-cell"><span class="score-icon">&#9760;</span><span class="score-val" id="score-kills">0</span></div>
       </div>
 
-      <div id="hp-wrap"><div id="hp-bar"></div><span id="hp-text">100 / 100</span></div>
-        <div id="cash-indicator" class="hidden"><span class="cash-icon">&#128176;</span><span id="score-cash">0</span></div>
-      </div>
+      <div id="cash-indicator" class="hidden"><span class="cash-icon">&#128176;</span><span id="score-cash">0</span></div>
 
       <div id="hp-wrap"><div id="hp-bar"></div><span id="hp-text">100 / 100</span></div>
 
@@ -2422,7 +2148,8 @@
       'js/fireball.js?v=20260929m',
       'js/mortar-blast.js?v=20261006a',
       'js/muzzle-pop.js?v=20261024a',
-      'js/spark-lines.js?v=20261024a',
+      'js/spark-lines.js?v=20261104b',
+      'js/cartoon-fx.js?v=20261104a',
       'js/shaders.js?v=1787330007',
       'js/video-vfx.js?v=20260926b',
       'js/decal.js?v=20260927e',
@@ -2436,17 +2163,17 @@
          and falls back to a plain solid bar if the module is not there yet. The
          style preview page loads this same file to render the five options. */
       'js/hpbar-styles.js?v=20261103a',
-      'js/tank.js?v=20261103a',
-      'js/tank-sprays.js?v=20261012b',
+      'js/tank.js?v=20261104b',
+      'js/tank-sprays.js?v=20261104b',
       /* Styles (cosmetics): tank.js calls TankStyles.apply once the model is
          on, so the module has to exist by the tank build — place it with the
          other cosmetic modules, before the menus that show it. */
-      'js/tank-styles.js?v=20261030a',
-      'js/projectile.js?v=20261102p',
+      'js/tank-styles.js?v=20261104b',
+      'js/projectile.js?v=20261104b',
       'js/bullet-trail.js?v=20260929a',
       'js/input.js?v=20261101a',
       'js/bot-nav.js?v=20261026f',
-      'js/bot.js?v=20261102q',
+      'js/bot.js?v=20261104b',
       /* net.js BEFORE matchmaking.js. matchmaking.js binds itself to Net's
          callbacks, and it used to be listed first, so at load time Net did not
          exist and the binding silently never happened. matchmaking.js also
@@ -2463,7 +2190,7 @@
       'js/audio.js?v=20261030a',
       'js/shopdata.js?v=20260929a',
       'js/clan-default-layout.js?v=1787330007',
-      'js/menu.js?v=20261102m',
+      'js/menu.js?v=20261104b',
       'js/trophy-roadmap.js?v=20261101a',
       'js/garage.js?v=20261003a',
       'js/missions.js?v=20261030a',
@@ -2489,14 +2216,14 @@
       'js/gladiator-map.js?v=1787330007',
       'js/boot-watchdog.js?v=20261008a',
       'js/bruno-explosion.js?v=20261102a',
-      'js/fog.js?v=20261102t',
-      'js/game.js?v=20261102w',
+      'js/fog.js?v=20261104b',
+      'js/game.js?v=20261104b',
       'js/results.js?v=20261030h',
       'js/auth.js?v=1787330007',
       /* Real-money store. After auth.js because the return trip calls into Auth,
          and before menu.js because the store render asks it for the table. */
       'js/payments.js?v=20261012a',
-      'js/platoon.js?v=1787330007',
+      'js/platoon.js?v=20261104b',
       'js/sandbox-room.js?v=20261007a',
       /* The Tab+P command panel. Loaded LAST on purpose: it registers a capture
          keydown listener and calls into Game (for the skip, the perf overlay and

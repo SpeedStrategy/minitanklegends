@@ -6503,6 +6503,7 @@ Net.sendJoinInfo(
       if(typeof MortarBlast !== 'undefined' && MortarBlast.spawn) MortarBlast.spawn(this.scene, 0, y, 0, 8);
       if(typeof MuzzlePop !== 'undefined' && MuzzlePop.play) MuzzlePop.play(this.scene, new THREE.Vector3(0, y, 0), new THREE.Vector3(0, 0, 1), true, null, null);
       for(const style of ['wall', 'burn', undefined]) this.spawnExplosion(0, y, 0, 0xffaa33, 6, style);
+      if(typeof CartoonFX !== 'undefined'){ CartoonFX.explosion(this.scene, 0, y, 0, 6); CartoonFX.sparks(this.scene, 0, y, 0, 1, 0); }
       if(this.renderer.compile) this.renderer.compile(this.scene, this.camera);
     } catch(e){ console.warn('effect prewarm', e); }
   }
@@ -8225,9 +8226,12 @@ Net.sendJoinInfo(
         const fps60 = s / 59;
         const cur = this.renderer.getPixelRatio();
         const since = now - (this._adapChanged || 0);
-        if(fps60 < 32 && cur > 0.8 && since > 6000){
+        /* Drop resolution as soon as a fight costs frames, not only once the game
+           is already below 32 fps: a crowd on a weaker GPU sat at 35-45 fps for
+           good before. Steps are small and rate-limited. */
+        if(fps60 < 48 && cur > 0.75 && since > 4000){
           this._adapChanged = now;
-          this.renderer.setPixelRatio(Math.max(0.8, cur - 0.2));
+          this.renderer.setPixelRatio(Math.max(0.75, cur - 0.15));
         } else if(fps60 > 55 && cur < this._maxPixelRatio && since > 12000){
           this._adapChanged = now;
           this.renderer.setPixelRatio(Math.min(this._maxPixelRatio, cur + 0.15));
@@ -9528,6 +9532,7 @@ Net.sendJoinInfo(
     // Segment sparks (pooled yellow ribbons; SparkLines never allocates and is
     // updated in place each frame, so ticking it while idle costs nothing)
     if(typeof SparkLines !== 'undefined') SparkLines.update(this.scene, dt);
+    if(typeof CartoonFX !== 'undefined') CartoonFX.update(this.scene, dt);
     // Muzzle flash sprites
     if(this._muzzleFlashes){
       for(let i=0;i<this._muzzleFlashes.length;i++){
@@ -12826,8 +12831,8 @@ _initMortarMarker(){
   /* A blast drawn at its real size: the damage radius. */
   _bigBlast(x, y, z, r){
     let drawn = false;
-    if(typeof MortarBlast !== 'undefined' && MortarBlast.spawn){
-      try { MortarBlast.spawn(this.scene, x, y, z, r); drawn = true; } catch(e){}
+    if(typeof CartoonFX !== 'undefined'){
+      try { CartoonFX.explosion(this.scene, x, y, z, r * 0.8, { groundY: this._groundY(x, z, y + 2) }); drawn = true; } catch(e){}
     }
     if(!drawn) this.spawnExplosion(x, y + 0.6, z, 0xffaa33, Math.max(10, r));
     if(this.addShake) this.addShake(0.5);
@@ -15444,28 +15449,11 @@ spawnExplosion(x, y, z, color, count, style){
   /* Destruction VFX — white-hot pop, shockwave, sparks, debris, smoke column */
   _killVfx(tank){
     const y1 = tank.y != null ? tank.y : 1.4;
-    // Rocket layer: bright pop + dense fireworks (always visible)
-    this.spawnExplosion(tank.x, y1, tank.z, 0xfff2d0, 8, 'boom');
-    /* The shader fireball belongs to THIS event only — a tank actually being
-       destroyed. It is a mesh with its own shader, so it plays in every
-       graphics option even where the sprite particles are switched off. */
-    /* 13 was a 13-unit ball around a tank roughly 3 units long — the cloud was
-       several tank-lengths across and swallowed the wrecks of everything near
-       it. 13 / 1.5 = 8.7, which still covers the tank it came from but leaves
-       the rest of the fight readable. */
-    /* Old Fireball explosion DISABLED — replaced with Bruno Simon single-sphere explosion below. */
-      /* if(typeof Fireball !== 'undefined') Fireball.spawn(this.scene, tank.x, y1 + 2.0, tank.z, 8.7); */
-     /* Bruno Simon-style single-sphere explosion (optimized, one draw call) */
-     if(typeof BrunoExplosion !== 'undefined') BrunoExplosion.spawn(this.scene, tank.x, y1 + 2.0, tank.z, 8.7);
-    this.spawnBurst(tank.x, y1 + 0.3, tank.z, {count: 18, tex: ['spark','ember'], speed: 18, size: 0.55, life: 0.6, rise: 2.5, gravity: 16, blend: 'add', spin: 9});
-    this.spawnBurst(tank.x, y1 + 0.30, tank.z, {count: 10, tex: ['shard','hex'], speed: 6.5, size: 0.85, life: 0.8, rise: 3, gravity: 9, spin: 6});
-    // Flower layer: heavy smolder bloom (fancy only)
-    if(this.isFancy){
-      const st = EXPLOSION_STYLES.lrg;
-      this.spawnBurst(tank.x, y1, tank.z, {count: Math.round(st.fire * 8), tex: 'blobfire', color: 0xff8a2a, speed: 10, size: 1.5, life: 0.9, rise: 5, gravity: -1.5, blend: 'add', spin: 0.8});
-      this.spawnBurst(tank.x, y1 - 0.2, tank.z, {count: Math.round(st.smokeCol * 6), tex: 'smoke', speed: 1.6, size: 3.0, life: 1.6, rise: 2.4, grow: 2.6, blend: 'normal', fade: 0.45});
-      this.spawnBurst(tank.x, y1 - 0.2, tank.z, {count: 1, tex: 'ring', speed: 0, size: 2.2, life: 0.5, rise: 0, grow: 4.2, blend: 'add', spin: 0});
-    }
+    const gy = (tank.root ? tank.root.position.y : y1);
+    /* A cartoon explosion: flash, fire balls, toon smoke with black outlines,
+       debris and a ground ring, all pooled (js/cartoon-fx.js). */
+    if(typeof CartoonFX !== 'undefined') CartoonFX.explosion(this.scene, tank.x, gy + 1.2, tank.z, 7.5, { groundY: gy });
+    else this.spawnExplosion(tank.x, y1, tank.z, 0xfff2d0, 8, 'boom');
     if(this.localTank){
       /* A tank going up in front of you should MOVE the camera. The closer it
          is, the harder the hit: full kick at your own feet, nothing at all by

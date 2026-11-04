@@ -1983,7 +1983,10 @@ class Shell {
        player's own — the old call below handed `vfxOnly` detonations the same
        small puff, which meant a remote artillery shell landing next to you
        announced itself with a quarter of the area it was about to take. */
-    if(typeof MortarBlast !== 'undefined' && game.scene){
+    if(typeof CartoonFX !== 'undefined' && game.scene){
+      const gy = game._groundY ? game._groundY(this.x, this.z, (this.y || 0) + 3) : 0;
+      CartoonFX.explosion(game.scene, this.x, gy + R * 0.25, this.z, R * 0.8, { groundY: gy });
+    } else if(typeof MortarBlast !== 'undefined' && game.scene){
       MortarBlast.spawn(game.scene, this.x, R * 0.42, this.z, R);
     }
 

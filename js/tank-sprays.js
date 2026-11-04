@@ -410,9 +410,36 @@ window.TankSprays = (function(){
 
   /* --- battle ---------------------------------------------------------- */
 
-  function apply(tank){
+  /* Stamps are placed in the tank menu with the hull facing +Z and the turret
+     straight ahead. In battle the hull's heading, its lean and the turret's aim
+     all live BELOW the root, so projecting a saved stamp against a battle pose
+     put it somewhere else on the tank (or off it). The tank is set to the menu
+     pose just for the projection; the decals are parented to the part they
+     landed on, so once the pose is restored they follow it like paint. */
+  function withRestPose(tank, fn){
+    var b = tank.bodyGroup, t = tank.turretGroup, pv = tank._modelTurretPivot;
+    var yaw = tank._modelYaw || 0;
+    var saved = [];
+    function keep(o){ if(o) saved.push([o, o.quaternion.clone(), o.position.clone()]); }
+    keep(b); keep(t); keep(pv); keep(tank._pitchGroup); keep(tank._recoilNode);
     try{
-      if(!tank || !tank.root || !tank.isLocal) return;
+      if(b) b.rotation.set(0, yaw, 0, 'YXZ');
+      if(pv) pv.rotation.y = 0;
+      else if(t) t.rotation.set(0, yaw, 0, 'YXZ');
+      if(tank._pitchGroup) tank._pitchGroup.rotation.set(0, 0, 0);
+      if(tank._recoilNode && tank._recoilHome) tank._recoilNode.position.copy(tank._recoilHome);
+      tank.root.updateMatrixWorld(true);
+      return fn();
+    } finally {
+      for(var i = 0; i < saved.length; i++){ saved[i][0].quaternion.copy(saved[i][1]); saved[i][0].position.copy(saved[i][2]); }
+      tank.root.updateMatrixWorld(true);
+    }
+  }
+
+  /* opts.preview: a menu tank that is not the player's battle tank. */
+  function apply(tank, opts){
+    try{
+      if(!tank || !tank.root || !(tank.isLocal || (opts && opts.preview))) return;
       if(tank.root.userData.spraysApplied) return;
       if(!tank.def || !tank.def.id) return;
 
@@ -433,7 +460,7 @@ window.TankSprays = (function(){
           if(!tank.root) return;
           placement.stamps.forEach(function(rec, i){
             if(!textures[i]) return;
-            addDecals(tank, project(tank, rec), textures[i]);
+            addDecals(tank, withRestPose(tank, function(){ return project(tank, rec); }), textures[i]);
           });
         });
     }catch(e){

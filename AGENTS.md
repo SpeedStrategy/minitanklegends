@@ -767,3 +767,16 @@ Second set of dev deploys from the other copy (6b04bf0; served as 56f1fad7, newe
 ## 2026-11-03, seventeenth pass (Claude Code) — THIRD DEV MERGE
 
 The other copy deployed again (1ab6679 / fa2c456 / 30fa1c5, and to PRODUCTION as 113b6568, with its DEV banner and login wall). Took only what changed since 56f1fad7: Google Fonts link, HUD score icons + `#cash-indicator`, rounded-rectangle HP plate and per-shell segmented reload bar (tank.js, hpbar-styles.js), `VS_TIME: 3.5`, restyled bottom tank selector and the "BATTLE UI REWORK" CSS block. Their style.css is double-encoded UTF-8 throughout (lossy, cannot be decoded back): only their new ASCII-only rules were appended; never take that file whole. Tag `before-dev-merge3-20261103`.
+
+---
+
+## 2026-11-04, eighteenth pass (Claude Code) — ONE TANK MODEL, CARTOON FX, PLATOON 3.0
+
+1. **One model, its own paint.** GLB tanks keep their GLB colours (`keepModelPaint` defaults to on; `false` opts a def out). The main-menu preview is a real `Tank` (`playAnims:false`, no physics) fitted to a 4.4 footprint, so menu, tank menu and battle show the same model, style and sprays.
+2. **Sprays in battle** are projected in the menu's rest pose (`withRestPose` in tank-sprays.js): hull heading, turret aim, pitch and recoil live below `root`, so projecting against a battle pose put stamps elsewhere. Decals stay parented to the part they hit.
+3. **Fewer draw calls per tank:** `Tank._mergeStaticParts()` (battle tanks only) merges meshes that never move relative to hull/turret, per material. Animated nodes (`_animNodes`), recoil, pitch and the turret pivot are never merged; originals are hidden, not removed.
+4. **js/cartoon-fx.js**: pooled InstancedMesh sparks (shell hits fly away from the hull), toon fire/smoke with black outlines, debris and a ground ring. Used by tank deaths, `_bigBlast` and the mortar. `SparkLines.spawn` delegates to it.
+5. **Fog**: rays continue over drivable slopes (normal.y > 0.55), so a tank in a dip no longer fogs its own view black.
+6. **Bots** keep spacing by lane and regroup toward the team centre (`squad.mid`) when they drift too far on an advance.
+7. **Platoon 3.0** (js/platoon.js rewritten, `#menu-platoon` markup replaced, `.pt-*` CSS at the end of style.css): 3 seats, chat, voice. Voice now really connects: every peer answers `peer.on('call')`; mic with echo cancel / noise suppression, device picker, push-to-talk (V), deafen, master + per-friend volume and mute, talking ring. Mic stays on in battle. The room opens on first visit to the screen, not at page load.
+8. **Merge damage repaired:** a missing `}` after `.ts-nav-btn` (third dev merge) disabled every CSS rule after it, and a duplicated `#hp-wrap` line closed `#hud` early, leaving ~18 HUD elements outside it (visible over menus once the CSS works). Both fixed. bump-stamps non-ASCII baseline is now 37.

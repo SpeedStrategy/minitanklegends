@@ -165,6 +165,7 @@ class BotSquad {
       }
     }
     const mid = this._centroid(members, t => t) || this.home;
+    this.mid = mid;
     this.contact = null; this.focus = null;
     let bestC = Infinity, bestF = Infinity;
     for(const r of known){
@@ -251,12 +252,13 @@ class BotSquad {
     const half = BotSquad.playHalf(game), c = BotSquad.playCentre(game);
     list.forEach((t, i) => {
       const b = t.brain, P = b.person;
-      const lane = ((i + 1) >> 1) * (i % 2 ? 1 : -1);
+      /* Lanes are close enough that the team still covers one another. */
+      const lane = Math.max(-2, Math.min(2, ((i + 1) >> 1) * (i % 2 ? 1 : -1)));
       const role = b.style.role;
       const back = role === 'artillery' ? 42 : role === 'sniper' ? 28 : role === 'brawler' || role === 'rusher' ? -8 : 0;
-      const wide = (role === 'flanker' ? 1.5 : 1) * (1 + (1 - P.team) * 1.4);
-      let x = goal.x + px * lane * 16 * wide - ax * back;
-      let z = goal.z + pz * lane * 16 * wide - az * back;
+      const wide = (role === 'flanker' ? 1.3 : 1) * (1 + (1 - P.team) * 0.6);
+      let x = goal.x + px * lane * 11 * wide - ax * back;
+      let z = goal.z + pz * lane * 11 * wide - az * back;
       x = Math.max(c.x - half, Math.min(c.x + half, x));
       z = Math.max(c.z - half, Math.min(c.z + half, z));
       this._post(t, ctx, 'advance', x, z, {
@@ -669,6 +671,13 @@ class BotBrain {
   _followOrder(me, target, order, game, out, now){
     let gx = order ? order.x : me.x, gz = order ? order.z : me.z;
     const lastSeen = target || null;
+    /* A bot that has drifted far from its team regroups on the way, instead of
+       arriving at its post alone. Loners keep more distance. */
+    const squad = me.team && game._botSquads ? game._botSquads[me.team] : null;
+    if(squad && squad.mid && order && order.kind === 'advance'){
+      const far = Math.hypot(me.x - squad.mid.x, me.z - squad.mid.z);
+      if(far > 45 + (1 - this.person.team) * 40){ gx = (gx + squad.mid.x) / 2; gz = (gz + squad.mid.z) / 2; }
+    }
 
     /* Bold bots go and look where someone just was, while it stays near the job. */
     if(lastSeen && this.person.aggr > 0.45 && order && Math.hypot(lastSeen.x - order.x, lastSeen.z - order.z) < order.leash){
