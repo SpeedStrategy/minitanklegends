@@ -1,0 +1,166 @@
+# ============================================================================
+# Desktop app release pipeline.
+#
+# WHAT TRIGGERS IT
+#   - pushing a tag named  desktop-vX.Y.Z   (e.g. desktop-v1.0.0)
+#   - the "Run workflow" button (workflow_dispatch), for test builds
+#
+# WHAT IT PRODUCES
+#   1. A GitHub release named after the tag, holding:
+#        TankLegends-Setup.exe        Windows installer (NSIS, x64)
+#        TankLegends-Portable.exe     Windows portable, no install
+#        TankLegends.dmg              macOS disk image
+#        TankLegends.zip              macOS auto-update package
+#        TankLegends.AppImage         Linux AppImage
+#        TankLegends.deb              Linux Debian package
+#   2. An "update-feed" artifact + a commit that drops rewritten
+#      updates/latest*.yml into the repo root. Those files make
+#      https://tanklg.pages.dev/updates/latest.yml exist after the next site
+#      deploy — that URL is the app's auto-update feed.
+#
+# THE ORDER THAT MATTERS
+#   Release first, then site deploy. The HUB's download buttons point at
+#   .../releases/latest/download/<file>, so until a release exists they 404 —
+#   which is also why the HUB hides the download button on iOS/Android where
+#   there is no desktop app to download.
+#
+# NOTE ON SIGNING
+#   Windows NSIS builds are unsigned (SmartScreen shows "unknown publisher" —
+#   normal for a project without a code-signing certificate; "More info → Run
+#   anyway"). macOS auto-update REQUIRES signing + notarization: until
+#   MACOS_CERTIFICATES secrets are set, the dmg installs fine but the
+#   in-app updater is disabled on macOS.
+# ============================================================================
+
+name: desktop-release
+
+on:
+  push:
+    tags:
+      - 'desktop-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            script: dist:win
+            artifact: dist-win
+          - os: macos-latest
+            script: dist:mac
+            artifact: dist-mac
+          - os: ubuntu-latest
+            script: dist:linux
+            artifact: dist-linux
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install dependencies
+        working-directory: desktop
+        run: npm ci --no-audit --no-fund
+
+      - name: Build installers
+        working-directory: desktop
+        run: npm run ${{ matrix.script }}
+        env:
+          # Skip macOS signing entirely until certificates exist; electron-builder
+          # would otherwise attempt it on CI.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            desktop/dist/*.exe
+            desktop/dist/*.dmg
+            desktop/dist/*.zip
+            desktop/dist/*.AppImage
+            desktop/dist/*.deb
+            desktop/dist/*.yml
+            desktop/dist/*.blockmap
+            !desktop/dist/builder-debug.yml
+            !desktop/dist/builder-effective-config.yaml
+          if-no-files-found: error
+
+  release:
+    name: create release + update feed
+    runs-on: ubuntu-latest
+    needs: build
+    # workflow_dispatch test runs should NOT create a release or touch the feed;
+    # only real tags publish.
+    if: startsWith(github.ref, 'refs/tags/desktop-v')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect all build outputs
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten artifacts
+        run: |
+          mkdir -p merged
+          find artifacts -type f \( -name '*.exe' -o -name '*.dmg' -o -name '*.zip' -o -name '*.AppImage' -o -name '*.deb' -o -name 'latest*.yml' -o -name '*.blockmap' \) -exec mv {} merged/ \;
+          ls -la merged
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" merged/* \
+            --title "Tank Legends Desktop $TAG" \
+            --notes "Download the installer for your system. The app always loads the newest game from https://tanklg.pages.dev/ — game updates need no new installer.
+
+          - Windows: TankLegends-Setup.exe (installer) or TankLegends-Portable.exe
+          - macOS: TankLegends.dmg
+          - Linux: TankLegends.AppImage or TankLegends.deb" \
+          || gh release upload "$TAG" merged/* --clobber
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Generate the update feed
+        run: node desktop/scripts/make-update-feed.mjs --dist merged --out updates --tag "${{ github.ref_name }}"
+
+      - name: Upload feed as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: update-feed
+          path: updates/
+          if-no-files-found: error
+
+      - name: Commit the feed so the next site deploy serves it
+        env:
+          # The feed lands on the desktop-feed branch (this pipeline runs on
+          # the desktop-app orphan branch, NOT on the game's dev branch — the
+          # game history is never pushed to GitHub). The site deploy copies
+          # updates/*.yml from desktop-feed into the Pages staging tree, which
+          # makes https://tanklg.pages.dev/updates/latest.yml exist.
+          FEED_BRANCH: desktop-feed
+        run: |
+          git config user.name "desktop-release bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add updates/
+          if git diff --cached --quiet; then
+            echo "Feed unchanged — nothing to commit."
+          else
+            git commit -m "Desktop update feed for ${{ github.ref_name }} (auto-generated)"
+            git push origin "HEAD:refs/heads/$FEED_BRANCH"
+          fi

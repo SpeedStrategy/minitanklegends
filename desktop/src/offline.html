@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Tank Legends — can't reach the arena</title>
+<style>
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    background: #0d0d0f; color: #f4f2ec;
+    font-family: "Segoe UI", system-ui, sans-serif; text-align: center;
+  }
+  .card { max-width: 480px; padding: 0 24px; }
+  .tank { font-size: 64px; line-height: 1; }
+  h1 { font-size: 22px; margin: 18px 0 8px; color: #ffc531; letter-spacing: 1px; }
+  p { color: #9b9b9b; font-size: 14px; line-height: 1.6; margin: 0 0 24px; }
+  a.btn {
+    display: inline-block; padding: 12px 28px; border-radius: 10px;
+    background: #ffc531; color: #1a1a1c; font-weight: 800; letter-spacing: 1px;
+    text-decoration: none; border: 2px solid #0d0d0f;
+    box-shadow: 0 4px 0 #b98a00;
+  }
+  a.btn:hover { filter: brightness(1.06); }
+  code { color: #6f6f74; font-size: 12px; display: block; margin-top: 22px; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="tank">🛠️</div>
+    <h1>CAN'T REACH THE ARENA</h1>
+    <p>Tank Legends loads its latest version straight from
+      <b>tanklg.pages.dev</b> every time it starts, so it needs an internet
+      connection on launch.<br><br>
+      Check your connection (or the game server) and try again.</p>
+    <a class="btn" href="https://tanklg.pages.dev/">RETRY</a>
+    <code id="errCode"></code>
+  </div>
+  <script>
+    try {
+      const code = new URLSearchParams(location.search).get('code');
+      if (code) document.getElementById('errCode').textContent = 'error code ' + code;
+    } catch (e) {}
+  </script>
+</body>
+</html>

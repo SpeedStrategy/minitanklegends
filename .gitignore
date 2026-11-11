@@ -1,0 +1,8 @@
+# Desktop app build artifacts
+desktop/node_modules/
+desktop/dist/
+.build-cache/
+
+# Node junk that occasionally lands at the root
+node_modules/
+npm-debug.log*

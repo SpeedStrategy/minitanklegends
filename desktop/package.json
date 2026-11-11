@@ -1,0 +1,79 @@
+{
+  "name": "tank-legends-desktop",
+  "productName": "Tank Legends",
+  "version": "1.0.0",
+  "description": "Tank Legends desktop app — the game in its own dedicated, always-up-to-date window.",
+  "main": "src/main.js",
+  "author": "SpeedStrategy <SpeedStrategy@users.noreply.github.com>",
+  "homepage": "https://tanklg.pages.dev/",
+  "license": "UNLICENSED",
+  "private": true,
+  "desktopName": "tank-legends",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win portable -c.win.artifactName=TankLegends-Portable.${ext} && electron-builder --win nsis -c.win.artifactName=TankLegends-Setup.${ext}",
+    "dist:linux": "electron-builder --linux AppImage deb",
+    "dist:mac": "electron-builder --mac dmg zip",
+    "feed": "node scripts/make-update-feed.mjs"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.11"
+  },
+  "devDependencies": {
+    "electron": "45.3.0",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "dev.tanklegends.app",
+    "productName": "Tank Legends",
+    "copyright": "Copyright © 2026 Tank Legends",
+    "protocols": [
+      {
+        "name": "Tank Legends",
+        "schemes": ["tanklegends"]
+      }
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "publish": [
+      {
+        "provider": "generic",
+        "url": "https://tanklg.pages.dev/updates/"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": ["nsis", "portable"]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "shortcutName": "Tank Legends",
+      "deleteAppDataOnUninstall": false
+    },
+    "mac": {
+      "icon": "build/icon.png",
+      "category": "public.app-category.games",
+      "target": ["dmg", "zip"],
+      "artifactName": "TankLegends.${ext}"
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "category": "Game",
+      "target": ["AppImage", "deb"],
+      "artifactName": "TankLegends.${ext}",
+      "syncDesktopName": true
+    }
+  }
+}
