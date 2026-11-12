@@ -1,0 +1,8 @@
+version: 1.0.1
+files:
+  - url: https://github.com/SpeedStrategy/minitanklegends/releases/download/desktop-v1.0.1/TankLegends-Setup.exe
+    sha512: RdpmbKFQiJmAzv6nMzS1uOXN/IwGTGRtJNlpnzp3jI1V17Ysu0910hmH3iQomwem5bIM2uORcs8rfz+UJ/CUsA==
+    size: 121744730
+path: https://github.com/SpeedStrategy/minitanklegends/releases/download/desktop-v1.0.1/TankLegends-Setup.exe
+sha512: RdpmbKFQiJmAzv6nMzS1uOXN/IwGTGRtJNlpnzp3jI1V17Ysu0910hmH3iQomwem5bIM2uORcs8rfz+UJ/CUsA==
+releaseDate: '2026-11-12T15:15:08.477Z'
