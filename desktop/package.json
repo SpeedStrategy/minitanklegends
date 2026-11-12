@@ -1,7 +1,7 @@
 {
   "name": "tank-legends-desktop",
   "productName": "Tank Legends",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Tank Legends desktop app — the game in its own dedicated, always-up-to-date window.",
   "main": "src/main.js",
   "author": "SpeedStrategy <SpeedStrategy@users.noreply.github.com>",

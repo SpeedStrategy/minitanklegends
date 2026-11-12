@@ -65,30 +65,36 @@ const GAME_URL = resolveGameUrl();
 /* ============================================================================
    ELECTRON ADVANTAGES — the switches a plain browser tab can never set.
    -------------------------------------------------------------------------- */
-const IS_SAFE_GPU = process.env.TL_SAFE_GPU === '1' || ARGV.includes('--safe-gpu');
-const IS_UNCAP    = process.env.TL_UNCAP === '1'   || ARGV.includes('--uncapped');
+const IS_SAFE_GPU = process.env.TL_SAFE_GPU === '1' || ARGV.includes('--safe-gpu'); /* legacy no-op: safe IS the default now */
+const IS_UNCAP    = process.env.TL_UNCAP === '1'   || ARGV.includes('--uncapped');   /* legacy no-op: uncapped IS the default now */
+const IS_GPU_BOOST = process.env.TL_GPU_BOOST === '1' || ARGV.includes('--gpu-boost');
+const IS_VSYNC    = process.env.TL_VSYNC === '1'    || ARGV.includes('--vsync');
 
 /* Menu music / engine SFX start immediately — no "click anywhere to enable
    audio" dance. A browser forces that gesture on the user; we don't have to. */
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
-/* The GPU-boost trio. Chromium keeps a conservative GPU blocklist and silently
-   falls back to SwiftShader (software rendering) on plenty of perfectly fine
-   GPUs — ignore-gpu-blocklist re-enables real acceleration there.
-   enable-gpu-rasterization rasterizes tiles on the GPU, enable-zero-copy skips
-   an intermediate texture upload per frame. TL_SAFE_GPU=1 turns all of this
-   back off if some driver misbehaves. */
-if (!IS_SAFE_GPU) {
+/* THE GPU-BOOST TRIO IS NOW OPT-IN (TL_GPU_BOOST=1 / --gpu-boost).
+   Shipping these as defaults backfired on hybrid-GPU laptops (Intel iGPU
+   drives the display, AMD dGPU renders): WebGL2 failed and fell back to
+   WebGL1, the compositor missed every other vsync and rAF ran at ~30 Hz
+   while the GPU idled at 2% — real frames finished in 15.9 ms. Chromium's
+   conservative defaults pick the stable path; users who want the extra
+   margin (or whose GPU is actually blocklisted) can flip it back on.
+   TL_SAFE_GPU=1 / --safe-gpu remain accepted but change nothing. */
+if (IS_GPU_BOOST && !IS_SAFE_GPU) {
   app.commandLine.appendSwitch('ignore-gpu-blocklist');
   app.commandLine.appendSwitch('enable-gpu-rasterization');
   app.commandLine.appendSwitch('enable-zero-copy');
 }
 
-/* Optional high-Hz mode: drop vsync/frame-rate caps so the game's rAF loop
-   runs as fast as the GPU can draw (above the monitor's refresh rate).
-   Power draw and heat go up; competitive players on 144 Hz+ panels may want
-   it. TL_UNCAP=1 or launch with --uncapped. */
-if (IS_UNCAP && !IS_SAFE_GPU) {
+/* UNCAP BY DEFAULT (TL_VSYNC=1 / --vsync restores the capped path).
+   Without a frame-rate limiter rAF runs as fast as the GPU can draw and the
+   swap chain still ties presentation to the monitor, so input latency drops
+   and 60/120/144 Hz panels each get their native cadence. The old default
+   (Chromium's limiter on) contributed the "33 fps at 2% GPU load" pacing.
+   TL_UNCAP=1 / --uncapped remain accepted but change nothing. */
+if (!IS_VSYNC && !IS_SAFE_GPU) {
   app.commandLine.appendSwitch('disable-frame-rate-limit');
   app.commandLine.appendSwitch('disable-gpu-vsync');
 }
