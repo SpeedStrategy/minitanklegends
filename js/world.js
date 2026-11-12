@@ -12,6 +12,18 @@ function _backdropColor(hex){
   return new THREE.Color(inv(c.r), inv(c.g), inv(c.b));
 }
 
+/* THE VOID FLOOR — the plain that sits under every GLB map.
+
+   Named here rather than buried in hideDefaults() because it is a look, not a
+   detail: the floor has to read as the bottom of the world, far below the
+   terrain, instead of as a second ground surface crowded just underneath it.
+
+   -300 is well below the deepest shipped model (Kaukaz bottoms out at -41.7),
+   and 8x covers the widest arena this game can load without rebuilding the
+   plane geometry that was made once at CONFIG.WORLD_SIZE. */
+const VOID_FLOOR_Y = -300;
+const VOID_FLOOR_SCALE = 8;
+
 class World {
   constructor(scene){
     this.scene = scene;
@@ -412,7 +424,14 @@ class World {
   /* Put the default arena floor back at its normal height (used by the modes
      that keep the default ground under a GLB map, and when leaving a match). */
   showDefaults(){
-    if(this.ground){ this.ground.position.y = 0; this.ground.visible = true; }
+    /* Maps that bring their own floor (spacestation, prototype) must never
+       re-show the default grid plane / lake on top of the GLB. */
+    if(this._defaultsLockedHidden) return;
+    if(this.ground){
+      this.ground.position.y = 0;
+      this.ground.scale.set(1, 1, 1);
+      this.ground.visible = true;
+    }
     if(this._lakeMesh) this._lakeMesh.visible = true;
   }
 
@@ -565,6 +584,83 @@ class World {
     }
     return false;
   }
+  /* ============================================================================
+     BUSH BODIES: A CLUMP OF BUSHES IS ONE BUSH
+
+     Hiding has two phases (see Tank._updateCover): touching cover fades you to
+     20%, and two seconds of perfect stillness makes you vanish. The question
+     that decides whether the clock RESTARTS is "did I leave the bush?" — and a
+     hedge is five bushes in a row, so answering it one disc at a time would
+     punish a player for creeping from one leaf to the next inside what is
+     visually a single continuous clump.
+
+     So the bushes are grouped once per map into bodies: union-find over every
+     pair whose discs are within BUSH_BODY_LINK of each other. Two bushes that
+     touch, or nearly touch, are the same body; a bush across the map is not.
+
+     Cost is O(n²) but it runs ONCE per map (cached on the array, like
+     _coverList), on a list of a few hundred plants — not per tank per frame.
+
+     bushBodyAt() is the per-frame query, and it is deliberately a flat scan of
+     the SAME bush list the index is built from: it must return the body of the
+     bush the tank is standing IN, and the spatial index is bucketed by
+     BUSH_HIDE_RADIUS, which is smaller than the touch radius used here. */
+  _bushBodies(){
+    const bushes = this.bushes || [];
+    if(this._bodyCache && this._bodySrcBush === bushes && this._bodyLen === bushes.length){
+      return this._bodyCache;
+    }
+    const n = bushes.length;
+    const parent = new Array(n);
+    for(let i = 0; i < n; i++) parent[i] = i;
+    const find = (i) => { while(parent[i] !== i){ parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+    const link = CONFIG.BUSH_BODY_LINK != null ? CONFIG.BUSH_BODY_LINK : 2.5;
+    const defR = CONFIG.BUSH_HIDE_RADIUS || 3.2;
+    for(let i = 0; i < n; i++){
+      const a = bushes[i];
+      const ar = a.radius || defR;
+      for(let j = i + 1; j < n; j++){
+        const b = bushes[j];
+        const br = b.radius || defR;
+        const dx = a.x - b.x, dz = a.z - b.z;
+        const reach = ar + br + link;
+        if(dx*dx + dz*dz <= reach*reach){
+          const ri = find(i), rj = find(j);
+          if(ri !== rj) parent[rj] = ri;
+        }
+      }
+    }
+    const ids = new Array(n);
+    for(let i = 0; i < n; i++) ids[i] = find(i);
+    this._bodyCache = ids;
+    this._bodySrcBush = bushes;
+    this._bodyLen = n;
+    return ids;
+  }
+
+  /* The body id of the bush whose disc this point is inside (or just touching),
+     or -1 in the open. A body id is stable for the life of the map, so a tank
+     can compare it frame to frame to tell "same clump" from "new clump". */
+  bushBodyAt(x, z){
+    const bushes = this.bushes || [];
+    if(!bushes.length) return -1;
+    const ids = this._bushBodies();
+    const defR = CONFIG.BUSH_HIDE_RADIUS || 3.2;
+    /* Touch margin: the tank counts as in the bush when its CENTRE is within
+       the bush's own radius plus a hull half-width, which is roughly where the
+       leaves start overlapping the hull. */
+    const touch = 1.2;
+    let best = -1, bestD = Infinity;
+    for(let i = 0; i < bushes.length; i++){
+      const b = bushes[i];
+      const r = (b.radius || defR) + touch;
+      const dx = x - b.x, dz = z - b.z;
+      const d = dx*dx + dz*dz;
+      if(d <= r*r && d < bestD){ bestD = d; best = ids[i]; }
+    }
+    return best;
+  }
+
   camoFactor(x, z){
     if(this._inPlayerBush(x, z)) return 0;
     const r = CONFIG.BUSH_HIDE_RADIUS + 2;
@@ -1440,12 +1536,25 @@ class World {
   }
 
   hideDefaults(){
+    if(this._defaultsLockedHidden && this.ground){
+      this.ground.visible = false;
+    }
     if(this.ground){
-      /* A GLB map brings its own floor, but that floor does not always reach
-         the edge of the arena. The default ground is kept, dropped well below
-         the map floor, purely to fill that gap — before, anything past the map
-         edge was raw sky and it looked like the world had failed to load. */
-      this.ground.position.y = -45;
+      /* THE VOID FLOOR. A GLB map brings its own floor, but that floor does not
+         reach the edge of the arena, and past the edge was raw sky — a hole in
+         the world rather than an edge to it.
+
+         It used to sit at y = -45, which on a deep map is only ~3 units under
+         the terrain (Kaukaz's model bottom is -41.7), so it read as a second
+         ground surface crowding the map rather than as the bottom of the world.
+         It is now dropped a long way down and scaled up, so falling off a map
+         falls into a huge, distant plain instead of into nothing. */
+      this.ground.position.y = VOID_FLOOR_Y;
+      /* The plane geometry is built once at CONFIG.WORLD_SIZE, but boundaries
+         now follow each map's own terrain, and several are far wider than the
+         default — a 1000-unit plane under a 1900-unit arena left sky at the
+         corners. Scaling the mesh covers any arena without rebuilding it. */
+      this.ground.scale.set(VOID_FLOOR_SCALE, 1, VOID_FLOOR_SCALE);
       this.ground.visible = true;
     }
     if(this._lakeMesh) this._lakeMesh.visible = false;
@@ -1559,6 +1668,9 @@ class World {
   }
 
   loadGLBModel(url, scale){
+    /* Spacestation / Prototype bring their own floor; keep the default grid
+       plane and lake hidden for them. */
+    this._defaultsLockedHidden = /spacestation|prototype/i.test(String(url || ''));
     return new Promise((resolve, reject) => {
       const loader = Models.loader();
       if(!loader){ reject(new Error('No GLTFLoader')); return; }
@@ -1690,6 +1802,19 @@ grp.traverse(o => {
             }
           }
         });
+        /* CEL FACETS: flat normals for every map mesh. MeshToonMaterial + a
+           smooth-normal GLB put crawling band stripes across the big soft
+           terrain faces (the "ordinary gradient" look the player flagged on
+           the snow map). Per-face normals make every triangle pick ONE toon
+           step, so the terrain shades in clean flat facets like a cartoon
+           model sheet. Batchers key on vertex DATA + material identity, and
+           the flatten cache shares ONE flat copy per original geometry, so
+           identical parts still batch into single draw calls. The async
+           grass-mask blend below only swaps MATERIALS, so it stays valid. */
+        try { if(typeof Toon !== 'undefined' && Toon.flatten) Toon.flatten(grp); } catch(_e){}
+        // Barrier meshes are collision-only helpers authored into these maps;
+        // they must never be seen.
+        try { grp.traverse(o => { if(o && o.isMesh && o.name && /barrier/i.test(o.name)) o.visible = false; }); } catch(e){}
         // Replace the previous map only now that the replacement is ready, so
         // the arena is never empty between maps. hideDefaults() is deliberately
         // here too (not in the mode-start functions): hiding the default arena
@@ -1843,7 +1968,22 @@ grp.traverse(o => {
             if(!this._glbFlag) this._glbFlag = this._glbFlags[0];
           }
 
-          if(lower.includes('pine') && (o.isGroup || o.isMesh)){
+          /* `tree` is a TREE TOO.
+
+             This branch used to be pines only, and every other tree was handled
+             by the `tree` rule further down, which did nothing but switch its
+             physics off. That is the whole of "the trees do not move": kaukaz's
+             foliage is named `tree`, `tree.020`, `tree-high-round.003`, so it
+             never reached the pine list, never reached the wind loop, and stood
+             dead still next to bushes that were swaying. Measured on kaukaz:
+             pines 0, while the node dump shows dozens of `tree*` meshes.
+
+             WHAT IS DELIBERATELY NOT INCLUDED: a node with many meshes under
+             it. Some maps group their whole forest under one parent, and
+             climbing to that parent and rotating it would tilt the entire
+             level instead of one tree. Anything that looks like a collection
+             keeps the old treatment (noPhysics only). */
+          if((lower.includes('pine') || lower.includes('tree')) && (o.isGroup || o.isMesh)){
             let root = o;
             while(root.parent && root.parent !== grp) root = root.parent;
             if(!this._glbPines.some(p => p.obj === root)){
@@ -1881,15 +2021,34 @@ grp.traverse(o => {
               const ws = new THREE.Vector3();
               root.getWorldScale(ws);
               const radius = Math.max(3, Math.min(Math.max(ws.x, ws.z) * 0.5, 10));
-              this._glbPines.push({
-                obj: root, x: wp.x, z: wp.z, radius,
-                _shakeTime: 0, _shakeActive: false,
-                _origRotX: root.rotation.x, _origRotZ: root.rotation.z
-              });
-              /* Blob spots are collected here rather than walked back out of
-                 _glbPines later, so the shadow pass above cannot be reintroduced
-                 for one species without the ground shadow following it. */
-              this._treeBlobSpots.push({ x: wp.x, z: wp.z, r: radius * 0.85 });
+              let pieceCount = 0;
+              root.traverse(c => { if(c.isMesh) pieceCount++; });
+              /* A "tree" with more than a handful of meshes is a forest group,
+                 not a tree. Registering it would give the wind one lever for
+                 the whole level. It still gets its shadow/blob treatment below
+                 — only the sway is skipped. */
+              if(pieceCount > 8){
+                root.traverse(c => {
+                  if(!c.isMesh) return;
+                  c.userData = c.userData || {};
+                  c.userData.noPhysics = true;
+                  c.castShadow = false;
+                });
+              } else {
+                this._glbPines.push({
+                  obj: root, x: wp.x, z: wp.z, radius,
+                  _shakeTime: 0, _shakeActive: false,
+                  _origRotX: root.rotation.x, _origRotZ: root.rotation.z,
+                  /* The contact shake squashes the crown a little, and that has
+                     to be undone exactly when the shake ends — so the resting
+                     scale is recorded instead of being assumed to be 1. */
+                  _baseScaleX: root.scale.x, _baseScaleY: root.scale.y, _baseScaleZ: root.scale.z
+                });
+                /* Blob spots are collected here rather than walked back out of
+                   _glbPines later, so the shadow pass above cannot be reintroduced
+                   for one species without the ground shadow following it. */
+                this._treeBlobSpots.push({ x: wp.x, z: wp.z, r: radius * 0.85 });
+              }
             }
           }
           if(((lower.includes('bush') || lower.includes('taiga')) || lower.includes('forest')) && (o.isGroup || o.isMesh)){
@@ -1968,7 +2127,8 @@ grp.traverse(o => {
                  scene: no error, just a hole where a bush was. */
               const origRotX = root.rotation.x, origRotZ = root.rotation.z;
               this._glbBushes.push({ obj: root, x: wp.x, z: wp.z, flipped: false, radius, solid,
-                noBillboard, _origRotX: origRotX, _origRotZ: origRotZ });
+                noBillboard, _origRotX: origRotX, _origRotZ: origRotZ,
+                _baseScaleX: root.scale.x, _baseScaleY: root.scale.y, _baseScaleZ: root.scale.z });
               this.bushes.push({ x: wp.x, z: wp.z, radius, mesh: root, isGLBBush: true, solid });
             }
           }

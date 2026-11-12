@@ -25,6 +25,12 @@ const CaptureCircle = (() => {
   let _spinPlane = null, _spinCanvas = null, _spinTex = null;
   let _glowDisc = null, _glowTex = null;
   let _uiSprite = null, _uiCanvas = null, _uiTex = null;
+  /* Change-key for the HUD panel: the 256x80 canvas used to be cleared,
+     redrawn and re-uploaded to the GPU EVERY frame even when both percents
+     and the contested state were unchanged. It only needs new pixels when
+     a rounded percent or the LOCKED/VS state flips. */
+  let _uiSig = null;
+  let _flagTarget = new THREE.Color(0xffffff);   /* scratch: no per-frame alloc */
 
   let _flag = null;
   let _flagCloth = [];        // materials whose name says "flag" (the cloth)
@@ -1077,7 +1083,8 @@ const CaptureCircle = (() => {
 
     /* the flag: tint toward the holding team, sway in the wind */
     if(_flag){
-      _flagTint.lerp(new THREE.Color(colorHex), Math.min(1, dt * 5));
+      _flagTarget.set(colorHex);
+      _flagTint.lerp(_flagTarget, Math.min(1, dt * 5));
       for(const m of _flagCloth){
         if(m.color) m.color.copy(_flagTint);
         if(m.emissive) m.emissive.copy(_flagTint).multiplyScalar(0.22);
@@ -1088,8 +1095,17 @@ const CaptureCircle = (() => {
       _flag.rotation.x = Math.cos(t * 1.15) * 0.014;
     }
 
-    /* UI canvas */
+    /* UI canvas — only repaints when something VISIBLE changed */
     if(_uiCanvas){
+      const myTeam   = (_game && _game.localTank && _game.localTank.team) || 'blue';
+      const minePct  = Math.round(myTeam === 'blue' ? _state.bluePercent : _state.redPercent);
+      const theirPct = Math.round(myTeam === 'blue' ? _state.redPercent : _state.bluePercent);
+      const sig = minePct + '|' + theirPct + '|' + (contested ? 1 : 0);
+      if(sig === _uiSig) {
+        /* nothing changed since the last upload — skip the clear, redraw and
+           the GPU upload entirely */
+      } else {
+      _uiSig = sig;
       const ctx = _uiCanvas.getContext('2d');
       ctx.clearRect(0, 0, 256, 80);
 
@@ -1115,9 +1131,6 @@ const CaptureCircle = (() => {
          are fixed text rather than derived from the team, because "BLUE" and
          "RED" here mean *yours* and *theirs* and stop being team ids. The
          colours are the same two hexes the ring uses. */
-      const myTeam   = (_game && _game.localTank && _game.localTank.team) || 'blue';
-      const minePct  = Math.round(myTeam === 'blue' ? _state.bluePercent : _state.redPercent);
-      const theirPct = Math.round(myTeam === 'blue' ? _state.redPercent : _state.bluePercent);
 
       ctx.textAlign = 'center';
       ctx.fillStyle = '#66aaff';
@@ -1137,6 +1150,7 @@ const CaptureCircle = (() => {
       ctx.fillText(theirPct + '%', 192, 62);
 
       _uiTex.needsUpdate = true;
+      }
     }
   }
 

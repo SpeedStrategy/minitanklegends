@@ -3634,6 +3634,11 @@ window.TankEditor = (function(){
       if(trk[tk] !== undefined && trk[tk] !== null){ trkOut[tk] = trk[tk]; trkKeys++; }
     }
     if(trkKeys) patch.tracks = trkOut;
+    /* Stamp the rig these coordinates were measured against. The pivot / fire
+       point / casing point are positions inside the tank's hierarchy, and the
+       loader ignores them on a mismatch instead of applying numbers that
+       describe a previous model (see Tank.RIG_VERSION). */
+    patch.rig = (window.Tank && Tank.RIG_VERSION) || 1;
     setOv(id, patch);
     if(state.tank && state.tank._applyEditorOverrides) state.tank._applyEditorOverrides();
     if(state.tank) applyValuesToScene();

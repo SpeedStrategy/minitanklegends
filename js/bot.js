@@ -179,7 +179,8 @@ class BotSquad {
     this.orders.clear();
     if(!bots.length) return;
     const ctx = { game, now, dt, members, bots, enemies, known, mid };
-    if(game._baseDefendMode && typeof BaseDefend !== 'undefined' && BaseDefend.getState()) this._baseOrders(ctx);
+    if(game._stealFlagMode && typeof StealFlag !== 'undefined' && StealFlag.getState()) this._stealOrders(ctx);
+    else if(game._baseDefendMode && typeof BaseDefend !== 'undefined' && BaseDefend.getState()) this._baseOrders(ctx);
     else if(game._captureCircleMode && typeof CaptureCircle !== 'undefined' && CaptureCircle.getState()) this._circleOrders(ctx);
     else this._pushOrders(ctx, bots);
   }
@@ -318,6 +319,82 @@ class BotSquad {
             rally: { x: z.cx - ax * 25, z: z.cz - az * 25 },
           });
         }
+      });
+    });
+  }
+
+  /* Steal the Flag: the squad reads the two flags live.
+
+     WHO GOES WHERE, in priority order:
+       1. if the ENEMY flag is already in OUR hands, the carrier drives it law
+          — everyone near them screens the run;
+       2. somebody must GUARD our own flag, more the closer an enemy is to it
+          (or the more our runner needs the exchange point held);
+       3. everyone else goes for the enemy flag — to its base if it is home,
+          to the drop spot if a carrier of it died in the open, and after the
+          enemy runner if IT has our flag and theirs is still home (hunting the
+          carrier both cancels their run and re-opens the exchange). */
+  _stealOrders(ctx){
+    const { bots } = ctx;
+    const st = StealFlag.getState();
+    if(!st || !st.flags || st.flags.length < 2) return this._pushOrders(ctx, bots);
+    const mine = st.flags.find(f => f.team === this.team);
+    const theirs = st.flags.find(f => f.team !== this.team);
+    if(!mine || !theirs) return this._pushOrders(ctx, bots);
+
+    /* Where the enemy flag physically IS right now. */
+    let goal = { x: theirs.homeX, z: theirs.homeZ };
+    if(theirs.carrier){
+      /* Held by them: our flag is stolen or theirs — hunting the carrier is
+         both a defence and the only way to open the yard for a run. */
+      goal = { x: theirs.carrier.x, z: theirs.carrier.z };
+    } else if(theirs.dropped){
+      goal = { x: theirs.x, z: theirs.z };
+    }
+
+    /* Guard share: our flag at home and untouched -> a light watch; the
+       closer OUR flag is to being used against us (dropped, or in enemy
+       hands about to be returned), the harder home is defended. */
+    const homeThreat = (mine.carrier && mine.carrier.team !== this.team) ? 0.5
+                     : mine.dropped ? 0.4
+                     : 0.25;
+    /* A clock close to expiry makes the team nearly reckless: guards
+       thin out, everyone joins the hunt. */
+    const share = st.overtime ? Math.max(0.1, homeThreat - 0.2) : homeThreat;
+    const count = Math.min(bots.length, Math.round(bots.length * share));
+
+    const ranked = bots.slice().sort((a, b) =>
+      (Math.hypot(a.x - mine.homeX, a.z - mine.homeZ) - a.brain.person.guard * 80) -
+      (Math.hypot(b.x - mine.homeX, b.z - mine.homeZ) - b.brain.person.guard * 80));
+    ranked.slice(0, count).forEach(t => {
+      /* Stand just off the flag on the side the enemy comes from. */
+      const dx = this.front.x - mine.homeX, dz = this.front.z - mine.homeZ;
+      const len = Math.max(1, Math.hypot(dx, dz));
+      const off = Math.min(40, (t.def.shellRange || 60) * 0.4);
+      const s = this._slot(t, 12);
+      this._post(t, ctx, 'defend', mine.homeX - (dx / len) * off + s.x, mine.homeZ - (dz / len) * off + s.z, {
+        leash: 34, pace: mine.carrier ? 1 : 0.7, face: { x: mine.homeX, z: mine.homeZ },
+        rally: { x: mine.homeX, z: mine.homeZ },
+      });
+    });
+
+    /* The hunt squad: everyone not guarding pushes the goal, spread with the
+       usual lanes so they do not arrive single-file. */
+    const hunt = ranked.slice(count);
+    if(!hunt.length) return;
+    const half = BotSquad.playHalf(ctx.game), c = BotSquad.playCentre(ctx.game);
+    hunt.forEach((t, i) => {
+      const b = t.brain, P = b.person;
+      const lane = Math.max(-2, Math.min(2, ((i + 1) >> 1) * (i % 2 ? 1 : -1)));
+      const back = (b.style.role === 'artillery' || b.style.role === 'sniper') ? 55 : 0;
+      let x = goal.x + lane * 14 * (1 + (1 - P.team) * 0.4);
+      let z = goal.z - lane * 14 * (1 + (1 - P.team) * 0.4);
+      x = Math.max(c.x - half, Math.min(c.x + half, x));
+      z = Math.max(c.z - half, Math.min(c.z + half, z));
+      this._post(t, ctx, 'advance', x, z, {
+        pace: st.overtime ? 1 : 0.85,
+        face: this.contact || { x: goal.x, z: goal.z },
+        rally: { x: goal.x, z: goal.z },
       });
     });
   }

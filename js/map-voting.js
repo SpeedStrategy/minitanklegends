@@ -89,7 +89,7 @@ const MapVoting = (() => {
      must stay — it is the Base Defend map and the only one with real bases.
      ========================================================================= */
 
-  const MAPS = [
+  const MAPS_BASE = [
     {
       id: 'dream',
       name: 'Dream',
@@ -101,144 +101,12 @@ const MapVoting = (() => {
       preview: null
     },
     {
-      id: 'core',
-      name: 'Core',
-      desc: 'Compact cover arena, 7 vs 7.',
-      /* THE PLAYER'S OWN MAP, imported from TL/TL_core.glb. A tight little
-         arena: a square ground plane, low cube cover scattered around it, a
-         stand of pines and a flag in the middle. Fourteen spawn markers (blue
-         x7, red x7) plus the flag, all named plainly, so _parseGLBSpawns picks
-         them up and both modes size their teams from the map -- the 7v7 is
-         honoured, same as Kaukaz.
-
-         SCALE = 167, which is 500 / 3: the arena is deliberately a third of
-         what it was, and about the size of Kaukaz (the other small 7v7 map).
-         The authored map is tiny -- the ground plane works out at 1.402 units
-         across, a 2-unit Blender plane on a node scaled 0.701 -- so the
-         multiplier is what makes it an arena at all:
-
-            100 ->  145 units   (a courtyard)
-            167 ->  241 units   (current)
-            300 ->  434 units
-            500 ->  723 units   (the size it was before)
-
-         For reference the others land at Kaukaz ~314 (x120), Old School ~530,
-         Dream ~731, Ruins ~1253, Kaukaz III ~1731.
-
-         A note on reading this file's numbers, because it is a trap: the union
-         of the raw POSITION accessor bounds says 5.728 across and 9.04 tall,
-         and neither is real. Every mesh is exported at a 5.728-unit size and
-         then shrunk by a scale on its own node (0.04 to 0.7), so the raw
-         accessor numbers are pre-transform and describe nothing you can drive
-         on. tools/glb-markers.ps1 in TL/tools applies the node transforms and
-         prints the real extent; that is where 1.445 came from. Measured with
-         the same tool against TL_map_kaukaz_v2.glb, whose scale of 120 the
-         comment above says lands at ~310 units: 2.619 x 120 = 314, so the tool
-         and the arithmetic agree.
-
-         worldHalf = 130 EXISTS BECAUSE OF worldHalf. _fitWorldToMap floors the
-         boundary at 500 so a tiny or degenerate map cannot squeeze the arena
-         shut, and at 241 units that floor is twice the map. Leaving it there
-         was not cosmetic:
-
-           * the tank clamp (tank.js) is world.half - 3, so you could drive
-             350+ units past the edge of the ground and fall;
-           * the void kill (game.js) is world.half - 10;
-           * the capture circle's starting radius is world.half, so the circle
-             covered the entire map from the first second and never closed;
-           * the minimap maps the world to a world.size square, so it drew a
-             quarter of the arena;
-           * the camera limit is world.half, so it panned four times past the
-             terrain.
-
-         130 is not a magic number: it is exactly what _fitWorldToMap derives
-         for this map with the floor removed -- 241 / 2 x 1.08 = 130.3. The
-         8% margin is the same one the derived path uses, which keeps the visual
-         edge of the ground inside the kill boundary. Declaring it here means
-         only THIS map is affected; the floor stays for the other seven. */
-      glb: 'assets/maps/TL_core.glb',
-      scale: 167,
-      worldHalf: 130,
-      preview: null
-    },
-    {
-      id: 'core2',
-      name: 'Core II',
-      desc: 'The rebuilt core — concrete, metal and a satellite dish.',
-      /* NEW. Converted from assets/maps/core2.blend, which is an 89MB Blender file
-         the browser cannot load at all — it had to be exported before it could
-         be voted on. See tools/export-core2.py.
-
-         SCALE = 228.33, measured with tools/glb-markers.ps1 rather than guessed,
-         then divided by 1.8 to tighten the arena. With node transforms applied
-         the authored arena is 1.290 units across:
-
-             228.33 x 1.290 = 294.5 units   (was 411 x 1.290 = 530)
-
-         For reference Dream lands at ~731 and the original Core at ~241, so this
-         now sits just above Core — a compact courtyard rather than the roomy
-         arena it was at 530.
-
-         worldHalf = 159 is that size's derived boundary, 294.5 / 2 x 1.08 =
-         159.06. Stated explicitly for exactly the reason Core states 130:
-         _fitWorldToMap floors worldHalf at 500, and at 294.5 units that floor is
-         nearly twice the terrain, so the void kill and the camera limit would
-         both be wrong.
-
-         THE SPAWNS ARE THE CAVEAT. The seven-per-side spawns are authored into
-         the GLB and found BY NAME, so shrinking the arena does not move them —
-         it just packs all fourteen into 56% of the room they had. Worth an
-         eyeball on whether they now overlap or sit inside geometry.
-
-         7 spawns a side and a flag, hence "7 vs 7" in the desc. Those are empty
-         objects named blue / red / flag and they survive the export untouched —
-         the game finds spawns BY NAME (World._parseGLBSpawns), so renaming
-         anything on the way out would silently drop the spawns.
-
-         THE SIZE. core2.blend was 89MB and exported to 2.92MB. Almost none of
-         that was geometry — 12,118 triangles is nothing. 70 of its 113 packed
-         textures were referenced by no material at all, and the rest were 2048
-         maps with the ROUGHNESS and METALLIC layers costing more than everything
-         else combined. Resolution is now budgeted by role: base colour 1024,
-         normals 512, roughness/metallic/occlusion 256. The surface a player
-         actually looks at is unchanged or better; the maps that only modulate
-         shading are a quarter of the size. */
-      glb: 'assets/maps/TL_core2.glb',
-      scale: 228.33,
-      worldHalf: 159,
-      preview: null
-    },
-    {
-      id: 'lastfrontier',
-      name: 'Last Frontier',
-      desc: 'Snowbound outpost — village, church and open ground.',
-      /* NEW. Arrived as an already-exported glb, so unlike core2 it needed no
-         conversion, only shrinking. See tools/optimize-glb.py.
-
-         SCALE = 118, measured. The authored arena is 5.418 units across:
-
-             118 x 5.418 = 639 units   (current)
-
-         Second-largest of the four, and a genuinely big one — which is why it is
-         worth the download.
-
-         worldHalf = 520. It used to be 345 (639 / 2 x 1.08), but the arena is
-         NOT centred on the origin and the boundary is: the west spawns sit at
-         x = -415..-453, outside 345, so the void kill took two-thirds of the
-         field on every respawn. 520 clears the furthest spawn by ~65 units.
-
-         THE FILENAME KEEPS ITS SPACE. "assets/maps/last frontier.glb" is
-         unappealing and looks like a typo, but it is the name the file arrived
-         under and renaming it would mean either a second copy on disk or a
-         silent 404 if any other file still points at the old path. If it is ever
-         renamed, rename it in one place and grep for the old string first.
-
-         13 blue and 14 red spawns — built for a full roster. The desc does not
-         claim a team size because the map does not impose one; the mode sizes
-         the team and the spawn list is simply long enough to draw from. */
-      glb: 'assets/maps/last frontier.glb',
-      scale: 118,
-      worldHalf: 520,
+      id: 'dreamland',
+      name: 'Dreamland',
+      desc: 'A dreamlike landscape.',
+      glb: 'assets/maps/dreamland.glb',
+      scale: 96,
+      worldHalf: 146,
       preview: null
     },
     {
@@ -347,8 +215,203 @@ const MapVoting = (() => {
       worldHalf: 351,
       captureTime: 50,
       preview: null
+    },
+    {
+      id: 'kaukaz',
+      name: 'Kaukaz',
+      desc: 'Steal the enemy flag and run it home — 5 vs 5 capture the flag.',
+      /* BACK IN THE ROSTER, REBUILT. The old kaukaz cards were removed when the
+         vote was trimmed to five maps (see the removal table in the header);
+         this is a NEW model — assets/maps/kaukaz.glb, measured with
+         tools/glb-measure.mjs:
+
+           terrain   346 x 521 units at scale 120, floor at y ~ -42
+           markers   5 `blue` on the +x side, 5 `red` on the -x side, both
+                     clusters at z +372..430 — i.e. the teams face each other
+                     ACROSS the x axis, not the z axis
+           flags     TWO `flag` nodes, one inside each spawn cluster:
+                     flag.002 at (-88, 388) on the red side, flag.003 at
+                     (+95, 409) on the blue side
+
+         SCALE 120. Same decision as Signal Map and The Hill: it is the number
+         the whole engine's props, shells and foliage already assume, and it
+         puts the flag-to-flag distance at ~184 units — long enough that a run
+         home is a chase, not a shove.
+
+         worldHalf 470, DECLARED. Derived from the terrain it would be 640,
+         because the model's ground extends to z = 593 while every ACTION —
+         spawns and both flags — lives inside z ~ 455. A 640 boundary would
+         let a tank keep going 200 units past the last spawn marker into empty
+         scenery; 470 puts the kill boundary just past the fight (the
+         boundary-kill in Game.update runs at `world.half - 10`), and
+         _clampSpawnsToMap widens it on its own if a future export pushes a
+         spawn further out. */
+      glb: 'assets/maps/kaukaz.glb',
+      scale: 120,
+      worldHalf: 470,
+      preview: null
+    },
+    {
+      id: 'spacestation',
+      name: 'Spacestation',
+      desc: 'Knockout inside a steel station — 5 vs 5. Flags if the map has them.',
+      /* NEW. Shipped pre-built as TL/spacestation.glb (glTF, Y-up). Measured
+         in the engine itself (three.js Box3 over the loaded scene) at 2.18 x
+         1.06 x 2.15 authored units, so x120 lands at ~261 x 258 — between The
+         Hill (346) and the Circle's arena, which is the right size for a 5v5
+         knockout box.
+
+         MEASURED IN THE ENGINE, not with tools/glb-measure.mjs: that tool takes
+         each accessor's min/max and scales it, which is wrong for a node that
+         carries BOTH a non-uniform scale and a rotation — a box has to be
+         rotated corner by corner. On prototype.glb it reported 3.52 units long
+         where the loaded model is 2.05, and a boundary derived from that would
+         sit a hundred units outside the map.
+
+         SPAWNS ARE AUTHORED 5v5: five `blue` empties at x ~ +0.9 (z +0.35..+0.95)
+         and five `red` at x ~ -0.6 (z -0.55..-0.92), i.e. the teams face each
+         other across BOTH axes, not down one lane. Six `bush` nodes ride the
+         engine's bush stack as cover.
+
+         ONE `flag` AT THE ORIGIN — which is why this map is offered for Steal
+         the Flag. The mode gives a bare flag to the nearest spawn cluster and
+         auto-places the other side's flag behind its own spawns, so the map
+         plays without a second authored flag; it just loses that label.
+
+         worldHalf 152 is DECLARED, and it is the engine's own derived number:
+         the loaded box runs x -120.5..140.9, z -134.7..123.3, so the half is
+         140.9 (it is measured from the ORIGIN, not from the centre) and the
+         boundary is 140.9 x 1.08 = 152. Stated here because Gladiator sizes its
+         zone from world.half BEFORE the map loads and would otherwise see the
+         500 floor. */
+      glb: 'assets/maps/spacestation.glb',
+      scale: 109,
+      worldHalf: 138,
+      /* Knockout and Capture the Flag, which is what the brief for this map
+         said. The menu's spelling is used ('team-deathmatch'); _normMode makes
+         either spelling work regardless. */
+      modes: ['team-deathmatch', 'stealFlag'],
+      preview: null
+    },
+    {
+      id: 'prototype',
+      name: 'Prototype',
+      desc: 'Knockout and capture the flag on a test-range blockout — 5 vs 5.',
+      /* NEW. TL/prototype.glb, measured the same way (loaded scene, three.js
+         Box3): 2.13 x 0.85 x 2.05 authored units, so x120 is ~256 x 246 —
+         The Hill's footprint with a third of its height, which is what a bare
+         blockout should be.
+
+         SPAWNS: five `blue` at x ~ -0.75, five `red` at x ~ +0.8, so the teams
+         line up across x and fight down the length.
+
+         TWO FLAGS, authored as `FLAG` and `FLAG.001` (uppercase — the loader
+         lowercases names before matching, so they are found). Both sit near the
+         centre line at x 0, z 0.21 and 0.9, which lands one with each side's
+         spawn cluster: blue's nearest is FLAG (0.76 units away vs 0.81) and
+         red's is FLAG.001 (1.12 vs 1.14). That is a midfield-flag match rather
+         than a run-the-length-of-the-map one, and it is what the author drew.
+
+         The map is named Prototype and IS one: no plants, no cover set, plain
+         blockout geometry. It exists to test the two modes on, which is exactly
+         what `modes` below says.
+
+         worldHalf 140 is DECLARED, the engine's derived number again: the box
+         runs x -129.2..126.6, z -120.8..124.7, half 129.2, x 1.08 = 140. Same
+         reason as spacestation's — the 500 floor would sit far outside the
+         model, and Gladiator reads world.half before the load. */
+      glb: 'assets/maps/prototype.glb',
+      scale: 120,
+      worldHalf: 140,
+      modes: ['team-deathmatch', 'stealFlag'],
+      preview: null
     }
   ];
+
+  /* The live roster the vote screen renders. Starts as the built-in list and
+     grows with dropped-in maps (below) on every refresh. */
+  let MAPS = MAPS_BASE.slice();
+
+  /* =======================================================================
+     DROP-IN MAPS — a .glb in assets/maps/custom/ shows up on the vote
+     screen by itself. No code change.
+
+     HOW: the local server (server/mpserver.js) lists that folder at
+     /api/maps/custom on every request, so a file copied in or replaced is
+     live on the very next lobby. Anything the file name offers — spaces,
+     unicode — is fine; the endpoint ships the URL encoded and static serving
+     decodes it. Spawn/markers follow the existing convention the engine
+     already parses: nodes named `blue`/`red` (spawn clusters), `flag`.
+
+     SCALE / WALLS. scale defaults to 120 like the rest of the roster and
+     worldHalf is left undeclared on purpose: _fitWorldToMap derives the
+     boundary from the model's own extents after load, the same path every
+     map without a declared boundary already takes. If a particular map
+     deserves hand-picked numbers, drop a <samename>.json sidecar next to
+     the .glb:
+
+        { "name": "Cold Ridge", "desc": "one-line card blurb",
+          "scale": 140, "worldHalf": 460, "preview": "thumb.jpg" }
+
+     On a static host (the pages deploy) /api/maps/custom does not exist —
+     the fetch 404s and the game runs the built-in roster exactly as before.
+     A silent skip, never an error. */
+  const CUSTOM_URL = 'api/maps/custom';
+  let _customSig = '';        /* last list we applied — repaint only on change */
+
+  function _referer(){ return 'assets/maps/custom/'; }
+
+  function _customEntries(raw){
+    if(!Array.isArray(raw)) return [];
+    const out = [];
+    const seen = new Set();
+    for(const m of raw){
+      try {
+        if(!m || typeof m.url !== 'string' || !m.url) continue;
+        if(typeof m.id !== 'string' || seen.has(m.id)) continue;
+        seen.add(m.id);
+        out.push({
+          id: m.id,
+          name: (typeof m.name === 'string' && m.name.trim())
+            ? m.name.trim().slice(0, 40)
+            : decodeURIComponent(m.url).replace(/\.glb$/i, '').replace(/[_-]+/g, ' ').trim(),
+          desc: (typeof m.desc === 'string' && m.desc.trim())
+            ? m.desc.trim().slice(0, 80)
+            : 'Custom map — dropped into assets/maps/custom.',
+          glb: _referer() + m.url,
+          scale: (Number.isFinite(m.scale) && m.scale > 0) ? m.scale : 120,
+          worldHalf: (Number.isFinite(m.worldHalf) && m.worldHalf > 0) ? Math.round(m.worldHalf) : undefined,
+          preview: (typeof m.preview === 'string' && m.preview) ? _referer() + m.preview : null
+        });
+      } catch(e){ /* one bad entry never kills the list */ }
+    }
+    return out;
+  }
+
+  /* Re-list the folder and, if the roster actually changed, say so. Called
+     from boot and re-called every time a vote screen opens — when a file name
+     showed up mid-session it lands on the cards that round. */
+  async function refreshCustomMaps(){
+    let list = null;
+    try {
+      const r = await fetch(CUSTOM_URL, { cache: 'no-store' });
+      if(r.ok){
+        const d = await r.json();
+        if(d && Array.isArray(d.maps)) list = d.maps;
+      }
+    } catch(e){ /* static host / server down -> built-in roster, as always */ }
+    const entries = _customEntries(list || []);
+    const sig = entries.map(m => m.id).join('|');
+    if(sig === _customSig) return false;
+    _customSig = sig;
+    MAPS = MAPS_BASE.concat(entries);
+    console.log('[vote] custom maps:', entries.map(m => m.id).join(', ') || '(none)');
+    return true;
+  }
+
+  /* Listed as soon as the page loads, so the FIRST vote screen already has
+     the folder's contents rather than waiting on the call in _show(). */
+  const _bootCustom = refreshCustomMaps();
 
   /* Every round lasts exactly this long, whether you are alone or not, and
      whether or not everyone has voted. It is the single thing that ends the
@@ -386,6 +449,71 @@ const MapVoting = (() => {
      rAF-free interval below without re-rendering the DOM every tick. */
   let _lastLabel = null;
 
+  /* WHICH MAPS A MODE CAN ACTUALLY PLAY.
+
+     This used to be a single pin — Steal the Flag was hard-wired to kaukaz,
+     because kaukaz was the only map that shipped a `flag` node per base. That
+     stopped being true the moment a second map arrived with flags, and a pin
+     cannot express "this map is good for two modes, that one for three".
+
+     So a map may now DECLARE the modes it is built for:
+
+         modes: ['teamDeathmatch', 'stealFlag']
+
+     and the vote screen offers a map when it either declares nothing (the
+     original behaviour — everything plays everywhere) or names the mode being
+     voted on. A map that declares nothing is never filtered, so no existing
+     card changes. A renamed/removed map can never empty the screen either: if
+     the filter leaves nothing, the full roster is offered rather than a blank
+     vote nobody can complete. */
+  let _modeFilter = null;
+  let _limitOverride = null;
+
+  /* MODES THAT MAY ONLY RUN ON NAMED MAPS.
+
+     Steal the Flag is the one mode that cannot be improvised: it needs a `flag`
+     entity standing where each team's base is. A map without authored flags
+     still "works" — the mode auto-places one behind each spawn cluster — but
+     that is a rescue path, not a designed objective, and the mode is balanced
+     around the flag-to-flag gap.
+
+     So the CTF vote is the maps that ship flags: kaukaz (flag.002 + flag.003,
+     one in each base) plus the two blockouts added alongside this list —
+     spacestation (one central `flag`, the other side auto-placed) and prototype
+     (FLAG + FLAG.001, one per side). A map id that is renamed simply drops off
+     this list until it is renamed here too.
+
+     Every other mode takes the whole roster, minus any map that has narrowed
+     itself with a `modes` array. */
+  const MODE_MAPS = {
+    stealflag: ['kaukaz', 'spacestation', 'prototype'],
+  };
+
+  /* MODE IDS ARE SPELLED TWO WAYS IN THIS CODEBASE, so they are compared with
+     the punctuation and case stripped. The menu's mode buttons use
+     'team-deathmatch' while GAMEMODES keys that same mode 'teamDeathmatch',
+     and `opts.mode` is whatever `_selectedGamemode` holds — the MENU spelling.
+     A literal indexOf against a def that says 'teamDeathmatch' would therefore
+     filter Team Deathmatch's own new maps straight out of its own vote, which
+     is a silent empty hand: the map would simply never appear. */
+  function _normMode(m){
+    return String(m || '').toLowerCase().replace(/[^a-z]/g, '');
+  }
+
+  function _roster(){
+    if(!_modeFilter) return MAPS;
+    const want = _normMode(_modeFilter);
+    const allow = MODE_MAPS[want] || null;
+    const fits = MAPS.filter(m => {
+      if(allow && allow.indexOf(m.id) < 0) return false;
+      /* A map that declares its modes only plays those. */
+      if(Array.isArray(m.modes) && m.modes.length &&
+         !m.modes.some(x => _normMode(x) === want)) return false;
+      return true;
+    });
+    return fits.length ? fits : MAPS;   /* a renamed map must never empty the screen */
+  }
+
   function _init(){
     _overlay = document.getElementById('map-vote-overlay');
     _cardsEl = document.getElementById('mv-cards');
@@ -395,7 +523,7 @@ const MapVoting = (() => {
 
   function _renderCards(){
     _cardsEl.innerHTML = '';
-    MAPS.forEach(map => {
+    _roster().forEach(map => {
       const card = document.createElement('div');
       card.className = 'mv-card';
       card.dataset.mapId = map.id;
@@ -435,22 +563,53 @@ const MapVoting = (() => {
     const grads = {
       /* Purple: the dreamlike one, unchanged from before. */
       'dream': 'linear-gradient(135deg, #3a1e5a 0%, #5a2e7a 50%, #4a246a 100%)',
+      'dreamland': 'linear-gradient(135deg, #2a4a6a 0%, #4a7aaa 50%, #3a5a8a 100%)',
       /* Green: forest and grass cover. */
-      'core': 'linear-gradient(135deg, #1f3d2b 0%, #356b45 50%, #244d33 100%)',
       /* Concrete and metal — deliberately desaturated against Core's green, so
          the two 7v7 maps do not read as the same card. */
-      'core2': 'linear-gradient(135deg, #2b3038 0%, #4d5560 50%, #363c45 100%)',
       /* Cold: snow, with the stone of the church and the village behind it. */
-      'lastfrontier': 'linear-gradient(135deg, #39424e 0%, #7d8794 50%, #a8b2bd 100%)',
       /* Hill: grass rising into a dry, sunlit crown — distinct from Core's
          deep forest green and from Last Frontier's cold stone. */
       'hill': 'linear-gradient(135deg, #24561f 0%, #4e7a33 45%, #93a05a 100%)',
       /* Shooting range: neutral grey-green field. */
-      'shootingrange': 'linear-gradient(135deg, #3a4a3a 0%, #5a6a5a 45%, #7a7a6a 100%)'
+      'shootingrange': 'linear-gradient(135deg, #3a4a3a 0%, #5a6a5a 45%, #7a7a6a 100%)',
+      /* Kaukaz: two bases across a contested ridge — a cold purple into an
+         amber midtone, so it reads as neither the Circle's blue-green roster nor
+         the Hill's grass card and is distinct at a glance from the other six. */
+      'kaukaz': 'linear-gradient(135deg, #2a2440 0%, #4a3a6a 45%, #7a5a3a 100%)',
+      /* Spacestation: steel hull plates and cold interior lighting — blue-grey
+         with a warm strip of corridor light through the middle. */
+      'spacestation': 'linear-gradient(135deg, #1c2430 0%, #3c5064 45%, #a08a5a 100%)',
+      /* Prototype: bare test-range grey with an unfinished amber warning stripe
+         — the map is a blockout, so the card says so. */
+      'prototype': 'linear-gradient(135deg, #2a2a28 0%, #55564f 45%, #8a7a3a 100%)'
     };
     /* Flat grey for a map with no entry reads as "unfinished", which is the
        honest signal if someone adds a map and forgets this table. */
+    /* Flat grey only ever covered the KNOWN ids that lack an entry. A custom
+       map gets a stable gradient derived from its own id instead, so five
+       dropped maps are five distinguishable cards rather than five greys. */
+    if(id && id.indexOf('custom-') === 0){
+      let h = 0;
+      for(let i = 7; i < id.length; i++){ h = (h * 31 + id.charCodeAt(i)) >>> 0; }
+      const h1 = h % 360, h2 = (h1 + 45) % 360, h3 = (h1 + 210) % 360;
+      return 'linear-gradient(135deg, hsl(' + h1 + ',38%,24%) 0%, hsl(' + h2 + ',42%,40%) 50%, hsl(' + h3 + ',34%,30%) 100%)';
+    }
     return grads[id] || 'linear-gradient(135deg, #333, #555)';
+  }
+
+  /* Paint (or repaint) the vote list from the current MAPS. The one block
+     that clears, seeds and renders — factored out because a custom map that
+     lands in the folder between refreshes triggers a second call mid-round. */
+  function _paintVoteList(){
+    /* A repaint that happens after the player already voted must carry that
+       vote forward, or the tally silently loses it. */
+    const keep = _myVote;
+    _votes = {};
+    _roster().forEach(m => _votes[m.id] = 0);
+    if(keep) _votes[keep] = 1;
+    _renderCards();
+    _syncUI();
   }
 
   function _isMultiplayer(){
@@ -545,7 +704,7 @@ const MapVoting = (() => {
 
   function _totalVotes(){
     let t = 0;
-    MAPS.forEach(m => { t += _tallyFor(m.id); });
+    _roster().forEach(m => { t += _tallyFor(m.id); });
     return t;
   }
 
@@ -592,7 +751,7 @@ const MapVoting = (() => {
   function _syncUI(){
     const totalVotes = _totalVotes();
 
-    MAPS.forEach(m => {
+    _roster().forEach(m => {
       const el = document.getElementById('mv-votes-' + m.id);
       if(el) el.textContent = _tallyFor(m.id);
 
@@ -604,7 +763,11 @@ const MapVoting = (() => {
 
     if(_labelEl){
       let text;
-      if(_myVote){
+      if(_roster().length === 1){
+        /* One arena: there is nothing to tally, so say what the round is. */
+        const only = _roster()[0];
+        text = only.name + ' is the only arena this mode is built for';
+      } else if(_myVote){
         const chosen = MAPS.find(m => m.id === _myVote);
         text = 'You voted for ' + chosen.name + ' — ' + totalVotes + ' total vote' + (totalVotes !== 1 ? 's' : '');
       } else {
@@ -636,7 +799,7 @@ const MapVoting = (() => {
      number that actually ends the round. */
   function _startTimer(){
     _startedAt = Date.now();
-    const limit = VOTE_DURATION;
+    const limit = _limitOverride || VOTE_DURATION;
 
     const step = () => {
       if(_finalized) return;
@@ -670,15 +833,17 @@ const MapVoting = (() => {
   /* Highest tally wins. Ties break on the local vote, then at random, so two
      players who picked different maps still agree on one map. */
   function _pickWinner(){
+    const roster = _roster();
+    if(roster.length === 1) return roster[0].id;
     let bestId = null, best = -1;
-    MAPS.forEach(m => {
+    roster.forEach(m => {
       const t = _tallyFor(m.id);
       if(t > best){ best = t; bestId = m.id; }
     });
     if(best <= 0){
-      return MAPS[Math.floor(Math.random() * MAPS.length)].id;
+      return roster[Math.floor(Math.random() * roster.length)].id;
     }
-    const tied = MAPS.filter(m => _tallyFor(m.id) === best).map(m => m.id);
+    const tied = roster.filter(m => _tallyFor(m.id) === best).map(m => m.id);
     if(tied.length === 1) return tied[0];
     if(_myVote && tied.indexOf(_myVote) >= 0) return _myVote;
     return tied[Math.floor(Math.random() * tied.length)];
@@ -690,7 +855,7 @@ const MapVoting = (() => {
     _stopTimers();
 
     const winnerId = _pickWinner();
-    const winner = MAPS.find(m => m.id === winnerId) || MAPS[0];
+    const winner = MAPS.find(m => m.id === winnerId) || _roster()[0];
 
     MAPS.forEach(m => {
       const card = _cardsEl.querySelector('[data-map-id="' + m.id + '"]');
@@ -870,6 +1035,8 @@ const WIPE_IN_MS = 220;
     _myVote = null;
     _finalized = false;
     _lastLabel = null;
+    _modeFilter = (opts && typeof opts.mode === 'string' && opts.mode) ? opts.mode : null;
+    _limitOverride = null;
     _multiplayer = !!(opts && opts.multiplayer);
     _workerUrl = (opts && opts.workerUrl) || null;
     _playerId = (opts && opts.playerId) || null;
@@ -882,9 +1049,8 @@ const WIPE_IN_MS = 220;
       _remoteVotes = Object.assign({}, opts.mapVote);
     }
 
-    MAPS.forEach(m => _votes[m.id] = 0);
-    _renderCards();
-    _syncUI();
+    _paintVoteList();
+    refreshCustomMaps().then(changed => { if(changed) _paintVoteList(); });
 
     const lbl = document.getElementById('mv-votes-label');
     if(lbl) lbl.style.color = '';
@@ -898,6 +1064,18 @@ const WIPE_IN_MS = 220;
     }
     _overlay.classList.remove('hidden');
     _wipeIn();
+
+    /* One arena: pre-cast the vote and shorten the beat. Done AFTER the
+       overlay is up so the card is visibly voted on rather than simply
+       appearing already marked. */
+    if(_roster().length === 1){
+      _limitOverride = 3;
+      const only = _roster()[0];
+      _myVote = only.id;
+      _votes[only.id] = 1;
+      _publishVote(only.id);
+      _syncUI();
+    }
 
     _startVotePolling();
     _startTimer();
@@ -913,6 +1091,8 @@ const WIPE_IN_MS = 220;
     _playerId = null;
     _workerUrl = null;
     _multiplayer = false;
+    _modeFilter = null;
+    _limitOverride = null;
 
     if(!then){ _overlay.classList.add('hidden'); return; }
     _wipeOut(function(){
@@ -931,5 +1111,5 @@ const WIPE_IN_MS = 220;
   function getMaps(){ return MAPS; }
   function getMapById(id){ return MAPS.find(m => m.id === id); }
 
-  return { showVote, getMaps, getMapById };
+  return { showVote, getMaps, getMapById, refreshCustomMaps };
 })();

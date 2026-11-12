@@ -12,6 +12,14 @@ const LEAN_ROLL  = 0.087;   /* 5.0 degrees — the hull rolling in a corner  */
 const LEAN_STIFF = 110;     /* stands in for gravity pulling the hull level */
 const LEAN_DAMP  = 10;      /* lets it overshoot once, then settle          */
 
+/* ---- gun recoil ----
+   HOW FAR THE BARREL SLIDES BACK, IN WORLD UNITS. It used to be a fixed 0.4 in
+   the model's own units, which is meaningless across a roster authored at
+   scales from 0.3 to 13: Cool Buddy's model is scaled 16.8x, so its gun jumped
+   9.4 units on every shot, while the Helix moved 0.3. Converting once at rig
+   time (see _attachNamedModel) gives every tank the same visible kick. */
+const RECOIL_WORLD = 0.45;
+
 /* ---- outline widths ----
    OUTLINE_TANK is deliberately WIDER than the old baked hull (0.055). The
    push now happens in the vertex shader, so a bigger number is a genuinely
@@ -46,9 +54,16 @@ const HPBAR_STYLE = 3;
    wire, and guessing at it from a trophy count would be worse than honest. */
 const _avatarIconCache = {};
 function getAvatarIcon(){
-  if(typeof getEquippedTrophy !== 'function') return null;
+  /* THE EQUIPPED TROPHY, STRICTLY. The menus fall back to "the first trophy you
+     own" so the profile slot is never empty, but the nameplate has to show what
+     the player WEARS -- a player who owns trophies and has equipped none gets an
+     empty avatar slot on the plate, not somebody else's trophy. */
+  if(typeof getEquippedTrophyId !== 'function' || typeof getTrophy !== 'function') return null;
   let t = null;
-  try{ t = getEquippedTrophy(); }catch(e){ return null; }
+  try{
+    const id = getEquippedTrophyId();
+    t = id ? getTrophy(id) : null;
+  }catch(e){ return null; }
   if(!t || !t.icon) return null;
   if(_avatarIconCache[t.id]) return _avatarIconCache[t.id];
   const img = new Image();
@@ -69,6 +84,37 @@ function refreshAvatarIcons(){
   }catch(e){}
 }
 window.refreshAvatarIcons = refreshAvatarIcons;
+
+/* THE BUSH ICON on the right-hand gutter of the plate. One Image for every
+   plate in the match, fetched on first use; the plates that already drew an
+   empty gutter repaint on their next dirty tick (entering a bush IS a dirty
+   tick -- see _stepHpBar), so nobody is left with a stale empty corner. */
+let _bushIconImg = null;
+function getBushIcon(){
+  if(_bushIconImg) return _bushIconImg;
+  const img = new Image();
+  img.src = 'assets/ui/bush.webp';
+  img.onload = () => { try{ refreshAvatarIcons(); }catch(e){} };
+  img.onerror = () => {};
+  _bushIconImg = img;
+  return img;
+}
+window.getBushIcon = getBushIcon;
+
+/* HOW FAR THE NAMEPLATE'S BOTTOM EDGE FLOATS ABOVE THE TURRET TOP, in world
+   units. This used to be a fixed offset from the turret to the plate's CENTRE,
+   so a distant tank -- whose plate is scaled up to 4x, i.e. 5.5 units tall --
+   had its plate sit almost on its own hull (bottom edge 1.4 above the turret),
+   while the local tank's floated at 3.0. Measuring to the BOTTOM edge and adding
+   the plate's half-height keeps one constant gap at every zoom, and 4.2 is a
+   clear lift from the old ~3.0 everywhere. */
+const NAMEPLATE_GAP = 4.2;
+
+/* THE TANK COLLISION BIT. Membership 0x0002, transparent to everything else in
+   the world (see _createPhysBody). A respawning tank clears exactly this bit
+   from its filter to become a ghost that only other TANKS cannot touch. */
+const TANK_COLLIDE_BIT = 0x0002;
+
 class Tank {
   constructor(def, opts={}){
     /* PROGRESSION 2.0: the bought upgrade tree bakes into the def the moment
@@ -159,6 +205,19 @@ class Tank {
        countdown on having shaken the foliage. */
     this.coverOverlap = 0;
     this.coverRevealed = 0;
+    /* COVER PHASES (see _updateCover). 0 in the open, 1 = touching cover and
+       faded to 80% transparent, 2 = fully hidden. _coverStillT is the clock
+       that has to reach BUSH_PHASE2_TIME without a shot or a fast wheel;
+       _coverBody is the bush CLUMP the clock belongs to, so creeping from one
+       bush of a hedge into its neighbour keeps the progress and crossing open
+       ground to an unconnected bush does not. */
+    this.coverPhase = 0;
+    this._coverStillT = 0;
+    this._coverBody = -1;
+    this._coverLostT = 0;
+    /* Last opacity actually written onto the meshes, so the traverse below runs
+       only when the number changes rather than every frame for every tank. */
+    this._coverOpacityApplied = 1;
     /* Whether the model is currently switched off for camouflage. Tracked
        separately from camoFactor so _applyCamoVisual only touches visibility
        on the frames it actually flips, rather than every frame for every tank. */
@@ -288,6 +347,13 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     this._recoilHome = null;
     this._recoilKick = 0;
     this._recoilT = -1;
+    /* WHICH WAY "BACK" IS, in the gun node's parent space. Resolved from the
+       model at rig time (see _attachNamedModel) instead of being assumed to be
+       the gun's local X: a model authored barrel-along-+Z -- Hellfire, Striker,
+       Cool Buddy -- recoiled ninety degrees sideways when the kick was written
+       to position.x, so the muzzle (and with it the flame cone, the flash and
+       the aim line start) slid across the tank and then eased back. */
+    this._recoilAxis = new THREE.Vector3(1, 0, 0);
 
     // Model-driven gun ELEVATION, used by the Mortar. `_gunNode` is the authored
     // arm the barrel hangs off (Cube.003 in TL_mortar.glb); rotating it about its
@@ -361,7 +427,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     if(this._partsMerged || !this.root || typeof THREE === 'undefined') return;
     this._partsMerged = true;
     try {
-      const dynamic = new Set([this._recoilNode, this._pitchGroup, this._modelTurretPivot, this.turretGroup].filter(Boolean));
+      const dynamic = new Set([this._recoilNode, this._modelTurretPivot, this.turretGroup].filter(Boolean));
       if(this._animNodes) this._animNodes.forEach(n => dynamic.add(n));
       const roots = [this.bodyGroup, this.turretGroup, this._modelTurretPivot].filter(Boolean);
       for(const R of roots){
@@ -431,7 +497,16 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       var col = RAPIER.ColliderDesc.cuboid(this.colHalfW, this.colHalfH, this.colHalfL)
         .setDensity(this.mass / (this.colHalfW * 2 * this.colHalfH * 2 * this.colHalfL * 2))
         .setRestitution(0.15)
-        .setFriction(0.7);
+        .setFriction(0.7)
+        /* TANKS ARE THEIR OWN COLLISION CLASS.
+
+           Membership bit 0x0002, interacting with everything. Static world
+           colliders keep their default membership of 0xFFFF, which includes
+           this bit, so nothing about the world changes. What it buys is the
+           ghost window below: clearing ONLY that bit from a respawning tank's
+           filter makes it pass through other tanks while it still collides
+           with terrain, buildings — every collider that is not a tank. */
+        .setCollisionGroups((TANK_COLLIDE_BIT << 16) | 0xFFFF);
       this._physCollider = this._physWorld.createCollider(col, this._physBody);
       if(this._physCollider && typeof this._physCollider.setActiveEvents === 'function'){
         this._physCollider.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
@@ -476,21 +551,27 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
         (s.l && g.depth) ? Math.max(0.05, s.l / g.depth) : 1
       );
     }
-    if(ov.pivot && this._modelTurretPivot){
-      this._modelTurretPivot.position.set(ov.pivot.x || 0, ov.pivot.y || 0, ov.pivot.z || 0);
+    /* POSITIONAL OVERRIDES ONLY FROM A MATCHING RIG (see Tank.RIG_VERSION).
+       A stale fire point is the whole "the muzzle is not where the GLB put it"
+       family of bugs: the numbers still apply cleanly, they just describe a
+       model from before the last re-export, so the shell leaves from empty air
+       while the authored `firing` empty sits untouched on the barrel tip. */
+    const posOv = (ov.rig === Tank.RIG_VERSION) ? ov : null;
+    if(posOv && posOv.pivot && this._modelTurretPivot){
+      this._modelTurretPivot.position.set(posOv.pivot.x || 0, posOv.pivot.y || 0, posOv.pivot.z || 0);
     }
-    if(ov.turret && this._turretHome){
-      this._turretHome.set(ov.turret.x || 0, ov.turret.y || 0, ov.turret.z || 0);
+    if(posOv && posOv.turret && this._turretHome){
+      this._turretHome.set(posOv.turret.x || 0, posOv.turret.y || 0, posOv.turret.z || 0);
     }
     // Re-home the turret mesh so a moved pivot only changes the ROTATION
     // point and a moved turret marker only changes where the turret sits
     // on the hull (never let the two drag each other).
     this._applyTurretPlacement();
-    if(ov.casing && this._casingOffset){
-      this._casingOffset.set(ov.casing.x || 0, ov.casing.y || 0, ov.casing.z || 0);
+    if(posOv && posOv.casing && this._casingOffset){
+      this._casingOffset.set(posOv.casing.x || 0, posOv.casing.y || 0, posOv.casing.z || 0);
     }
-    if(ov.shell && this.barrelEnd){
-      this.barrelEnd.position.set(ov.shell.x || 0, ov.shell.y || 0, ov.shell.z || 0);
+    if(posOv && posOv.shell && this.barrelEnd){
+      this.barrelEnd.position.set(posOv.shell.x || 0, posOv.shell.y || 0, posOv.shell.z || 0);
     }
     if(ov.model && this._syncTransform){
       const defYaw = (this.def && this.def.modelYaw != null) ? this.def.modelYaw : 0;
@@ -643,6 +724,10 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
 
     this.turretGroup = new THREE.Group();
     this.turretGroup.position.y = b.h * SCALE * 0.55;
+    /* Where turretGroup's own origin sits about the turret's ring, for a rig
+       with no turret pivot node. See the note in _loadModel: the turret is
+       shifted by -ring and turretGroup by +ring, so it spins about its bolt. */
+    this._turretSpinOffset = null;
     const t = this.def.turret;
     this.turretMat = this._tankMat(this.def.turretColor);
     this.turretMesh = new THREE.Mesh(new THREE.BoxGeometry(t.w * SCALE, t.h * SCALE, t.l * SCALE), this.turretMat);
@@ -661,6 +746,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     barrel.receiveShadow = true;
     this.turretGroup.add(barrel);
     this._addOutline(barrel, this.turretGroup);
+    this._pitchRigCache = undefined;
     this.barrelEnd = new THREE.Object3D();
     this.barrelEnd.position.set(0, t.h * SCALE * 0.4, t.l * SCALE / 2 + bl + 0.2 * SCALE);
     this.turretGroup.add(this.barrelEnd);
@@ -693,6 +779,11 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
        Created unconditionally with an identity quaternion, so for every tank
        that declares no front/up — which is all of them today — this is an
        invisible empty group and nothing downstream changes. */
+    /* Same paint dimming as a loaded model gets (see _dimModelPaint): the
+       block tank is the fallback for a tank whose GLB is missing, and it has
+       to sit in the same light as the rest of the field. */
+    this._dimModelPaint(this.bodyGroup);
+    this._dimModelPaint(this.turretGroup);
     this._ensureOrientGroups();
     this._addOverlays(t.h * SCALE);
     this._syncTransform();
@@ -1221,6 +1312,76 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     if(this._turretOrient) this._turretOrient.quaternion.copy(out);
   }
 
+  /* THE TURRET RING — the vertical axis the turret really turns on.
+
+     Blender leaves a turret object's origin wherever the author happened to
+     put it, and on most of these exports that is NOT the ring: the Helix, Ark
+     and Predator all carry origins near the model's centre, so rotating the
+     turret node swings the whole turret in an ARC around the hull instead of
+     spinning it on its own bolt. That is the "turret orbits instead of
+     rotating" bug, and the authored origin cannot be trusted to fix it.
+
+     The ring is measurable: it is the turret's lowest slice, the plate that
+     sits on the hull, and it is centred on the bolt. So take every vertex of
+     the turret (the gun subtree excluded — a barrel hanging past the hull
+     would pull the average forward) into the parent's frame, find the bottom
+     12% of the turret's height, and return the XZ centre of that slice.
+
+     Returns null when there is nothing sane to measure, so the caller can keep
+     the authored mount point.
+
+     `skip` is a node whose subtree is ignored (the gun assembly). */
+  static turretRing(root, parent, skip){
+    if(!root || !parent) return null;
+    const skipSet = new Set();
+    if(skip && skip !== root) skip.traverse(o => skipSet.add(o));
+    root.updateWorldMatrix(true, true);
+    parent.updateWorldMatrix(true, false);
+    const inv = new THREE.Matrix4().copy(parent.matrixWorld).invert();
+    const v = new THREE.Vector3();
+    const xs = [], ys = [], zs = [];
+    root.traverse(o => {
+      if(!o.isMesh || !o.geometry || !o.geometry.attributes) return;
+      if(o.isSprite || o.visible === false) return;
+      if(skipSet.has(o)) return;
+      if(o.userData && o.userData.isOverlay) return;
+      const pos = o.geometry.attributes.position;
+      if(!pos || !pos.count) return;
+      const step = Math.max(1, Math.floor(pos.count / 1200));
+      for(let i = 0; i < pos.count; i += step){
+        v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld).applyMatrix4(inv);
+        xs.push(v.x); ys.push(v.y); zs.push(v.z);
+      }
+    });
+    const n = ys.length;
+    if(n < 24) return null;
+    let minY = Infinity, maxY = -Infinity;
+    for(let i = 0; i < n; i++){ if(ys[i] < minY) minY = ys[i]; if(ys[i] > maxY) maxY = ys[i]; }
+    const H = maxY - minY;
+    if(!(H > 1e-5) || !isFinite(H)) return null;
+    /* The bottom slice. 5% is deep enough to survive a chamfer, the bolt ring
+       and a rounded base, and shallow enough that the turret's body, mantlet
+       and rear bustle never reach it. A deeper band (12%) let the sloping side
+       walls pull the centre of a tapered turret forward by most of a metre. */
+    const band = minY + H * 0.05;
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity, hits = 0;
+    for(let i = 0; i < n; i++){
+      if(ys[i] > band) continue;
+      hits++;
+      if(xs[i] < x0) x0 = xs[i];
+      if(xs[i] > x1) x1 = xs[i];
+      if(zs[i] < z0) z0 = zs[i];
+      if(zs[i] > z1) z1 = zs[i];
+    }
+    if(hits < 12) return null;
+    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
+    /* A ring is a disc/box, not a line: refuse a slice that measured as a
+       hairline, which would mean the "band" caught one stray vertex row. */
+    if(!isFinite(cx) || !isFinite(cz)) return null;
+    if((x1 - x0) < 1e-4 && (z1 - z0) < 1e-4) return null;
+    return new THREE.Vector3(cx, 0, cz);
+  }
+
   /* World AABB of a subtree. Unlike THREE.Box3.setFromObject() it can skip
      nodes marked invisible: a model's authored "hitbox" helper stays in the
      tree (still findable by name, still carrying its authored transform) but
@@ -1530,6 +1691,55 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     return outline;
   }
 
+  /* ---------------------------------------------------------------
+     TANK PAINT IS DIMMED ON PURPOSE.
+
+     A tank is lit by five lights: sun 1.2, hemisphere 0.6, fill 0.25, rim
+     0.15 and ambient 0.3. Every one of them is additive in a cel material,
+     so an upward-facing hull plate receives about 2.3 units of irradiance.
+     The terrain survives that because its textures are dark; tank liveries
+     are painted light (sand, white, silver), so 2.3 x a 0.8 albedo lands at
+     ~1.8 linear -- well past the point where ACES Filmic starts flattening.
+
+     Measured on a live match, that is exactly what the eye reports: hull
+     pixels clamped at 0.99+ linear with a luminance spread of 0.07, i.e. the
+     texture was there but had nowhere left to vary. In shadow the same
+     texture read fine, which is the classic symptom of an over-driven
+     highlight, not of a wrong texture.
+
+     So tank materials get their base colour scaled once, at model build.
+     This is the same thing as making the lights hit the tank less hard -- for
+     a diffuse-only cel material the two are mathematically identical -- but it
+     can be applied to tanks alone, leaving the map's lighting untouched.
+
+     Measured with a trim of 0.6 on one fully blown hull, the same sampling
+     gives mean 0.99 -> 0.68 linear with nothing left in the clamp, and a
+     match re-measured afterwards puts the blown hulls between 0.55 and 0.83
+     with their luminance spread (the actual texture detail) up from 0.08 to
+     0.12-0.22. On the map nothing changes at all.
+
+     Outlines, decals, gauges, muzzle flashes and the destroyed-state colours
+     are separate materials and are deliberately not touched. */
+  static PAINT_LIGHT_TRIM = 0.62;
+
+  _dimModelPaint(group){
+    if(!group) return;
+    group.traverse(m => {
+      if(!m.isMesh) return;
+      const mats = Array.isArray(m.material) ? m.material : [m.material];
+      for(let i = 0; i < mats.length; i++){
+        const mat = mats[i];
+        /* Cel paint only: outlines are their own silhouette shader, decals and
+           gauges are unlit, and neither takes part in scene lighting. */
+        if(!mat || !mat.isMeshToonMaterial || !mat.color) continue;
+        const ud = mat.userData || (mat.userData = {});
+        if(ud.paintLightTrim) continue;   // shared by hull and turret: once
+        mat.color.multiplyScalar(Tank.PAINT_LIGHT_TRIM);
+        ud.paintLightTrim = Tank.PAINT_LIGHT_TRIM;
+      }
+    });
+  }
+
   _wantsOutline(){
     if(this._edOv && this._edOv.model && this._edOv.model.outline === false) return false;
     if(this.def && this.def.outline === false) return false;
@@ -1815,11 +2025,27 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
 
       // --- Named-group rig: the model carries "hull" / "turret" /
       //     "gun" / "shell" groups so parts are found by name ---
-      const norm = (s) => String(s).toLowerCase().replace(/[\s_]/g, '');
+      /* GLTFLoader sanitises node names: spaces become underscores and every
+         `.`, `:`, `/`, `[` and `]` is REMOVED. "Cube.015" therefore arrives as
+         "Cube015". Normalising the declared names the same way lets a def keep
+         the author's dotted spelling without silently missing the node. */
+      const norm = (s) => String(s).toLowerCase().replace(/[\s_.:/\[\]]/g, '');
       const findNamed = (root, name) => {
         const t = norm(name);
         let out = null;
         root.traverse(o => { if(!out && o.name && norm(o.name) === t) out = o; });
+        return out;
+      };
+      // Shell/casing ejection port: matches "shell", "shell ejection",
+      // "shell opening", "shelldoor", "ejection" and any variant, because
+      // authors name this node inconsistently across models.
+      const findShell = (root) => {
+        let out = null;
+        root.traverse(o => {
+          if(out || !o.name) return;
+          const n = norm(o.name);
+          if(n.indexOf('shell') >= 0 || n.indexOf('ejection') >= 0 || n.indexOf('door') >= 0) out = o;
+        });
         return out;
       };
       // --- Model-authored collision box: a node named "hitbox" (TL_ark ships
@@ -1827,16 +2053,40 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       //     same name, same authored transform — but is flagged invisible so
       //     it never renders, never gets tinted or an outline, and (via
       //     Tank.boxOf) never drags the box the model is centred against.
-      const hitG = findNamed(grp, 'hitbox');
-      if(hitG){
-        hitG.visible = false;
-        if(hitG.isMesh){ hitG.castShadow = false; hitG.receiveShadow = false; }
-      }
+      /* EVERY authored helper volume, not just the one called exactly
+         "hitbox". Models export `HITBOX`, `HITBOX.001`, `hitbox_low` and so on;
+         the old exact-name lookup hid the first and left the rest rendering as
+         grey boxes on the tank (the Bradley ships two). Hide each subtree and
+         switch its meshes out of the shadow pass as well. */
+      const helperNodes = [];
+      grp.traverse(o => {
+        const n = norm(o && o.name);
+        if(!n) return;
+        if(n === 'hitbox' || n.indexOf('hitbox') === 0 || n.indexOf('collider') >= 0 || n.indexOf('collision') >= 0){
+          helperNodes.push(o);
+        }
+      });
+      helperNodes.forEach(h => {
+        h.visible = false;
+        h.castShadow = false;
+        h.receiveShadow = false;
+        h.traverse(o => { if(o.isMesh){ o.castShadow = false; o.receiveShadow = false; } });
+      });
       const hullG = findNamed(grp, 'hull');
       const turretG = findNamed(grp, 'turret');
-      const shellG = findNamed(grp, 'shell') || findNamed(grp, 'shell_ejection') || findNamed(grp, 'gun');
+      const shellG = findShell(grp) || findNamed(grp, 'gun');
       if(hullG && turretG && hullG !== turretG){
-        this._attachNamedModel(grp, hullG, turretG, shellG, scale);
+        /* Capture the muzzle and gun BEFORE _attachNamedModel reparents the
+           turret out of this scene. The old call passed neither, and the
+           helper inside _attachNamedModel searched `grp` AFTER the move — so
+           it found nothing, the barrel end fell back to a guessed point and
+           the gun node was never armed. That is why a model with a perfectly
+           good `gun`/`firing` hierarchy fired from empty space, never recoiled
+           and never heated its barrel. */
+        const firingPre = findNamed(turretG, 'firing') || findNamed(turretG, 'muzzle');
+        const gunPre = findNamed(turretG, 'gun')
+          || (firingPre && firingPre.parent && firingPre.parent !== turretG ? firingPre.parent : null);
+        this._attachNamedModel(grp, hullG, turretG, shellG, scale, firingPre, gunPre);
         return;
       }
 
@@ -1963,9 +2213,13 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
         const roots = grp.children.slice();
         if(!hullG && !turretG && roots.length === 2){
           const withFiring = roots.filter(r => findNamed(r, 'firing') || findNamed(r, 'muzzle'));
-          if(withFiring.length === 1){
-            const turretRoot = withFiring[0];
-            const hullRoot = (roots[0] === turretRoot) ? roots[1] : roots[0];
+          const turretRoot0 = withFiring[0];
+          const hullRoot0 = (roots[0] === turretRoot0) ? roots[1] : roots[0];
+          const hullVisible0 = hullRoot0 && (hullRoot0.isMesh || (Array.isArray(hullRoot0.children) && hullRoot0.children.some(k => k && k.isMesh)));
+          const helperHull = !hullVisible0 || norm(hullRoot0 && hullRoot0.name) === 'hitbox';
+          if (withFiring.length === 1 && !helperHull) {
+            const turretRoot = turretRoot0;
+            const hullRoot = hullRoot0;
             // Capture the muzzle while grp is still intact: _attachNamedModel
             // re-parents both roots out of grp, so a lookup after the fact
             // would find nothing.
@@ -1981,8 +2235,8 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       //     empties instead of hull/turret groups. The model is used as
       //     authored (front = +Z); the Tank Editor can fix the facing via a
       //     saved modelYaw override. Wire muzzle + shell markers below.
-      const firingG = findNamed(grp, 'firing');
-      const ejectG = findNamed(grp, 'shell_ejection') || findNamed(grp, 'shell');
+      const firingG = findNamed(grp, 'firing') || findNamed(grp, 'muzzle');
+      const ejectG = findShell(grp);
 
       /* ============================================================================
          MEASURE THE GUN ARM BEFORE ANYTHING IS REPARENTED.
@@ -2126,6 +2380,16 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
         }
       });
 
+      /* CEL FACETS: flat, per-face normals on the tank's GLB before outlines
+         and batching. Together with MeshToonMaterial this is what makes the
+         hull shade in clean flat plates instead of smooth gradient bands --
+         the toon look has to live in the NORMALS, not only in the material.
+         The shared flatten cache keeps identical parts batchable, and the
+         outline/BBox stages below measure the same hull either way. */
+      if(typeof Toon !== 'undefined' && Toon.flatten){
+        try { Toon.flatten(grp); } catch(e) {}
+      }
+
       const outlineT = 0.04 / scale;
       // Collect meshes first, then add outlines afterwards: a traverse that
       // adds a child INTO a visited mesh would descend into the fresh outline
@@ -2137,6 +2401,11 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       turretParts.traverse(o => { if(o.isMesh) srcMeshes.push(o); });
       srcMeshes.forEach(m => this._addOutline(m, m.parent, outlineT));
 
+      // Paint dimming: see _dimModelPaint. Before batching, so the merged
+      // meshes inherit the already-dimmed material.
+      this._dimModelPaint(bodyParts);
+      this._dimModelPaint(turretParts);
+
       // Same triangles, same materials, same pixels — just far fewer draw calls.
       if(this._canBatchModel(grp)){
         const prot = Tank._protectedSet([firingG, ejectG]);
@@ -2147,6 +2416,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       this._bodyOrient.add(bodyParts);
       this._turretOrient.add(turretParts);
       const t = this.def.turret;
+      this._pitchRigCache = undefined;
       this.barrelEnd = new THREE.Object3D();
       this.barrelEnd.position.set(0, t.h*0.6, t.l + this.def.barrelLen);
       this.turretGroup.add(this.barrelEnd);
@@ -2236,6 +2506,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
            as the Ark, which is what makes the two look like the same mechanic. */
         this._recoilKick = -0.4;
         this._recoilT = -1;
+        this._recoilAxis.set(1, 0, 0);
 
         /* MOVE THE MUZZLE ONTO THE ARM.
 
@@ -2382,6 +2653,50 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
         this._casingOffset = this._shellNode.position.clone();
       }
       this._addOverlays(t.h);
+
+      /* SPIN THE TURRET ON ITS OWN BOLT, NOT ON THE TANK'S ORIGIN.
+
+         This rig has no named turret node: the turret is every mesh above 40% of
+         the model's height, and all of it hangs off `turretGroup`, which
+         _syncTransform rotates about ITS OWN ORIGIN -- the tank's origin, on the
+         ground between the tracks. A model's turret is almost never centred
+         there. Measured on the Ghost, the turret's own base sits 0.94 units
+         forward of it, so a 180 degree turn slid the whole turret 1.88 units
+         across the hull instead of spinning it in place; the Panzer and Vulkan
+         (same rig, same model) moved 0.94 and 2.64. That is the "the turret
+         orbits instead of rotating" report, and it does not happen in Blender
+         because Blender turns the turret about its own object origin.
+
+         There is no node here to hang a pivot on, and adding one would change
+         which node carries turretAngle for everything already parented to
+         turretGroup (the muzzle marker, the casing port, the cube barrel). So
+         the pivot is baked instead: every child of turretGroup is shifted by
+         -ring, and the per-frame position is shifted by +ring (see
+         _syncTransform). Nothing moves on screen, and turretGroup's rotation now
+         happens about the ring.
+
+         The ring is measured with the SAME function the named rig uses, on the
+         assembled turret, so a drawn turret and a named one behave identically. */
+      /* Idempotent: a rebuild (the Tank Editor swapping the model, or a second
+         _loadModel on the same instance) must not stack a second shift on top of
+         the first, so an existing one is undone before it is measured again. */
+      if(this._turretSpinOffset){
+        const old = this._turretSpinOffset;
+        this.turretGroup.children.forEach(c => { c.position.x += old.x; c.position.z += old.z; });
+        this._turretSpinOffset = null;
+      }
+      {
+        const ring = Tank.turretRing(this.turretGroup, this.turretGroup, null);
+        if(ring){
+          this._turretSpinOffset = new THREE.Vector3(ring.x, 0, ring.z);
+          this._turretRing = ring;
+          this.turretGroup.children.forEach(c => {
+            c.position.x -= ring.x;
+            c.position.z -= ring.z;
+          });
+        }
+      }
+
       this._syncTransform();
       this._applyEditorOverrides();
       this._setupAnims(grp);
@@ -2441,7 +2756,17 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       turretG.children.slice().forEach(ch => flipT.add(ch));
       turretG.add(flipT);
       flippedTurret = true;
-    } else if(shellG && this.def.modelAutoFlip !== false){
+    } else if(shellG && this.def.modelAutoFlip !== false &&
+              this.def.modelYaw == null && !this._modelQuat && !this.def.rig){
+      /* LEGACY GUESS, ONLY FOR A MODEL THAT DECLARES NOTHING AT ALL.
+
+         This used to run on every non-flipped model, including ones whose def
+         already states its facing or its rig. It rotates the whole scene by
+         180 degrees whenever the casing port happens to sit at z < 0 — and on
+         a model with an explicit modelYaw that is a second rotation stacked on
+         the first, so the tank drove one way and its barrel pointed another.
+         An explicit yaw, front/up pair or declared rig is the author's answer;
+         never overrule it with a heuristic. */
       grp.updateMatrixWorld(true);
       const p = new THREE.Vector3();
       shellG.getWorldPosition(p);
@@ -2481,6 +2806,14 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     });
     tint(hullG, this.color);
     tint(turretG, this.def.turretColor);
+    /* CEL FACETS: flat, per-face normals on the authored model (same rule as
+       _loadModel). MeshToonMaterial + smooth GLB normals crawl the toon bands
+       across a hull plate; per-face normals give clean flat cel shading.
+       Runs BEFORE outlines and batching; the shared flatten cache keeps
+       identical parts batchable and does not move any vertex. */
+    if(typeof Toon !== 'undefined' && Toon.flatten){
+      try { Toon.flatten(hullG); Toon.flatten(turretG); } catch(e) {}
+    }
     bodyParts.attach(hullG);
     turretParts.attach(turretG);
     // Outlines are inflated in authored units, but the model is scaled
@@ -2492,6 +2825,11 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     srcMeshes = [];
     turretParts.traverse(o => { if(o.isMesh && o.visible !== false) srcMeshes.push(o); });
     srcMeshes.forEach(m => this._addOutline(m, m.parent, outlineT));
+
+    // Paint dimming: see _dimModelPaint. Before batching, so the merged
+    // meshes inherit the already-dimmed material.
+    this._dimModelPaint(bodyParts);
+    this._dimModelPaint(turretParts);
 
     // Same triangles, same materials, same pixels — just far fewer draw calls.
     //
@@ -2521,9 +2859,16 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     turretG.getWorldPosition(homeV);
     this._turretHome = turretParts.worldToLocal(homeV);
     this._turretG = turretG;
-    const pivotBox = new THREE.Box3().setFromObject(turretG);
-    const pivotC = pivotBox.getCenter(new THREE.Vector3());
-    const turretPivotLocal = turretParts.worldToLocal(pivotC);
+    /* THE PIVOT IS THE RING, NOT THE NODE ORIGIN (see Tank.turretRing).
+       Measuring it here, after the parts are assembled and before the pivot
+       exists, means every rig — named groups, declared rigs, and the flip
+       path that bakes a 180° turn into the turret — is measured as it will
+       actually be drawn. The turret's Y stays at the authored mount so the
+       mesh is not lifted; only the XZ centre of rotation moves. */
+    const ring = Tank.turretRing(turretG, turretParts, gunPre || null);
+    const turretPivotLocal = this._turretHome.clone();
+    if(ring){ turretPivotLocal.x = ring.x; turretPivotLocal.z = ring.z; }
+    this._turretRing = ring || null;
     const turretPivot = new THREE.Group();
     turretPivot.position.copy(turretPivotLocal);
     turretParts.add(turretPivot);
@@ -2550,6 +2895,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     // Muzzle spawn point (the FIRING point). Prefer an explicit "firing" /
     // "muzzle" empty if the model has one, else auto-derive it just past the
     // front-most extent of the turret (which contains the baked barrel).
+    this._pitchRigCache = undefined;
     this.barrelEnd = new THREE.Object3D();
     const t = this.def.turret;
     const findNamedL = (root, name) => {
@@ -2558,7 +2904,11 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       root.traverse(o => { if(!out && o.name && String(o.name).toLowerCase() === s) out = o; });
       return out;
     };
-    const firingG = firingPre || findNamedL(grp, 'firing') || findNamedL(grp, 'muzzle');
+    /* The turret has already been reparented into turretParts by this point,
+       so `grp` may be empty. Search the turret first, then the scene, so a
+       caller that did not pre-capture the marker still finds it. */
+    const firingG = firingPre || findNamedL(turretG, 'firing') || findNamedL(turretG, 'muzzle')
+      || findNamedL(grp, 'firing') || findNamedL(grp, 'muzzle');
     if(firingG){
       grp.updateMatrixWorld(true);
       const wp = new THREE.Vector3();
@@ -2608,6 +2958,20 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
         this._recoilNode = gunG;
         this._recoilHome = gunG.position.clone();
         this._recoilKick = -0.4;
+        /* Placeholder; the real barrel direction is measured below, once the
+           muzzle marker has been reparented and its world transform is known. */
+        this._recoilAxis.set(1, 0, 0);
+        /* Cache the gun's materials once. The flamethrower heat pass used to
+           traverse the gun every single frame and allocate two THREE.Color
+           objects per frame just to recolour a handful of materials. */
+        this._heatMats = [];
+        this._heatBaseCol = new THREE.Color(this.def.turretColor || 0xd86a3a);
+        const seenMats = new Set();
+        gunG.traverse(o => {
+          if(!o.isMesh || !o.material) return;
+          const list = Array.isArray(o.material) ? o.material : [o.material];
+          list.forEach(m => { if(m && !seenMats.has(m)){ seenMats.add(m); this._heatMats.push(m); } });
+        });
 
         /* ARTILLERY ELEVATION rides on the same node.
            Game._mortarAim writes gunElevTarget in degrees and _updateGunAssembly
@@ -2640,18 +3004,76 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
         this.root.updateMatrixWorld(true);
         this.barrelEnd.position.copy(gunG.worldToLocal(wPos.clone()));
         this.barrelEnd.quaternion.copy(
-          gunG.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(wQuat));
+          gunG.getWorldQuaternion(new THREE.Quaternion()).invert().multiply(wQuat));        /* POINT THE MUZZLE WHERE THE TURRET'S BARREL ACTUALLY POINTS.
 
-        /* The barrel runs along the gun axis (model +X, not the +Z the game reads
-           as forward), so yaw the muzzle onto that axis or shells leave 90° off
-           the visible barrel. Measured in the gun's own frame, which is where the
-           barrel actually points. */
+           Do not rely on the gun node's local axes: exporters rotate and
+           rescale that node freely (TL_tashenratte's gun has a 180° rotation
+           and non-uniform scale, for example), so its local +X or +Z says
+           nothing about the visible barrel. The one reliable direction is the
+           horizontal vector from the turret pivot to the authored `firing`
+           marker. Convert that into a world yaw, then express it in the gun's
+           frame so the barrel end still inherits recoil and artillery lift. */
         this.root.updateMatrixWorld(true);
-        const gunLocal = this.barrelEnd.parent.worldToLocal(
-          this.barrelEnd.getWorldPosition(new THREE.Vector3()));
-        const ax = this.barrelEnd.position.x - gunLocal.x;
-        const az = this.barrelEnd.position.z - gunLocal.z;
-        if(ax * ax + az * az > 1e-8) this.barrelEnd.rotation.y = Math.atan2(ax, az);
+        const tPos = turretG.getWorldPosition(new THREE.Vector3());
+        /* Use the CENTRE OF THE GUN'S GEOMETRY, not the gun node's origin.
+           Exporters often put that origin at the turret centre and hang the
+           barrel off to one side, so `muzzle - gunOrigin` contains a large
+           lateral component (Helix's is 16° off) even though the barrel is
+           perfectly straight. The mesh centre sits on the barrel, so this
+           vector is the barrel itself. */
+        const gBox = Tank.boxOf(gunG, true);
+        const gCentre = gBox.isEmpty() ? gunG.getWorldPosition(new THREE.Vector3())
+                                       : gBox.getCenter(new THREE.Vector3());
+        let dirW = new THREE.Vector3();
+        if(firingG){
+          dirW.copy(firingG.getWorldPosition(new THREE.Vector3())).sub(gCentre);
+        }
+        if(dirW.x * dirW.x + dirW.z * dirW.z < 1e-8 && firingG){
+          dirW.copy(firingG.getWorldPosition(new THREE.Vector3())).sub(tPos);
+        }
+        dirW.y = 0;
+        if(dirW.lengthSq() < 1e-8){
+          dirW.set(0, 0, 1).applyQuaternion(turretG.getWorldQuaternion(new THREE.Quaternion()));
+          dirW.y = 0;
+        }
+        dirW.normalize();
+        const desiredQ = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), dirW);
+        const gunWQ = gunG.getWorldQuaternion(new THREE.Quaternion());
+        this.barrelEnd.quaternion.copy(gunWQ.invert().multiply(desiredQ));
+
+        /* RECOIL ALONG THE BARREL, NOT ALONG WHATEVER THE GUN'S LOCAL X IS.
+
+           onFired()/ _updateRecoil() move the gun node in its PARENT's space, so
+           the kick needs a direction in that same space. dirW is the barrel's
+           own forward direction (geometry centre -> muzzle), which is exactly
+           the axis the visible tube runs along; rotate it out of world space and
+           the negative kick pushes the gun back down the barrel.
+
+           Assuming local X instead is what made the firing point slide sideways
+           and return on every model authored barrel-along-Z (Hellfire 1.18
+           world units, Striker 0.38, Cool Buddy 9.4) and push FORWARD on the
+           ones authored along -X or -Z (Grom, Sturmratte). Nothing about the
+           muzzle's position was wrong -- the whole gun, muzzle included, was
+           travelling in the wrong direction and easing back. */
+        const parentWQ = gunG.parent
+          ? gunG.parent.getWorldQuaternion(new THREE.Quaternion()).invert()
+          : null;
+        this._recoilAxis.copy(dirW);
+        if(parentWQ) this._recoilAxis.applyQuaternion(parentWQ);
+        this._recoilAxis.y = 0;
+        if(this._recoilAxis.lengthSq() < 1e-8) this._recoilAxis.set(1, 0, 0);
+        else this._recoilAxis.normalize();
+
+        /* THE KICK IS A WORLD DISTANCE, converted into the units of the space
+           the position is written in. A model's authored units say nothing about
+           how big the tank is on screen (Cool Buddy is scaled 16.8x, the Helix
+           0.82x), so the old fixed 0.4 gave one tank a 9-unit lurch and the
+           other a nudge. */
+        if(gunG.parent){
+          const ps = gunG.parent.getWorldScale(new THREE.Vector3());
+          const pw = (Math.abs(ps.x) + Math.abs(ps.y) + Math.abs(ps.z)) / 3;
+          this._recoilKick = -(RECOIL_WORLD / (pw || 1));
+        }
       }
     }
     this._addOverlays(t.h);
@@ -2666,7 +3088,8 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
   onFired(){
     if(!this._recoilNode || !this._recoilHome) return;
     this._recoilT = 0;
-    this._recoilNode.position.x = this._recoilHome.x + this._recoilKick;
+    this._recoilNode.position.copy(this._recoilHome)
+      .addScaledVector(this._recoilAxis, this._recoilKick);
   }
 
   /* Slide the recoiling gun node back to its authored position. */
@@ -2676,9 +3099,10 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     const dur = 0.4;                    // seconds back into battery
     const u = Math.min(1, this._recoilT / dur);
     const e = 1 - (1 - u) * (1 - u);    // ease-out: leaves fast, settles slow
-    this._recoilNode.position.x = this._recoilHome.x + this._recoilKick * (1 - e);
+    this._recoilNode.position.copy(this._recoilHome)
+      .addScaledVector(this._recoilAxis, this._recoilKick * (1 - e));
     if(u >= 1){
-      this._recoilNode.position.x = this._recoilHome.x;
+      this._recoilNode.position.copy(this._recoilHome);
       this._recoilT = -1;
     }
   }
@@ -2724,7 +3148,20 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       this._shellNode.getWorldPosition(p);
       return p;
     }
-    // No casing port on this model: eject from the muzzle instead
+    /* NO CASING PORT ON THIS MODEL — eject from the turret's right rear, not
+       from the muzzle. The old fallback handed back the muzzle, so a tank
+       without a "shell" node spat its spent case FORWARDS out of the barrel,
+       which reads as the gun firing brass rather than as a case being thrown.
+       A fixed offset in turret space is approximate but it is on the right
+       side of the tank, above the deck, and behind the gun — which is where
+       every viewer already expects a case to come from. */
+    const t = this.def.turret || { w:1.8, h:0.8, l:2.4 };
+    const s = 2.0;                      /* the same SCALE the cube rig uses */
+    const port = new THREE.Vector3(t.w * s * 0.42, t.h * s * 1.15, -t.l * s * 0.30);
+    if(this.turretGroup){
+      this.root.updateMatrixWorld(true);
+      return this.turretGroup.localToWorld(port);
+    }
     const m = this.muzzle();
     return m.pos;
   }
@@ -2744,7 +3181,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     this.hpSprite = this._makeHpSprite();
     this.hpSprite.userData.isOverlay = true;
     this.hpSprite.renderOrder = 999;
-    this.hpSprite.position.y = turretH + 4.2;
+    this._placeHpSprite();
     this._overlayGroup.add(this.hpSprite);
 
     this._drownBar = this._makeDrownBar();
@@ -2755,6 +3192,22 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     this.root.add(this._overlayGroup);
     this._applyPowerScale();
   }
+
+  /* THE RIG VERSION A TANK-EDITOR OVERRIDE WAS MEASURED AGAINST.
+
+     The editor stores pivot / turret mount / fire point / casing point as
+     coordinates in whatever hierarchy the tank had at the time it was saved.
+     When the loader's rigging changes — a turret's pivot moved to its ring, a
+     muzzle reparented onto the gun arm, a model re-exported — those numbers
+     describe a tank that no longer exists, but they are still applied blindly,
+     so the muzzle ends up somewhere in particular the model never had it.
+
+     Bump this whenever the rig geometry changes underneath the editor. The
+     editor stamps the current value on every save; overrides saved by an
+     older rig keep their body/model/track edits but their POSITIONAL points
+     (pivot, turret mount, fire point, casing) are ignored, so the loader's own
+     measurements — which are taken from the model on disk — win. */
+  static get RIG_VERSION(){ return 2; }
 
   /* ---- tread marks ---------------------------------------------------- */
   /* Marks kept per tank. The interval floor is 0.1s and a mark lives 2s, so
@@ -2811,7 +3264,11 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     if(!c||!g) return;
     const W = 360, H = 100;
     const dpr = this._hpDpr || 1;
-    const rr = (x,y,w,h,r)=>{ if(g.roundRect) g.roundRect(x,y,w,h,r); else g.rect(x,y,w,h); };
+    /* ALWAYS a fresh path. This used to append to whatever path was current, and
+       the reload line further down therefore painted its greys and yellows into
+       the health bar's plate outline as well -- which is why every friendly
+       health bar read as solid orange instead of blue. */
+    const rr = (x,y,w,h,r)=>{ g.beginPath(); if(g.roundRect) g.roundRect(x,y,w,h,r); else g.rect(x,y,w,h); };
 
     // Everything below is authored in logical 360x100 units; the DPR transform
     // scales it onto the hi-DPI backing bitmap.
@@ -2826,12 +3283,11 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       // out here instead of printing it twice.
       trophy = TROPHY;
       name = name.slice(TROPHY.length).replace(/^\s+/, '');
-    } else {
-      try{
-        const ms = (window.Menu && Menu.settings) || {};
-        if(this.isLocal && (ms.trophyCount || 0) > 0) trophy = TROPHY;
-      }catch(e){}
     }
+    /* No fallback emoji. Owning a trophy is not wearing one, and the plate is
+       supposed to show the picture the player equipped (see getAvatarIcon) or
+       nothing at all -- the local player's slot therefore never fills itself in
+       just because a trophy count is above zero. */
 
     const pct = Math.max(0, Math.min(1, this.hp / this.maxHp));
 
@@ -2881,87 +3337,74 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
        identically instead of each re-deriving it. */
 
     // ---- layout (logical units) ----
-    // The frame's OUTSIDE edge (stroke is 4 wide, so it straddles the path by
-    // 2px) is what the eye lines up: path top 12 -> outer row 10 == the
-    // nickname's stroke top row, and path bottom 88 -> outer row 89 == the
-    // health bar plate's last row. Frame top and name top are both 12 on
-    // purpose.
-    const avatarX = 10, avatarY = 12, avatarSize = 76;   // 12 .. 88
-    // Nickname grows to the RIGHT and DOWN only: its stroke top stays on row
-    // 10 (flush with the frame's top) while the larger glyphs push toward the
-    // health bar, killing the empty band that used to sit between them.
+    /* NO FRAME, NO PLATE: the avatar is only the equipped trophy's picture, so it
+       needs 46 rows instead of the 76 the grey square took. EVERYTHING to its
+       right moves 40 units left with it -- that is the "move the whole UI left"
+       half of this change, and the space it frees on the RIGHT is the gutter the
+       bush icon appears in. Nothing else about the plate's size changed. */
+    const iconX = 8, iconY = 6, iconSize = 46;           // 8 .. 54, 6 .. 52
+    const barX = 62;                                     // name + bars start here
+    const barR = 306;                                    // ... and stop here
+    const barW = barR - barX;                            // 244
     const nameY = 12, nameFont = 38;
-    const barX = avatarX + avatarSize + 14;              // 100
-    /* HEALTH BAR MOVED UP, AND THE RELOAD LINE GIVEN THE SPACE IT FREED.
-
-       Was barY 65 / barH 22, whose plate ran rows 62..90 -- flush with the
-       bottom of the avatar frame, so there was nothing below it to put anything
-       in. It now runs 52..76 and the reload line takes 76..90.
-
-       The numbers come from measured text metrics, not guesswork. The nickname
-       is drawn with textBaseline 'top' at row 12 in a bold 38px face, and its
-       lowest possible ink is row 50 (a name with descenders; an all-caps name
-       stops at 39). So row 52 leaves two rows of clearance under the worst
-       possible name while using all of the space that was going spare.
-
-       barH drops 22 -> 18 so the two bars split the 50..90 band roughly evenly.
-       That is a real change to the health bar's thickness, not only its
-       position, and it is the one thing here that was not purely a move. */
+    /* The health bar still runs 52..76 under the nickname: row 52 clears the
+       lowest possible ink of a bold 38px name (row 50) by two rows. */
     const barY = 55, barH = 18;                          // plate 52 .. 76
-    const barW = W - barX - 12;                          // 248
 
-    /* THE RELOAD LINE. Same left and right edges as the health bar, thinner,
-       and its bottom edge flush with the bottom of the avatar frame at row 90.
-       14 rows of plate, 10 of fill, against the health bar's 18 and 14 -- so it
-       reads as narrower from above and below while its sides line up. */
-    const rlY = barY - 3 + barH + 6;                     // 76, straight under it
-    const rlH = 14;                                      // plate 76 .. 90
+    /* THE BUSH GUTTER. Reserved even when the tank is in the open, so the bars
+       never change length the moment somebody steps into a hedge. */
+    const bushSize = 36;
+    const bushX = W - bushSize - 10;                     // 314
+    const bushY = Math.round((H - bushSize) / 2);        // 32
+
+    /* THE RELOAD LINE. Deliberately SHORTER than the health bar now: it is a
+       secondary readout and the old full-width line competed with the bar above
+       it. Grey track, amber fill (a warmer orange-leaning yellow), where the
+       amber is the loaded fraction -- fully amber means the gun is loaded, half
+       amber over half grey means it is halfway through a reload. */
+    const rlY = barY - 3 + barH + 13;                    // 83, under it with a gap
+    const rlH = 13;                                      // plate 83 .. 96
+    const rlW = 148;
+    /* CENTRED ON THE HEALTH BAR. The line is shorter than the bar on purpose,
+       and it used to start at the plate's left edge, which put a short bar under
+       a long one with all the leftover space on the right -- it read as a
+       misaligned element rather than as a deliberate inset. It is now inset by
+       the same amount on both sides. pX is the health plate's left edge and pW
+       its width, both computed further down, so the centre is derived from them
+       rather than hardcoded. */
 
     // One shared "sticker" outline colour for frame, name and bar - a solid
     // near-black navy is what makes a cartoon UI read as drawn rather than lit.
     const OUT = '#14141d';
 
-    // ---- trophy / avatar frame: spans nickname-top to health-bar-bottom ----
-    g.fillStyle = '#a9a9a9';                             // CSS darkgray
-    g.beginPath();
-    rr(avatarX, avatarY, avatarSize, avatarSize, 12);
-    g.fill();
-    g.strokeStyle = OUT;
-    g.lineWidth = 4;
-    g.beginPath();
-    rr(avatarX, avatarY, avatarSize, avatarSize, 12);
-    g.stroke();
+    // ---- avatar: the equipped trophy, with no frame around it ----
+    const cx = iconX + iconSize / 2, cy = iconY + iconSize / 2;
+    /* THE EQUIPPED TROPHY AND NOTHING ELSE. The grey rounded square and its
+       sticker outline are gone: the slot shows the picture the player wears, or
+       it stays empty. There is no placeholder glyph either -- an 'x' there just
+       looked like something had failed to load, and an empty corner is the
+       honest read of "this player wears no trophy".
 
-    const cx = avatarX + avatarSize / 2, cy = avatarY + avatarSize / 2;
-    g.textAlign = 'center';
-    g.textBaseline = 'middle';
-    g.strokeStyle = OUT;
-    g.fillStyle = '#fff';
-    /* THE LOCAL PLAYER'S OWN AVATAR, AS A PICTURE.
-
-       The frame used to hold a trophy emoji for anybody who owned any trophy at
-       all, so equipping one changed nothing in a match. It draws the icon the
-       player has equipped instead, from the same helper the menus read, so the
-       nameplate and the profile card can never show two different trophies.
-
-       Only the local tank gets this: another player's avatar is not sent over the
-       wire, so remote tanks keep the emoji below rather than guessing. */
+       The local player gets the real icon (the equipped one, see
+       getAvatarIcon). Another player's equipped trophy is not sent over the
+       wire, so a platoon name that arrives with the trophy emoji already
+       prefixed draws that emoji rather than guessing. */
     let icon = null;
     if(this.isLocal && typeof getAvatarIcon === 'function') icon = getAvatarIcon();
     if(icon && icon.complete && icon.naturalWidth > 0){
-      const pad = 10, s = avatarSize - pad * 2;
-      g.drawImage(icon, avatarX + pad, avatarY + pad, s, s);
-    } else if(trophy){
-      g.font = '46px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
-      g.lineWidth = 5;
+      g.drawImage(icon, iconX, iconY, iconSize, iconSize);
+    } else if(trophy && !this.isLocal){
+      /* Remote tanks only. On your own plate the equipped trophy above is the
+         truth, so a name that arrived with the emoji still prefixed must not
+         put a trophy back in a slot the player deliberately left empty. */
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.font = '34px "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif';
+      g.strokeStyle = OUT;
+      g.lineWidth = 4;
       g.strokeText(trophy, cx, cy);
+      g.fillStyle = '#fff';
       g.fillText(trophy, cx, cy);
-    } else {
-      // No trophy selected -> placeholder glyph.
-      g.font = 'bold 52px "Nunito", "Segoe UI", sans-serif';
-      g.lineWidth = 7;
-      g.strokeText('x', cx, cy + 2);
-      g.fillText('x', cx, cy + 2);
     }
 
     // ---- nickname ----
@@ -3063,40 +3506,66 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       const rRaw = active ? Math.max(0, Math.min(1, 1 - left / total)) : 1;
       const rPct = (this._rlDisp === undefined) ? rRaw : this._rlDisp;
 
-      const rX = pX, rY = rlY, rW = pW;
-      const rPx = rX + 2.5, rPy = rY + 2.5, rPw = rW - 5, rPh = rlH - 5;
-      /* rr() here is the local helper declared at the top of _drawHp, whose
-         signature is (x, y, w, h, r) and which closes over g itself. Passing g
-         as a first argument -- the signature HPBarStyles uses internally --
-         throws inside roundRect, which aborts _drawHp before the texture is
-         flagged for upload: the canvas then looks correct when read back
-         directly but the plate on screen never updates. */
-      const segCount = Math.max(1, (info && info.magSize > 0) ? info.magSize : 1);
-      const loadedSegs = info ? Math.max(0, Math.min(segCount, info.mag || 0)) : segCount;
-      const segGap = 3;
-      const segW = (rPw - segGap * (segCount - 1)) / segCount;
-      const segR = Math.min(4, rPh / 2);
-      for(let i = 0; i < segCount; i++){
-        const sx = rPx + i * (segW + segGap);
-        g.fillStyle = '#33220f'; rr(sx, rPy, segW, rPh, segR); g.fill();
-        g.fillStyle = '#241705'; g.fillRect(sx, rPy + rPh * 0.6, segW, rPh * 0.4);
+      /* THE BUMP. _stepHpBar fires this once on the frame a reload completes;
+         while it is above zero the whole line swells a few rows and the yellow
+         is the bright one, so "your gun just came up" is visible peripherally
+         without reading the bar. It settles from there. */
+      const bump = Math.max(0, Math.min(1, this._rlBump || 0));
+      /* 3.5 rows, not 4: the line sits 3 rows lower than it used to, so a 4-row
+         swell would push its outline past the bottom of the 100-unit canvas and
+         clip the last row. At 3.5 the fully swollen plate ends exactly on the
+         canvas edge (83 - 3.5 .. 96 + 3.5) and nothing is cut off. */
+      const grow = 3.5 * bump;
+
+      const rX = pX + (pW - rlW) / 2, rW = rlW;
+      const rY = rlY - grow, rH = rlH + grow * 2;
+      const rPx = rX + 2.5, rPy = rY + 2.5, rPw = rW - 5, rPh = rH - 5;
+      g.save();
+      g.beginPath();
+      (g.roundRect ? g.roundRect(rPx, rPy, rPw, rPh, Math.min(4, rPh / 2))
+                   : g.rect(rPx, rPy, rPw, rPh));
+      g.clip();
+      /* Grey track first: this is the whole line, so whatever is NOT yellow is
+         the time still left on the clock. Kept dark and desaturated so the
+         loaded part is the only thing that reads as lit -- the yellow is the
+         information, the track is just the empty slot it fills. */
+      g.fillStyle = '#31353d'; g.fillRect(rPx, rPy, rPw, rPh);
+      g.fillStyle = '#23262c'; g.fillRect(rPx, rPy + rPh * 0.62, rPw, rPh * 0.38);
+      if(rPct > 0.002){
+        const fw = rPw * rPct;
+        /* An ORANGE-leaning amber, not a pure yellow: at 51 degrees of hue the
+           line read as a second, brighter health bar next to the blue one. The
+           gun-light now sits around 40 degrees, which still reads as "ready"
+           at a glance while staying clearly a warning colour.
+
+           NOTE the geometry above: rY moves 3.5 rows up and rH gains 7 while the
+           bump runs, so the line occupies 79.5..99.5 at full bump. That is the
+           reason it sits 13 below the bar rather than flush against it -- 7
+           rows of clearance below the plate's own outline at rest, 3.5 at the
+           peak of the swell, so the swell never touches the health bar. */        /* ORANGE-LEANING AMBER, one step further than before. The old #ffb300
+           sits at 42 degrees of hue, which on a blue team bar next to it reads as
+           "yellow"; #ff9c14 is 34 degrees, unmistakably orange while still
+           reading as a "gun ready" light rather than a damage colour. The two
+           overlay bands moved with it so the whole line keeps one hue instead of
+           a yellow face on an orange body. */
+        g.fillStyle = bump > 0.02 ? '#ffb544' : '#ff9c14';
+        g.fillRect(rPx, rPy, fw, rPh);
+
+        g.fillStyle = '#ffd28a'; g.fillRect(rPx, rPy, fw, rPh * 0.42);
+        g.fillStyle = '#bf6a00'; g.fillRect(rPx, rPy + rPh * 0.84, fw, rPh * 0.16);
       }
-      for(let i = 0; i < segCount; i++){
-        const sx = rPx + i * (segW + segGap);
-        let frac = 0;
-        if(i < loadedSegs) frac = 1;
-        else if(i === loadedSegs && active) frac = rPct;
-        if(frac > 0.002){
-          const fw = segW * frac;
-          g.fillStyle = '#ffb12b'; rr(sx, rPy, fw, rPh, segR); g.fill();
-          g.fillStyle = '#ffd27a'; g.fillRect(sx, rPy, fw, rPh * 0.44);
-          g.fillStyle = '#c2660a'; g.fillRect(sx, rPy + rPh * 0.82, fw, rPh * 0.18);
-        }
-      }
+      g.restore();
       g.strokeStyle = OUT; g.lineWidth = 3;
-      for(let i = 0; i < segCount; i++){
-        const sx = rPx + i * (segW + segGap);
-        g.beginPath(); rr(sx - 1, rPy - 1, segW + 2, rPh + 2, segR + 1); g.stroke();
+      rr(rX + 1, rY + 1, rW - 2, rH - 2, Math.min(6, rH / 2)); g.stroke();
+    }
+
+    /* ---- bush icon: right-hand gutter, only while actually in a bush ----
+       Phase 2 (fully hidden) clears camoState, but the plate itself is faded out
+       by then, so 'bush' is the whole condition that can be seen on screen. */
+    if(this.camoState === 'bush'){
+      const bush = (typeof getBushIcon === 'function') ? getBushIcon() : null;
+      if(bush && bush.complete && bush.naturalWidth > 0){
+        g.drawImage(bush, bushX, bushY, bushSize, bushSize);
       }
     }
 
@@ -3119,6 +3588,11 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     if(this._hpDisp === undefined){ this._hpDisp = target; this._hpGhost = target; this._hpFlash = 0; }
 
     let dirty = false;
+    /* Snapshot feeds (host/relay state) mark the plate instead of repainting
+       it directly: an immediate _drawHp() here bypassed the 10/20 Hz redraw
+       cap below, so a burst of snapshots in a firefight repainted twenty
+       360x100 canvases and re-uploaded them to the GPU inside one frame. */
+    if(this._hpForceDirty){ this._hpForceDirty = false; dirty = true; }
     // Fire the hit flash once per damage event (compare against the previous
     // target, not the animating value, or it would stay lit the whole time the
     // bar is draining).
@@ -3169,7 +3643,26 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       this._rlDisp = r0 + (targetR - r0) * Math.min(1, dt * 12);
       if(Math.abs(this._rlDisp - targetR) < 0.003) this._rlDisp = targetR;
       if(this._rlDisp !== r0) dirty = true;
+
+      /* THE LOADED BUMP, fired once on the transition into "loaded" -- not while
+         the gun sits loaded, which would make the line twitch for the whole
+         match. _drawHp swells the line and brightens the yellow while this is
+         above zero. */
+      const loadedNow = targetR >= 0.999;
+      if(this._rlWasLoaded === undefined) this._rlWasLoaded = loadedNow;
+      if(loadedNow && !this._rlWasLoaded) this._rlBump = 1;
+      this._rlWasLoaded = loadedNow;
     }
+    if(this._rlBump > 0){
+      this._rlBump = Math.max(0, this._rlBump - dt * 4.5);
+      dirty = true;
+    }
+
+    /* The bush icon lives on the plate, and the plate only repaints when
+       something moves: without this, a tank that walked into a hedge would keep
+       an empty gutter until it was next shot. */
+    const inBushNow = (this.camoState === 'bush');
+    if(inBushNow !== this._hpBushShown){ this._hpBushShown = inBushNow; dirty = true; }
 
     if(dirty){
       /* Every redraw repaints a 360x100 canvas AND re-uploads that canvas to
@@ -3440,7 +3933,11 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
           .setTranslation(this.colOffX, this.colOffY, this.colOffZ)
           .setDensity(this.mass / (hw * 2 * hh * 2 * hl * 2))
           .setRestitution(0.15)
-          .setFriction(0.7);
+          .setFriction(0.7)
+          /* Same class as the spawn collider — a refitted hitbox is the same
+             tank, and a ghost that lost its groups here would silently turn
+             solid again on its first refit. */
+          .setCollisionGroups((TANK_COLLIDE_BIT << 16) | 0xFFFF);
         this._physCollider = this._physWorld.createCollider(col, this._physBody);
         if(typeof this._physCollider.setActiveEvents === 'function'){
           this._physCollider.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
@@ -3567,6 +4064,18 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
 
     const d = this.def;
     const inp = this._input || {};
+
+    /* SPAWN PROTECTION.
+
+       A tank that has just come back cannot shoot and cannot use its super
+       until `_spawnLockT` runs out — the cannon is cold for a moment so a
+       respawn is not a free shot from behind. The countdown is here, in the
+       tank's own update, because it has to expire even while the player
+       holds the fire button down; Game sets the number when it respawns one. */
+    if(this._spawnLockT > 0) this._spawnLockT = Math.max(0, this._spawnLockT - dt);
+    const fireLocked = (this._spawnLockT > 0);
+    /* GHOST MODE — pass through other tanks, never through the world. */
+    this._updateSpawnGhost(dt, game);
 
     this._tickFieldRepairs(dt);
     this._updateCover(world, dt);
@@ -3912,7 +4421,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     if(d.shellType === 'flame'){
       const heatMult = d.overheatMult || 1;
       const overheatThreshold = 750;
-      if(inp.fire && !this.overheated){
+      if(inp.fire && !this.overheated && !fireLocked){
         this.heat += (1000 / 7.5) * heatMult * dt;
         if(this.heat >= overheatThreshold){
           this.heat = overheatThreshold;
@@ -3933,6 +4442,22 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
         this.barrelMat.color.setRGB(r/255, g/255, b/255);
         this.barrelMat.emissive.setRGB(t * 0.8, t * 0.15, 0);
         this.barrelMat.emissiveIntensity = t * 0.5;
+      }
+      // Model tanks (helix): heat the authored gun node too. Materials are
+      // cached at rig time; walking the subtree every frame was pure overhead.
+      if(this._heatMats && this._heatMats.length){
+        const t = this.heat / overheatThreshold;
+        const baseCol = this._heatBaseCol || this.def.turretColor;
+        if(!this._heatHotCol) this._heatHotCol = new THREE.Color(0xff3b30);
+        const hotCol = this._heatHotCol;
+        for(let i = 0; i < this._heatMats.length; i++){
+          const m = this._heatMats[i];
+          if(m && m.color) m.color.copy(baseCol).lerp(hotCol, t);
+          if(m && m.emissive && m.emissive.isColor){
+            m.emissive.setRGB(t * 0.9, t * 0.12, 0);
+            m.emissiveIntensity = t * 0.8;
+          }
+        }
       }
     }
 
@@ -3965,7 +4490,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       if(aim && aim.blocked){
         this._artilleryBlocked = true;
         /* Once per press, not once per frame the button happens to be held. */
-        if(inp.fire && !this._artilleryRefused){
+        if(inp.fire && !fireLocked && !this._artilleryRefused){
           this._artilleryRefused = true;
           if(this.isLocal && typeof Menu !== 'undefined' && Menu.toast){
             Menu.toast('\u26A0 Too close \u2014 ' + Math.round(aim.minRange) + 'm minimum range');
@@ -3980,7 +4505,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       if(this._burstTimer <= 0){
         this._burstTimer = d.burstDelay || 0.007;
         this._burstRemaining--;
-        if(d.ejectShell && this._shellNode && game) game.ejectShell(this);
+        if(d.ejectShell !== false && game) game.ejectShell(this);
         if(game) game.spawnShot(this);
         if(this._burstRemaining <= 0){
           this.reloadLeft = d.reload;
@@ -3990,12 +4515,12 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
           }
         }
       }
-    } else if(inp.fire && !this._artilleryBlocked && this.reloadLeft <= 0 && this.magReloadLeft <= 0 && !this.overheated && (this.mag > 0 || !d.magSize)){
+    } else if(inp.fire && !fireLocked && !this._artilleryBlocked && this.reloadLeft <= 0 && this.magReloadLeft <= 0 && !this.overheated && (this.mag > 0 || !d.magSize)){
       if(this.superState === 'cloaked') this.endCloak();
       if(d.burstCount && d.burstCount > 1){
         this._burstRemaining = d.burstCount - 1;
         this._burstTimer = d.burstDelay || 0.007;
-        if(d.ejectShell && this._shellNode && game) game.ejectShell(this);
+        if(d.ejectShell !== false && game) game.ejectShell(this);
         if(game) game.spawnShot(this);
       } else if(d.doubleBarrel && this._doubleMode === 'double'){
         this.reloadLeft = d.reload;
@@ -4003,7 +4528,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
           this.mag -= 2;
           if(this.mag <= 0) this.magReloadLeft = d.magReload || d.reload;
         }
-        if(d.ejectShell && this._shellNode && game) game.ejectShell(this);
+        if(d.ejectShell !== false && game) game.ejectShell(this);
         if(game) game.spawnShot(this);
         if(game) game.spawnShot(this);
       } else {
@@ -4012,7 +4537,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
           this.mag--;
           if(this.mag <= 0) this.magReloadLeft = d.magReload || d.reload;
         }
-        if(d.ejectShell && this._shellNode && game) game.ejectShell(this);
+        if(d.ejectShell !== false && game) game.ejectShell(this);
         if(game) game.spawnShot(this);
       }
     }
@@ -4037,9 +4562,75 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     this.superCdLeft = Math.max(0, this.superCdLeft - amount / need * this.superCdTotal * mult);
   }
 
+  /* ── GHOST / SPAWN-LOCK ─────────────────────────────────────────────── */
+
+  /* Pass through OTHER TANKS, and only other tanks. Clearing one bit from the
+     collider's filter does exactly that, because every tank is a member of
+     that bit and no piece of the world is. */
+  setGhostMode(on){
+    if(!this._physCollider || typeof this._physCollider.setCollisionGroups !== 'function') return;
+    try{
+      const filter = on ? (0xFFFF & ~TANK_COLLIDE_BIT) : 0xFFFF;
+      this._physCollider.setCollisionGroups((TANK_COLLIDE_BIT << 16) | filter);
+    }catch(e){}
+  }
+
+  /* Is any live tank still overlapping this one? A rotated box would be exact
+     and this is a cheap AABB in world space, which is what the ghost rule
+     wants anyway: "drive out of him before you become solid again", not "be
+     mathematically outside the hull". */
+  _overlapsAnyTank(game){
+    const list = (game && game.tanks) || [];
+    const rs = this.hitScale || 1;
+    const rx = ((this.colHalfW != null ? this.colHalfW : (this.def.body.w * 0.5)) + 1.4) * rs;
+    const rz = ((this.colHalfL != null ? this.colHalfL : (this.def.body.l * 0.5)) + 1.4) * rs;
+    for(let i = 0; i < list.length; i++){
+      const o = list[i];
+      if(!o || o === this || !o.alive || o.dying || o.isDummy) continue;
+      const os = o.hitScale || 1;
+      const orx = ((o.colHalfW != null ? o.colHalfW : (o.def.body.w * 0.5)) + 1.4) * os;
+      const orz = ((o.colHalfL != null ? o.colHalfL : (o.def.body.l * 0.5)) + 1.4) * os;
+      if(Math.abs(o.x - this.x) < rx + orx && Math.abs(o.z - this.z) < rz + orz) return true;
+    }
+    return false;
+  }
+
+  /* `_ghostPhase`: 0 solid, 1 counting down the 5s lock, 2 the lock is over but
+     somebody is still inside us, so stay a ghost until they are not.
+
+     Phase 2 is the whole point: a tank that got bodied on its spawn pad is
+     protected by the timer, and dropping the ghost exactly on the tick would
+     pop it inside a teammate and fire it out of the map. */
+  _updateSpawnGhost(dt, game){
+    if(!this._ghostPhase) return;
+    if(this._ghostPhase === 1){
+      this._ghostT = Math.max(0, this._ghostT - dt);
+      if(this._ghostT <= 0){
+        if(this._overlapsAnyTank(game)){
+          this._ghostPhase = 2;
+        } else {
+          this._ghostPhase = 0;
+          this.setGhostMode(false);
+        }
+      }
+      return;
+    }
+    if(!this._overlapsAnyTank(game)){
+      this._ghostPhase = 0;
+      this.setGhostMode(false);
+      if(this.isLocal && typeof Menu !== 'undefined' && Menu.toast) Menu.toast('Clear — you are solid again');
+    }
+  }
+
   activateSuper(){
     /* 'done' is a finished super, not a running one. Nothing ever cleared it,
        so a super could be used ONCE per match and never again. */
+    /* No super during the spawn lock — same rule as the gun, and for the same
+       reason: an airstrike called from a protected spawn is a free kill. */
+    if(this._spawnLockT > 0){
+      if(this.isLocal && typeof Menu !== 'undefined' && Menu.toast) Menu.toast('Super is locked for ' + Math.ceil(this._spawnLockT) + 's after respawn');
+      return false;
+    }
     if(!this.hasSuper() || this.superCdLeft > 0 || (this.superState && this.superState !== 'done')) return false;
     const t = this.def.superType;
     if(t === 'airstrike' || t === 'barrage'){
@@ -4145,6 +4736,14 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       m.opacity = on ? 0.25 : 1;
       m.depthWrite = !on;
     });
+    /* Cloak writes opacity behind the cover fade's back, so when it ends the
+       cache that normally suppresses redundant writes has to be invalidated --
+       otherwise a tank that leaves cloak while standing in a bush keeps the
+       cloak's 0.25 instead of its cover phase's opacity. */
+    if(!on){
+      this._coverOpacityApplied = -1;
+      this._applyCamoVisual();
+    }
   }
 
   /* THE VISUAL HALF OF CAMOUFLAGE, AND WHAT IT DELIBERATELY DOES NOT TOUCH.
@@ -4175,29 +4774,83 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
      Only ever called when camoFactor actually changes, so the traverse is not
      per frame per tank; the visibility flags themselves are idempotent. */
   _applyCamoVisual(){
-    const op = this.camoFactor;
-    const hidden = op <= 0;
+    /* camoFactor IS the opacity now: 1 in the open, BUSH_PHASE1_OPACITY (0.2)
+       while touching cover, 0 once fully hidden. Deriving the visual straight
+       from it means a net-driven tank -- which is TOLD its camoFactor by the
+       host and never runs the phase logic itself -- fades exactly like the
+       host's copy, without shipping a second field over the wire. */
+    this._applyCoverOpacity(this.camoFactor);
+  }
 
+  /* Write one opacity onto the whole tank: every mesh, its outline, the
+     nametag and the drown bar.
+
+     THE MATERIALS ARE CLONED PER MESH, ONCE, LAZILY. Models._clone hands every
+     tank of the same type the SAME material instances (src.clone(true) copies
+     the node tree, not the materials), so writing opacity onto them faded
+     every other tank of that type as well -- and the same sharing is why the
+     old _checkTDMBushes fade leaked across the team. The clone happens the
+     first time a tank is actually faded, so a tank that never enters cover
+     still costs nothing, and the original is kept as the baseline for `op = 1`. */
+  _applyCoverOpacity(op){
+    if(!(op >= 0)) op = 1;
+    if(op === this._coverOpacityApplied) return;
+    this._coverOpacityApplied = op;
+
+    const hidden = op <= 0.001;
+
+    /* The nametag and bar are one canvas, so one fade covers both. */
     if(this.hpSprite){
-      /* The nametag and bar are one canvas, so one fade covers both. Kept at a
-         low floor rather than zero while only partly hidden, matching the
-         partial-cover ramp the bots read. */
-      this.hpSprite.material.opacity = op;
+      this.hpSprite.visible = !hidden;
+      if(this.hpSprite.material) this.hpSprite.material.opacity = op;
+    }
+    if(this._drownBar){
+      this._drownBar.visible = !hidden;
+      if(this._drownBar.material) this._drownBar.material.opacity = op;
     }
 
+    /* Fully hidden switches the groups off rather than relying on a 0-opacity
+       transparent pass: an invisible mesh still costs a draw call, and the old
+       code already proved this flag is safe to flip. */
     if(hidden !== this._camoHidden){
       this._camoHidden = hidden;
-      const body = this.bodyGroup, turret = this.turretGroup;
-      if(body) body.visible = !hidden;
-      if(turret) turret.visible = !hidden;
-      /* The nametag goes with it, hard, so nothing is left hovering over an
-         empty patch of foliage to give the position away. */
-      if(this.hpSprite) this.hpSprite.visible = !hidden;
+      if(this.bodyGroup) this.bodyGroup.visible = !hidden;
+      if(this.turretGroup) this.turretGroup.visible = !hidden;
     }
+
+    const wantTransparent = op < 1;
+    const fade = (o) => {
+      if(!o.isMesh || !o.material) return;
+      let mats = o.userData._coverMats;
+      if(!mats){
+        const cloneOne = (m) => {
+          const c = m.clone();
+          c.userData._coverBase = (m.opacity != null) ? m.opacity : 1;
+          return c;
+        };
+        mats = Array.isArray(o.material) ? o.material.map(cloneOne) : [cloneOne(o.material)];
+        o.userData._coverMats = mats;
+        o.material = Array.isArray(o.material) ? mats : mats[0];
+      }
+      for(let i = 0; i < mats.length; i++){
+        const m = mats[i];
+        if(m.transparent !== wantTransparent){
+          m.transparent = wantTransparent;
+          /* needsUpdate recompiles; it is only ever needed when the blend mode
+             itself changes, which is why it is inside this branch. */
+          m.needsUpdate = true;
+        }
+        m.depthWrite = !wantTransparent;
+        const base = (m.userData && m.userData._coverBase != null) ? m.userData._coverBase : 1;
+        m.opacity = base * op;
+      }
+    };
+    if(this.bodyGroup) this.bodyGroup.traverse(fade);
+    if(this.turretGroup) this.turretGroup.traverse(fade);
   }
 
   /* ============================================================================
-     COVER, AND HOW IT GETS BROKEN
+     COVER, IN TWO PHASES
 
      One method for both the local and the net-driven path. Those two each used
      to carry their own copy of the hidingIn/camoFactor pair, which is how the
@@ -4206,28 +4859,46 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
      than the one the player is looking at.
 
        coverOverlap  0..1, how much of the footprint is under foliage.
-       camoFactor    0 when hidden, rising to 1 as cover is lost. This is what
-                     the bots read and what the minimap already reads.
+       coverPhase    0 = in the open, 1 = touching cover, 2 = fully hidden.
+       camoFactor    THE OPACITY, on the same scale: 1, BUSH_PHASE1_OPACITY
+                     (0.2) and 0. The bots read it (anything <= 0 is invisible
+                     to them) and the model is faded by it directly.
        camoState     'bush' / 'tree' / 'cloak' / null, for the HUD.
 
-     camoFactor is deliberately not binary. A tank at 40% cover is neither
-     hidden nor in the open, and pretending otherwise is what gave the old code
-     a flat 0.3 for every possible amount of cover.
+     PHASE 1 -- TOUCHING. Any overlap with foliage at all, and the tank drops to
+     20% opacity: you can still see it, but it stops reading as a silhouette.
+     Nothing has to be earned for this, and it survives any amount of driving,
+     so a tank crossing a bush is always see-through rather than popping between
+     solid and gone.
 
-     SHAKING, AND WHY IT IS THE POINT
+     PHASE 2 -- GONE. Costs two seconds of stillness (BUSH_PHASE2_TIME) with no
+     shot fired and no wheel turning faster than BUSH_PHASE2_MAX_KMH inside the
+     cover. Break any of the three and the clock resets, so the tank is back at
+     phase 1 for another two seconds -- firing from a bush costs you the bush.
 
-     Cover that cannot be broken is a place to stop, not a thing to drive
-     through, so driving or firing while under foliage gives you away for
-     COVER_REVEAL_TIME after you stop. This is the same event the tree-shake
-     animation already plays when a tank rolls into a tree (the FOLIAGE block in
-     Game._update) -- the reveal is that shake finally meaning something rather
-     than a second unrelated rule stacked on top of it.
+     WHAT COUNTS AS THE SAME BUSH. A hedge is several bushes, and creeping from
+     one leaf into the next must not restart the clock. World.bushBodyAt() gives
+     each clump an id (union-find over nearby discs -- see World._bushBodies),
+     and the progress is kept while that id does not change. Crossing open ground
+     to an unconnected bush changes the id, and the two seconds start over. The
+     progress also survives BUSH_BODY_GRACE seconds of NOT touching anything, so
+     the small bare gap between two linked bushes cannot break a run the player
+     never left the hedge for.
 
-     The threshold is COVER_SHAKE_SPEED rather than zero so easing to a stop and
-     firing does not betray you: you have to be genuinely rolling. */
+     FIRING: reloadLeft counts DOWN from def.reload to 0, and 0 means "loaded
+     and ready", so "just fired" is reloadLeft NEAR def.reload, not below it.
+     The original test read `reloadLeft < def.reload - 0.001`, which is true for
+     almost the whole countdown INCLUDING the idle state where the tank has not
+     fired at all -- every stationary tank was treated as permanently mid-shot
+     and could never hide. The window below is the fixed version and is what
+     still decides "did it shoot". */
   _updateCover(world, dt){
+    const step = dt || 0;
     if(!world){
       this.coverOverlap = 0;
+      this.coverPhase = 0;
+      this._coverStillT = 0;
+      this._coverBody = -1;
       this.camoFactor = (this.superState === 'cloaked') ? 0 : 1;
       this.camoState = this.superState === 'cloaked' ? 'cloak' : null;
       return;
@@ -4244,60 +4915,67 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     if(this.superState === 'cloaked'){
       this.camoState = 'cloak';
       this.camoFactor = 0;
+      this.coverPhase = 2;
       this.coverRevealed = 0;
+      this._coverStillT = 0;
       return;
     }
 
     const HIDDEN = CONFIG.COVER_HIDE_FRACTION;
     const kind = this._coverKindOf(world);
+    /* "Touching" is any overlap at all; "in" is enough of the hull under the
+       leaves to count as hidden. Phase 1 needs only the touch, phase 2 needs
+       the tank genuinely inside. */
+    const touched = this.coverOverlap > 0.02;
+    const covered = this.coverOverlap >= HIDDEN;
 
-    if(this.coverOverlap >= HIDDEN){
-      const speed = Math.abs(this.speed || 0);
-      const rolling = speed > CONFIG.COVER_SHAKE_SPEED ||
-                      Math.hypot(this.vx || 0, this.vz || 0) > CONFIG.COVER_SHAKE_SPEED;
-      /* FIRING GIVES YOU AWAY — AND THE COMPARISON IS A SUBTLE ONE.
-
-         reloadLeft counts DOWN from def.reload to 0 (see the tick above), and 0
-         means "loaded and ready". So "just fired" is reloadLeft NEAR def.reload,
-         not below it. The original test read
-
-             reloadLeft < def.reload - 0.001
-
-         which is true for essentially the whole countdown — including the idle
-         state where reloadLeft is 0 and the tank has not fired at all, since
-         0 < def.reload for every tank with a reload time. So every stationary
-         tank was treated as permanently mid-shot: coverRevealed was re-armed
-         every single frame, the countdown below it never got to run, and
-         camoFactor was pinned at its partial-cover floor of 0.25 instead of 0.
-
-         That is why a tank sitting perfectly still in the middle of a bush was
-         still drawn. Not a subtle half-hidden state — the hiding never happened
-         at all, and it would never have happened for as long as the tank sat
-         still, which is the one thing it has to do to stay hidden. */
-      const firing = (this.def.reload != null) &&
-                     (this.reloadLeft || 0) > (this.def.reload - CONFIG.COVER_FIRE_WINDOW);
-      if(rolling || firing){
-        /* Shake it, and it stays shaken for a moment after you stop -- otherwise
-           the reveal flickers on and off with every wheel-speed wobble. */
-        this.coverRevealed = CONFIG.COVER_REVEAL_TIME;
-      } else if(this.coverRevealed > 0){
-        this.coverRevealed = Math.max(0, this.coverRevealed - (dt || 0));
+    if(!touched){
+      /* Out in the open. The clock is NOT wiped immediately: see the grace note
+         above -- two linked bushes can have a bare gap between their discs. */
+      this._coverLostT += step;
+      if(this._coverLostT >= (CONFIG.BUSH_BODY_GRACE != null ? CONFIG.BUSH_BODY_GRACE : 1.5)){
+        this._coverStillT = 0;
+        this._coverBody = -1;
       }
-
-      const hidden = this.coverRevealed <= 0;
-      /* Partial cover climbs back toward 1 as the overlap falls off, so a tank
-         easing out of a tree gets progressively easier to see. */
-      const partial = 1 - (this.coverOverlap - HIDDEN) / Math.max(0.0001, 1 - HIDDEN);
-      this.camoFactor = hidden ? 0 : Math.max(0.25, Math.min(1, partial));
-      this.camoState = hidden ? null : kind;
-    } else {
+      this.coverPhase = 0;
       this.coverRevealed = 0;
       this.camoFactor = 1;
-      /* Report the cover a tank still has, so the bot AI and the HUD can tell
-         "in the open" from "nearly hidden" -- the difference between a fair
-         shot and a silly one. */
-      this.camoState = this.coverOverlap > 0.05 ? kind : null;
+      this.camoState = null;
+      return;
     }
+    this._coverLostT = 0;
+
+    /* Which clump of cover this is. -2 stands for tree cover, which has no
+       bush body of its own; a bush id is therefore always >= 0. */
+    const body = (world.bushBodyAt && kind === 'bush') ? world.bushBodyAt(this.x, this.z) : -2;
+    if(body !== this._coverBody){
+      this._coverBody = body;
+      /* A new clump means the two seconds start over -- unless this is the
+         first frame of any cover at all, where there is nothing to restart. */
+      this._coverStillT = 0;
+    }
+
+    const speedU = Math.max(Math.abs(this.speed || 0), Math.hypot(this.vx || 0, this.vz || 0));
+    const kmh = speedU * (CONFIG.U_TO_KMH || 2.16);
+    const tooFast = kmh > (CONFIG.BUSH_PHASE2_MAX_KMH != null ? CONFIG.BUSH_PHASE2_MAX_KMH : 5);
+    const firing = (this.def.reload != null) &&
+                   (this.reloadLeft || 0) > (this.def.reload - CONFIG.COVER_FIRE_WINDOW);
+
+    if(tooFast || firing){
+      this._coverStillT = 0;
+    } else {
+      this._coverStillT += step;
+    }
+
+    const phase2 = covered && !firing && !tooFast &&
+                   this._coverStillT >= (CONFIG.BUSH_PHASE2_TIME != null ? CONFIG.BUSH_PHASE2_TIME : 2);
+
+    this.coverPhase = phase2 ? 2 : 1;
+    this.camoFactor = phase2 ? 0 : (CONFIG.BUSH_PHASE1_OPACITY != null ? CONFIG.BUSH_PHASE1_OPACITY : 0.2);
+    this.camoState = phase2 ? null : kind;
+    /* Kept for the tree-shake animation and anything else reading the old
+       countdown: it is simply "cover is not currently hiding me". */
+    this.coverRevealed = phase2 ? 0 : (CONFIG.COVER_REVEAL_TIME || 2);
   }
 
   /* Which kind of plant is doing the hiding, for the HUD's wording. A tree is
@@ -4382,6 +5060,21 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     const myR = Math.max(this.colHalfW || 0, this.colHalfL || 0);
     for(const o of game.tanks){
       if(!o || o === this || !o.alive || o.dying || !o._physBody) continue;
+      /* CHEAP PAIR GATE, BEFORE ANY PHYSICS CALL.
+
+         This loop runs for every tank, every frame, and used to ask Rapier for
+         the other tank's body translation on EVERY pair — n squared native
+         calls per frame (529 of them with a full field of 23), each one a
+         boundary crossing, to discover that almost every pair is nowhere near
+         each other. A tank's x/z are already synced from its body earlier in
+         the same frame, so the horizontal overlap that this whole test depends
+         on can be rejected in plain JS first. Bodies are only read (and then
+         only for the y that the cheap test cannot see) for the handful of
+         pairs that can actually be stacked. */
+      const oR = Math.max(o.colHalfW || 0, o.colHalfL || 0);
+      const ddx = p.x - o.x, ddz = p.z - o.z;
+      const reach = myR + oR;
+      if(ddx*ddx + ddz*ddz >= reach*reach) continue;
       let op;
       try { op = o._physBody.translation(); } catch(e){ continue; }
       const oH = o.colHalfH || 0.5;
@@ -4462,10 +5155,21 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
   updateDistanceScaling(cameraPos, camDist){
     /* Nothing of a tank hidden by fog is on screen, so nothing here is worth doing. */
     if(this._fogHidden) return;
-    this._stepHpBar(performance.now());
     const dx = this.x - cameraPos.x;
     const dz = this.z - cameraPos.z;
     const dist = Math.sqrt(dx*dx + dz*dz);
+    /* FAR AWAY, HALF AS OFTEN.
+
+       This is a pure smoothing pass: the health plate's scale eases toward a
+       distance-derived size, the outline tracks the zoom, the reload line
+       animates. At four metres it has to be exact; at sixty it is a handful of
+       pixels, and a tank that far out is already being drawn at a scale where a
+       frame of lag in the ease is not observable. Running it every third frame
+       past 45 units takes roughly a third of this cost off a crowded field
+       without touching anything the player can see, and the plate keeps its
+       last transform in between. */
+    if(dist > 45 && (this._frameToken % 3)) return;
+    this._stepHpBar(performance.now());
     const target = Math.min(4.0, Math.max(0.6, 0.15 + dist * 0.035));
     this._uiScale += (target - this._uiScale) * 0.15;
     const s = this._uiScale;
@@ -4476,6 +5180,10 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       // canvas. Fixed width would have shrunk the whole plate vertically.
       const h = 1.375 * s;
       this.hpSprite.scale.set(h * (this._hpAspect || (360/100)), h, 1);
+      /* The plate just changed height, so its bottom edge has to be put back on
+         the constant gap above the turret rather than being dragged down by the
+         extra rows. */
+      this._placeHpSprite();
     }
     if(this._drownBar) this._drownBar.scale.set(3.4 * s, 0.21 * s, 1);
     // Outline scales with zoom level only (camDist), not per-tank distance
@@ -4703,33 +5411,84 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
   }
 
   /* Aim-pitch writer for the LOCAL PLAYER. Fires on every game.js tick where
-     it owns _aimPitch. Turret and hull steer with YawGroup and Body, so a
-     dedicated PitchGroup for the barrel elevation cannot be unwound by them.
-     _applyAimPitch is safe to call at any frequency; it no-ops when the pitch
-     is already applied. */
+     it owns _aimPitch. Safe to call at any frequency; it no-ops when the pitch
+     is already applied.
+
+     THE MUZZLE MUST NEVER LEAVE THE TURRET RIG.
+
+     This used to work by re-parenting barrelEnd into a fresh group under
+     this.turretGroup. turretGroup is the OUTER turret container: it carries the
+     model yaw and does not turn with the turret (turretAngle lives on
+     _modelTurretPivot, a node deep inside it). game.js calls _applyAimPitch(0)
+     every single tick, so on the first frame of a match the muzzle — and with
+     it the aim line, the shell spawn point and the flame cone's origin and
+     direction — was pulled out of the turret, the gun and the recoil assembly
+     and frozen where it happened to be. After that the turret turned and the
+     gun fired from a fixed point in space: the "firing point is not where the
+     GLB put it" report, and a flamethrower that sprays one way while its
+     damage goes another.
+
+     The barrel is now tilted where it actually lives: the gun node is rotated
+     about the axis perpendicular to its own barrel, so the mesh, the muzzle and
+     everything parented to them move as one. A model with no separate gun node
+     (barrel baked into the turret mesh) gets no visual elevation — what it had
+     before — and simply keeps its muzzle on the barrel. */
   _applyAimPitch(pitch){
-    const g = (this._pitchGroup && this._pitchGroup.parent === this.turretGroup)
-      ? this._pitchGroup : this._makePitchGroup();
-    if(!g) return;
-    g.rotation.x = -(pitch || 0);
+    this._aimPitch = pitch || 0;
+    this._applyGunPitch();
   }
 
-  /* Construct-once PitchGroup that wraps the barrel (never turret yaw, never
-     hull). Called from _applyAimPitch on demand; no cost once built. */
-  _makePitchGroup(){
-    if(this._pitchGroup) return this._pitchGroup;
-    if(!this.barrelEnd || !this.turretGroup) return null;
-    const g = new THREE.Group();
-    const be = this.barrelEnd;
-    this.turretGroup.add(g);
-    this.turretGroup.remove(be);
-    g.add(be);
-    this._pitchGroup = g;
-    /* Keep barrelEnd's world transform identical through the re-parent, so
-       muzzle(), the aim line and the spawned shell all keep reading the
-       same spot they read before the group existed. */
-    this.root.updateMatrixWorld(true);
-    return g;
+  /* Where the barrel can be tilted, measured once: the gun node, the horizontal
+     axis perpendicular to its barrel, and the pose to return to. Null for any
+     model that has no gun node of its own, or whose gun is already driven by
+     artillery elevation (_updateGunAssembly writes rotation.z on that node). */
+  _pitchRig(){
+    if(this._pitchRigCache !== undefined) return this._pitchRigCache;
+    let rig = null;
+    const node = this._recoilNode;
+    if(node && this.barrelEnd && node !== this.turretGroup && node !== this._gunNode && node.parent){
+      try {
+        this.root.updateMatrixWorld(true);
+        const inv = new THREE.Matrix4().copy(node.parent.matrixWorld).invert();
+        /* THE BARREL'S OWN HEADING, in the gun's parent space so turret yaw and
+           hull lean cancel out. _recoilAxis is measured at rig time from the
+           gun's geometry centre to the authored muzzle, i.e. the visible tube,
+           which is not the same thing as gun.position -> muzzle on every model
+           (Helix's gun origin sits 2m below its barrel, giving a 16 degree
+           error). Falls back to the old pivot-to-muzzle delta for a rig built
+           before the axis existed. */
+        const dir = this._recoilAxis
+          ? this._recoilAxis.clone()
+          : this.barrelEnd.getWorldPosition(new THREE.Vector3()).applyMatrix4(inv).sub(node.position);
+        dir.y = 0;
+        if(dir.lengthSq() > 1e-6){
+          dir.normalize();
+          const up = new THREE.Vector3(0, 1, 0);
+          const axis = new THREE.Vector3().crossVectors(dir, up).normalize();
+          if(axis.lengthSq() > 1e-6){
+            rig = { node: node, axis: axis, home: node.quaternion.clone() };
+          }
+        }
+      } catch(e){ rig = null; }
+    }
+    this._pitchRigCache = rig;
+    this._pitchApplied = undefined;
+    return rig;
+  }
+
+  _applyGunPitch(){
+    const rig = this._pitchRig();
+    if(!rig) return;
+    const pitch = this._aimPitch || 0;
+    if(this._pitchApplied === pitch) return;
+    this._pitchApplied = pitch;
+    if(!pitch){
+      rig.node.quaternion.copy(rig.home);
+      return;
+    }
+    const q = this._pitchQuat || (this._pitchQuat = new THREE.Quaternion());
+    q.setFromAxisAngle(rig.axis, pitch);
+    rig.node.quaternion.copy(q).multiply(rig.home);
   }
 
   _syncTransform(){
@@ -4799,7 +5558,13 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     } else {
       const hullTop = (this.def.body && this.def.body.h) ? this.def.body.h * 2.0 : 2.0;
       const turretH = (this.def.turret && this.def.turret.h) ? this.def.turret.h * 2.0 : 1.7;
-      this.turretGroup.position.set(mo.x, hullTop - turretH / 2 + mo.y, mo.z);
+      /* The +ring here is the other half of the baked turret pivot: the turret's
+         own contents are shifted by -ring so that turretGroup's rotation (below)
+         turns it about its ring instead of about the tank's origin. */
+      const so = this._turretSpinOffset;
+      this.turretGroup.position.set(mo.x + (so ? so.x : 0),
+                                    hullTop - turretH / 2 + mo.y,
+                                    mo.z + (so ? so.z : 0));
     }
     if(this._allowFall && this._physBody){
       try {
@@ -4823,11 +5588,9 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     } else {
       this.turretGroup.rotation.set(0, this.turretAngle + myaw, 0, 'YXZ');
     }
-    /* AIM PITCH: the barrel's own elevation group rides on TOP of whatever
-       the yaw wrote here, so writing turretGroup.rotation every frame cannot
-       unwind it. _applyAimPitch sets _pitchGroup.rotation.x directly and does
-       not go through _syncTransform, so the two never fight. */
-    if(this._pitchGroup) this._pitchGroup.rotation.x = -(this._aimPitch || 0);
+    /* AIM PITCH rides on the gun node itself (see _applyAimPitch), so writing
+       turretGroup.rotation here cannot unwind it and the muzzle never leaves
+       the turret rig. Nothing to do per frame. */
   }
 
   /* TREAD MARKS — one batched mesh per tank.
@@ -5066,10 +5829,21 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     }
     if(this.superState === 'cloaked') this.endCloak();
     this._triggerDamageFlash();
+    /* DAMAGE NUMBERS BELONG TO THE SHOOTER, AND ONLY TO THE LOCAL PLAYER.
+       They used to spawn for every hit anywhere on the map, so a brawl ten
+       tanks away sprayed numbers across the screen and every enemy's hull was
+       shouting at you about damage it took from somebody else. Now the number
+       only appears for damage YOU dealt.
+
+       The spawn height is hull level, not above the turret: the nameplate and
+       HP bar hang NAMEPLATE_GAP (4.2) above the turret top, and a 2x-bigger
+       label climbing from up there ran straight through them. From the hull it
+       arcs out to the side instead, and never reaches the plate. */
+    const mine = game && game.localTank && fromTank === game.localTank && fromTank !== this;
     if(accumulate && game){
-      game._accumFlameDamage(this, amount);
-    } else if(game && game.spawnDamageLabel){
-      game.spawnDamageLabel(this.x, this.def.turret.h + this.def.body.h + 3.6, this.z, amount);
+      if(mine) game._accumFlameDamage(this, amount);
+    } else if(mine && game.spawnDamageLabel){
+      game.spawnDamageLabel(this.x, this.def.body.h * 0.55 + 1.1, this.z, amount);
     }
     /* THE HIT SOUNDS. Not attached to the shell (that one already has the
        muzzle pop and the impact burst on its own path); the hull has its own
@@ -5238,9 +6012,8 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     this.root.scale.set(s, s, s);
     if(this._overlayGroup){
       const inv = 1 / s;
-      this._overlayGroup.scale.set(inv, inv, inv);
-      if(this.hpSprite && this._baseTurretH != null){
-        this.hpSprite.position.y = this._baseTurretH * s + 4.2 * s;
+      this._overlayGroup.scale.set(inv, inv, inv);            if(this.hpSprite && this._baseTurretH != null){
+        this._placeHpSprite();
       }
       if(this._drownBar && this._baseTurretH != null){
         this._drownBar.position.y = this._baseTurretH * s + 1.5 * s;
@@ -5248,27 +6021,41 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     }
   }
 
+  /* THE PLATE'S HEIGHT IS NOT CONSTANT. updateDistanceScaling grows it up to 4x
+     with distance, so a fixed offset from the turret to the plate's centre buries
+     distant plates in their own tank. This anchors the plate's BOTTOM edge on
+     NAMEPLATE_GAP above the turret instead, whatever size the plate is.
+
+     The sprite sits inside _overlayGroup, whose scale (1/hitScale) cancels the
+     root's, so its local y IS the world offset -- but the plate's height is not
+     multiplied by hitScale on the way out, which is why only the turret height
+     is scaled here and the half-height is added raw. */
+  _placeHpSprite(){
+    if(!this.hpSprite || this._baseTurretH == null) return;
+    const s = this.hitScale || 1;
+    const halfH = (this.hpSprite.scale.y || 1.3) / 2;
+    this.hpSprite.position.y = (this._baseTurretH + NAMEPLATE_GAP) * s + halfH;
+  }
+
   _startDeath(game, killer){
     this.dying = true; this.deathT = 0;
     this.removeAt = (game? game.time : 0) + 48;
-    if(this._physBody){
-      try { this._physBody.setEnabled(false); } catch(e){}
+    /* Tell the game the LOCAL player has just been wrecked. That is the moment
+       the respawn cinematic has to start — not four seconds later, which is
+       when onLocalDeath() fires, long after the camera should already be
+       leaving the wreck. */
+    if(this.isLocal && game && typeof game.onLocalTankWreck === 'function'){
+      try { game.onLocalTankWreck(this); } catch(e){}
     }
+    // Keep the collider alive for 5s so the wreck still blocks other tanks.
+    // (Do not disable the rigid body here.)
 
     if(this.hpSprite) this.hpSprite.visible = false;
     if(this.viewCircle) this.viewCircle.visible = false;
 
-    this._turretVel = new THREE.Vector3(
-      (Math.random()-0.5)*4, 14 + Math.random()*4, (Math.random()-0.5)*4);
-    this._turretSpin = new THREE.Vector3((Math.random()-0.5)*4,(Math.random()-0.5)*6,(Math.random()-0.5)*4);
-    // Fancy graphics: launch the turret harder so its fly-off is dramatic
-    if(game && game.isFancy){
-      this._turretVel.y += 6;
-      this._turretVel.x *= 1.8;
-      this._turretVel.z *= 1.8;
-      this._turretSpin.x *= 2;
-      this._turretSpin.z *= 2;
-    }
+    // Model stands still for 5 seconds: no turret fly-off.
+    this._turretVel = null;
+    this._turretSpin = null;
 
     // Snapshot the pre-death material colours BEFORE they are charred, so a
     // respawn (Capture the Circle brings tanks back mid-match) can paint them
@@ -5324,7 +6111,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     this.root.add(this._star);
 
     if(game && game._spawnVideoFire) game._spawnVideoFire(this);
-    if(game && game._spawnVideoExplosion) game._spawnVideoExplosion(this.x, 0.5, this.z);
+    // Leave only the 3D explosion (CartoonFX) on death — no video explosion.
 
     if(game) game.onTankKilled(this, killer);
   }
@@ -5391,8 +6178,8 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       });
     }
 
-    if(this.deathT > 3){
-      const sink = (this.deathT-3);
+    if(this.deathT > 5){
+      const sink = (this.deathT-5);
       this.root.position.y = -sink*1.2;
       if(this._firePts){ this._firePts.children.forEach(p=>{ p.material.opacity=Math.max(0, 0.9 - this.deathT/45); }); }
     }
@@ -5415,6 +6202,11 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
      point they started from instead of a random spot on the map. */
   respawn(world, game, at){
     const sp = at || world.randomSpawn();
+    /* A fresh life starts solid; Game arms the ghost window afterwards. */
+    this._spawnLockT = 0;
+    this._ghostPhase = 0;
+    this._ghostT = 0;
+    this.setGhostMode(false);
     this.x = sp.x; this.z = sp.z;
     this.heading = (sp.heading != null) ? sp.heading : Math.random()*Math.PI*2;
     this.turretAngle = this.heading;
@@ -5462,6 +6254,17 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       this.barrelMat.color.setHex(0x2a2a2e);
       this.barrelMat.emissive = new THREE.Color(0,0,0);
       this.barrelMat.emissiveIntensity = 0;
+    }
+    if(this._recoilNode){
+      const baseCol = new THREE.Color(this.def.turretColor || 0xd86a3a);
+      this._recoilNode.traverse(o => {
+        if(!o.isMesh) return;
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        mats.forEach(m => {
+          if(m && m.color){ m.color.copy(baseCol); m.needsUpdate = true; }
+          if(m && m.emissive && m.emissive.isColor){ m.emissive.setRGB(0,0,0); m.emissiveIntensity = 0; }
+        });
+      });
     }
     this.root.visible = true;
     const respawnY = this._allowFall ? (this._startY != null ? this._startY : 50) : 0;
@@ -5515,7 +6318,15 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
   _updateHpBar(){ this._drawHp(); }
 
   muzzle(){
-    this.root.updateMatrixWorld(true);
+    /* NO FULL-TREE MATRIX UPDATE HERE.
+
+       This used to call root.updateMatrixWorld(true) on every read — a
+       recursive walk of the entire tank (hull, turret, gun, outlines, HP plate,
+       trail) — and muzzle() is read several times a frame: the aim line, the
+       crosshair, the muzzle flash, every shot, and once per bot evaluating a
+       shot. getWorldPosition/getWorldQuaternion already refresh the ancestors
+       they need (updateWorldMatrix(true, false)), which is a walk up the chain
+       of six or so nodes instead of down through a hundred meshes. */
     const p = new THREE.Vector3();
     this.barrelEnd.getWorldPosition(p);
     const fwd = new THREE.Vector3(0, 0, 1);
@@ -5592,7 +6403,9 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     if(s.pl != null) this.placement = s.pl;
     if(s.pw != null) this.setPowerFromSnapshot(s.pw);
     if(s.gt != null) this._gladHoldTime = s.gt;
-    this.root.visible=this.alive; this._syncTransform(); this._drawHp();
+    this.root.visible=this.alive; this._syncTransform();
+    /* Plate repaint goes through the _stepHpBar rate limit (see the note there). */
+    this._hpForceDirty = true;
   }
   /* Network-driven tanks: movement follows interpolated host snapshots, drawn
      from a SAMPLE BUFFER at a fixed render delay (see applyNetSnapshot). */
@@ -5624,7 +6437,8 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     if(s.pw != null) this.setPowerFromSnapshot(s.pw);
     if(s.gt != null) this._gladHoldTime = s.gt;
     this.root.visible = this.alive;
-    this._drawHp();
+    /* Plate repaint goes through the _stepHpBar rate limit (see the note there). */
+    this._hpForceDirty = true;
 
     /* SNAPSHOT BUFFER INTERPOLATION.
 

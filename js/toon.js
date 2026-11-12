@@ -44,6 +44,66 @@ const Toon = (() => {
     if(_gradientMap){ _gradientMap.dispose(); _gradientMap = null; }
   }
 
+  /* FLAT CEL NORMALS -- the missing half of the toon look.
+
+     MeshToonMaterial quantises the light PER FRAGMENT using the interpolated
+     normal. On a model with smooth vertex normals that interpolation is
+     continuous, so the quantised bands crawl across a large soft face as long
+     wavy stripes -- which reads as "ordinary gradient shading with noise",
+     not cel shading. Proper cel look (Mario/Zelda-style) wants EVERY facet to
+     pick ONE step: the whole triangle is uniformly in light or in shadow,
+     with clean straight band edges that follow the geometry. That is exactly
+     what per-face normals give, because N*L is constant inside a triangle.
+
+     flatten(root) walks meshes and swaps in a flat-normals copy of each
+     geometry: un-indexed (so vertices are not shared between triangles) with
+     computeVertexNormals() rebuilt from scratch. The cache (by ORIGINAL
+     geometry) guarantees two meshes that share GLB bytes share the SAME flat
+     copy too, so every identity-based batcher in this game (world foliage
+     batching, tank part batching -- both hash/compare geometry identity)
+     still groups identical parts into one draw call.
+
+     Skinned meshes and meshes flagged userData.toonSmooth are skipped. */
+  const _flatCache = new WeakMap();
+
+  function flatGeometry(g){
+    if(_flatCache.has(g)) return _flatCache.get(g);
+    let out = g;
+    try {
+      /* toNonIndexed() detaches every vertex from its neighbours; on the
+         de-indexed copy computeVertexNormals() can only average WITHIN a
+         face, which is precisely the flat shading we want. */
+      const ng = g.index ? g.toNonIndexed() : g;
+      if(ng !== g){
+        ng.userData = ng.userData || {};
+        ng.userData.toonFlat = true;
+        out = ng;
+      } else if(!g.userData.toonFlat){
+        /* already non-indexed: per-face normals in place, flagged once */
+        g.computeVertexNormals();
+        g.userData = g.userData || {};
+        g.userData.toonFlat = true;
+      }
+    } catch(e) { out = g; }
+    _flatCache.set(g, out);
+    return out;
+  }
+
+  function flatten(root){
+    if(!root) return 0;
+    const meshes = [];
+    root.traverse(function (o) {
+      if(o.isMesh && o.geometry && !o.isSkinnedMesh && o.visible !== false) meshes.push(o);
+    });
+    let swapped = 0;
+    meshes.forEach(function (o) {
+      if(o.userData && o.userData.toonSmooth) return;
+      const fg = flatGeometry(o.geometry);
+      if(fg && fg !== o.geometry){ o.geometry = fg; swapped++; }
+    });
+    return swapped;
+  }
+
   function mat(opts){
     /* Toon shading has no flat mode; passing it only logs a warning per material. */
     if(opts && 'flatShading' in opts){ opts = Object.assign({}, opts); delete opts.flatShading; }
@@ -72,5 +132,5 @@ const Toon = (() => {
     return new THREE.MeshStandardMaterial(opts);
   }
 
-  return { getGradientMap, dispose, mat };
+  return { getGradientMap, dispose, mat, flatten, flatGeometry };
 })();

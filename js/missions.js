@@ -384,6 +384,14 @@ window.Missions = (function(){
       if(window.Menu && Menu._updateCurrencies) Menu._updateCurrencies();
       var msg = '+' + cash + ' Cash' + (coins ? ' +' + coins + ' Coins' : '');
       if(window.Menu && Menu.toast) Menu.toast('Reward claimed: ' + msg);
+      /* TANK RESEARCH (research.js): a claimed mission also pays Research XP.
+         The rate lives in Research.XP next to every other research payout, so
+         this file never carries its own copy of the economy. Guarded because
+         research.js loads after missions.js and may be absent on /dev. */
+      if(window.Research && Research.addXP && Research.xpForMission){
+        var rx = Research.xpForMission(cash, coins);
+        if(rx > 0) Research.addXP(rx, 'mission complete');
+      }
     } catch(e){}
   }
 

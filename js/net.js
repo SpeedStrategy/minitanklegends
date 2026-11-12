@@ -213,6 +213,7 @@ const Net = {
       this.ws = ws;
 
       ws.onopen = () => {
+        this._reconnectAttempts = 0;
         this.connected = true;
         this._status('Connected', 'on');
         /* Say who we are before anything else so the server has a name on us.
@@ -256,11 +257,16 @@ const Net = {
            the player out of the match. */
         if (this._wantOpen) {
           clearTimeout(this._reconnectTimer);
+          /* Exponential backoff so an offline match server does not get hammered
+             (and the console does not fill with failed-handshake spam) every
+             1.2s forever. Reset on a successful open. */
+          const attempt = (this._reconnectAttempts = (this._reconnectAttempts || 0) + 1);
+          const delay = Math.min(15000, 1200 * Math.pow(2, Math.min(attempt, 4)));
           this._reconnectTimer = setTimeout(() => {
             this._open().catch(() => {
-              this._reconnectTimer = setTimeout(() => this._open().catch(() => {}), 2000);
+              this._reconnectTimer = setTimeout(() => this._open().catch(() => {}), Math.min(15000, delay * 2));
             });
-          }, 1200);
+          }, delay);
         }
       };
 

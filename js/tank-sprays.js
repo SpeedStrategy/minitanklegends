@@ -383,7 +383,7 @@ window.TankSprays = (function(){
      every panel it touched, and every one of them carried its own material.
      Running over an edge is the whole point of the depth, so the pieces are
      merged: same pixels, one call, one shared material. */
-  function addDecals(tank, pieces, tex){
+  function addDecals(tank, pieces, tex, sprayId){
     if(!tank || !pieces || !pieces.length) return 0;
     var mat = materialFor(tex);
     if(!mat) return 0;
@@ -401,6 +401,9 @@ window.TankSprays = (function(){
       var mesh = new THREE.Mesh(mergeGeometries(geos), mat);
       mesh.renderOrder = 998;
       mesh.userData.isSpray = true;
+      /* Which spray this stamp belongs to, so the menu can peel ONE of them off
+         without rebuilding the rest of the paint. */
+      mesh.userData.spray = sprayId || null;
       mesh.frustumCulled = true;
       parent.add(mesh);
       made++;
@@ -444,8 +447,12 @@ window.TankSprays = (function(){
       if(!tank.def || !tank.def.id) return;
 
       var data = readData();
-      var sprayId = (data.equipped && data.equipped[tank.def.id]) || null;
-      if(!sprayId || !owns(sprayId, data)) return;
+      /* A tank wears a LIST of sprays now; saves written before that hold a
+         single id, so both shapes are read here. */
+      var raw = data.equipped && data.equipped[tank.def.id];
+      var worn = (Array.isArray(raw) ? raw.slice() : (raw ? [raw] : []))
+        .filter(function(id){ return owns(id, data); });
+      if(!worn.length) return;
       var placement = data.placements && data.placements[tank.def.id];
       if(!placement || !placement.stamps || !placement.stamps.length) return;
       /* Authored against a frame that no longer exists. The menu drops these
@@ -460,7 +467,9 @@ window.TankSprays = (function(){
           if(!tank.root) return;
           placement.stamps.forEach(function(rec, i){
             if(!textures[i]) return;
-            addDecals(tank, withRestPose(tank, function(){ return project(tank, rec); }), textures[i]);
+            /* Paint only comes back with the sprays the tank still wears. */
+            if(rec.spray && worn.indexOf(rec.spray) < 0) return;
+            addDecals(tank, withRestPose(tank, function(){ return project(tank, rec); }), textures[i], rec.spray);
           });
         });
     }catch(e){

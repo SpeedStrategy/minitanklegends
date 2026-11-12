@@ -23,7 +23,7 @@ const CartoonFX = (() => {
   const MAX_SPARKS = 320, MAX_FIRE = 160, MAX_SMOKE = 140, MAX_DEBRIS = 90, MAX_RINGS = 12;
   const GRAVITY = 26;
   let scene = null, built = false;
-  let sparkMesh, fireMesh, fireLine, smokeMesh, smokeLine, debrisMesh, ringMesh;
+  let sparkMesh, sparkLine, fireMesh, fireLine, smokeMesh, smokeLine, debrisMesh, ringMesh;
   const sparks = [], fire = [], smoke = [], debris = [], rings = [];
   const _m = new THREE.Matrix4(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _p = new THREE.Vector3();
   const _z = new THREE.Vector3(0, 0, 1), _v = new THREE.Vector3(), _c = new THREE.Color(), _e = new THREE.Euler();
@@ -54,6 +54,12 @@ const CartoonFX = (() => {
     sparkMesh = new THREE.InstancedMesh(sGeo, new THREE.MeshBasicMaterial({
       color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, fog: false }), MAX_SPARKS);
     sparkMesh.setColorAt(0, _c.set(0xffffff));
+    /* A spark is ADDITIVE, so on bright ground — sand, snow, the pale stone
+       maps — it added almost nothing and read as invisible. The same black
+       back-face outline the fire and smoke already use gives every spark a
+       dark edge on light terrain, which is what actually makes it pop. It
+       rides the spark instance matrices, so it costs no extra per-spark work. */
+    sparkLine = outlineOf(sparkMesh, sGeo, MAX_SPARKS, 0.055);
 
     const puff = new THREE.IcosahedronGeometry(1, 1);
     fireMesh = new THREE.InstancedMesh(puff, new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false, fog: false }), MAX_FIRE);
@@ -77,13 +83,13 @@ const CartoonFX = (() => {
       scene.add(m);
     }
     sparkMesh.renderOrder = 6; fireMesh.renderOrder = 4; smokeMesh.renderOrder = 3; ringMesh.renderOrder = 2;
-    scene.add(fireLine); scene.add(smokeLine);
+    scene.add(sparkLine); scene.add(fireLine); scene.add(smokeLine);
     built = true;
     return true;
   }
 
   function clear(){
-    for(const m of [sparkMesh, fireMesh, fireLine, smokeMesh, smokeLine, debrisMesh, ringMesh]){
+    for(const m of [sparkMesh, sparkLine, fireMesh, fireLine, smokeMesh, smokeLine, debrisMesh, ringMesh]){
       if(!m) continue;
       if(m.parent) m.parent.remove(m);
       try { m.material.dispose(); } catch(e){}
@@ -99,21 +105,36 @@ const CartoonFX = (() => {
   function spawnSparks(sc, x, y, z, dx, dz, opts){
     if(!build(sc)) return;
     const o = opts || {};
-    const n = Math.min(o.count || 10, 24);
+    /* MORE, BIGGER, HOTTER. From the game's camera the old 10 thin sparks
+       dissolved against the hull they hatched out of: the count cap, the
+       widths and the speeds are all up so a landed hit reads at range. */
+    const n = Math.min(o.count || 10, 48);
     const speed = o.speed || 13;
     const len = Math.hypot(dx || 0, dz || 0);
     const hasDir = len > 1e-4;
     const bx = hasDir ? dx / len : 0, bz = hasDir ? dz / len : 0;
+    /* Cone half-angle, in radians. Wide on purpose: every burst throws sparks
+       to visibly different bearings instead of down one bright pipe, so no
+       two hits look alike. */
+    const spread = o.spread != null ? o.spread : 1.85;
+    /* Birth offset along each spark's own heading, so the heads are not born
+       inside the hull — that is what made them "invisible on the tank". */
+    const out = o.offset != null ? o.offset : 0.6;
+    const baseLife = o.life || 0.5;
+    const baseW = o.width || 0.16;
+    const baseAngle = hasDir ? Math.atan2(bx, bz) : rnd(0, Math.PI * 2);
     for(let i = 0; i < n; i++){
       if(sparks.length >= MAX_SPARKS) sparks.shift();
       /* A cone around the throw direction, or all round when there is none,
          always kicked upward a little so they arc. */
-      let a = hasDir ? Math.atan2(bx, bz) + rnd(-1.1, 1.1) : rnd(0, Math.PI * 2);
-      const v = speed * rnd(0.45, 1.25);
+      const a = baseAngle + rnd(-spread, spread);
+      const v = speed * rnd(0.55, 1.35);
+      const hx = Math.sin(a), hz = Math.cos(a);
       sparks.push({
-        x, y, z,
-        vx: Math.sin(a) * v, vz: Math.cos(a) * v, vy: rnd(1.5, 7) + (hasDir ? 0 : 2),
-        life: rnd(0.22, 0.5), age: 0, w: rnd(0.07, 0.12),
+        x: x + hx * out, y, z: z + hz * out,
+        vx: hx * v, vz: hz * v, vy: rnd(2.4, 9.5) + (hasDir ? 0 : 2.5),
+        life: baseLife * rnd(0.85, 1.3), age: 0,
+        w: baseW * rnd(0.8, 1.45),
       });
     }
   }
@@ -187,14 +208,24 @@ const CartoonFX = (() => {
       const sp = Math.hypot(s.vx, s.vy, s.vz) || 1;
       _v.set(s.vx / sp, s.vy / sp, s.vz / sp);
       _q.setFromUnitVectors(_z, _v);
-      const k = 1 - s.age / s.life;
-      _s.set(s.w, s.w, Math.min(1.6, sp * 0.06) * (0.4 + 0.6 * k));
+      /* COOL-DOWN FADE. Snap to full brightness over the first few frames (no
+         hard pop at birth), then ease out on a curve, so a spark cools and
+         dims away instead of blinking off mid-flight. */
+      const t = s.age / s.life;
+      const fadeIn = Math.min(1, s.age / 0.05);
+      const k = fadeIn * Math.pow(1 - t, 1.6);
+      /* Full girth while it is hot, then it thins as it cools. */
+      const w = s.w * (0.4 + 0.6 * k);
+      _s.set(w, w, Math.min(2.6, sp * 0.075) * (0.45 + 0.55 * k));
       _m.compose(_p.set(s.x, s.y, s.z), _q, _s);
       sparkMesh.setMatrixAt(n, _m);
-      sparkMesh.setColorAt(n, _c.setRGB(1, 0.75 + 0.25 * k, 0.35 + 0.55 * k * k).multiplyScalar(k));
+      /* White-hot core cooling through bright yellow into deep amber. The
+         small gain over 1 oversaturates the head at birth, which is what
+         reads as GLOW in the additive pass. */
+      sparkMesh.setColorAt(n, _c.setRGB(1, 0.72 + 0.28 * k, 0.25 + 0.62 * k * k).multiplyScalar(1.25 * k));
       n++;
     }
-    sparkMesh.count = n;
+    sparkMesh.count = sparkLine.count = n;
     if(n){ sparkMesh.instanceMatrix.needsUpdate = true; sparkMesh.instanceColor.needsUpdate = true; }
 
     n = 0;

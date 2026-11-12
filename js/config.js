@@ -141,9 +141,13 @@ const CONFIG = {
      horizon; 90 would be straight down (lookAt breaks there). */
   TOPDOWN_PITCH_DEG: 85,
 
-  /* Five selectable top-down angles. Distance (the horizontal offset) stays
-     the same for all of them; only the pitch changes. Index 0..4. */
-  CAM_PITCH_OPTIONS: [45, 50, 60, 80, 85],
+  /* Six selectable top-down angles. The viewing DISTANCE stays the same for
+     all of them (viewDist is one length, tilted); only the pitch changes.
+     Index 0..5, and 40 is index 0 because it is the default -- a lower, more
+     horizontal view that shows the field ahead instead of the tank's roof.
+     Adding an entry here also means widening the camPitchIdx allow-list in
+     loadSettings below, or the choice is dropped on the next save. */
+  CAM_PITCH_OPTIONS: [40, 45, 50, 60, 80, 85],
 
   /* How far up or down a shell can leave a level gun. The gun model never tilts. */
   SHOT_PITCH_DEG: 8,
@@ -248,6 +252,36 @@ const CONFIG = {
   BUSH_HIDE_RADIUS:   3.2,   // a tank within this distance of a bush is hidden
   TREE_HIDE_RADIUS:   4.0,   // tree canopy gives partial camo (less effective)
 
+  /* ============================================================================
+     COVER IN TWO PHASES
+
+     Phase 1 -- TOUCHING cover. The moment any part of the hull is under foliage
+     the tank fades to BUSH_PHASE1_OPACITY: it loses 80% of its opacity, so you
+     can still see where it is, but it stops reading as a silhouette against
+     the leaves. The nametag fades with it.
+
+     Phase 2 -- FULLY HIDDEN. Reached only after BUSH_PHASE2_TIME of not
+     breaking any of three rules:
+
+       1. stay in cover for the whole time (2.0s),
+       2. do not fire (a shot shakes the leaves and gives you away),
+       3. do not drive faster than BUSH_PHASE2_MAX_KMH inside the cover.
+
+     Break any of them and the tank drops straight back to phase 1, and the
+     clock starts again -- so a tank that fires and then sits still is visible
+     for another two seconds, which is what makes breaking cover cost something.
+
+     BUSH_BODY_LINK is what makes a ROW of bushes behave as one bush. Two
+     bushes whose discs are within this many units of each other belong to the
+     same body, so hiding in one and creeping to its neighbour keeps phase 2:
+     the tank never left the shrubbery, it just moved inside it. Crossing open
+     ground to an unconnected bush starts the two seconds over. */
+  BUSH_PHASE1_OPACITY:  0.2,   // 80% of the tank's opacity is lost
+  BUSH_PHASE2_TIME:     2.0,   // seconds of stillness before full invisibility
+  BUSH_PHASE2_MAX_KMH:  5,     // faster than this inside cover and you stay at phase 1
+  BUSH_BODY_LINK:       2.5,   // gap between bush discs that still counts as ONE bush
+  BUSH_BODY_GRACE:      1.5,   // seconds the progress survives between linked bushes
+
   /* COVER BY OVERLAP, not by distance-to-centre.
 
      A tank is hidden once at least COVER_HIDE_FRACTION of its footprint is
@@ -289,7 +323,11 @@ const CONFIG = {
   // Bump when any tank model file changes. Appended as ?v= to every
   // model request so browsers bypass the 7-day Cache-Control on
   // mini_tank_legends_models/*.
-  MODEL_VER:   8,
+  /* 9: the .glb files under mini_tank_legends_models/ were replaced on
+     2026-11-09 without a bump, so every browser that had seen v=8 kept drawing
+     the old meshes for up to the 7-day cache window -- which reads exactly like
+     "the model is right in Blender and wrong in the game". */
+  MODEL_VER:   9,
 
   // Supers
   /* Supers charge by DEALING DAMAGE: this much fills the bar on a tank with the
@@ -336,8 +374,12 @@ const GAMEMODES = {
     teamSize: 5,
     glbUrl:'assets/maps/TL_map_ruins.glb',
     glbScale: 50,
-    roundsToWin: 3,
-    maxRounds: 5,
+    /* Knockout: three rounds, first to two, one life a round, two minutes a
+       round. Kept here as well as in game.js because the map vote and the
+       mode cards read this block. */
+    roundsToWin: 2,
+    maxRounds: 3,
+    roundTime: 120,
   },
 
   captureTheCircle: {
@@ -400,6 +442,47 @@ const GAMEMODES = {
     respawnTime: 5,        // unlimited respawns, at your own spawn point
     spawnShield: 3,
   },
+
+  /* STEAL THE FLAG — classic capture-the-flag on two team bases.
+
+     The mode hangs off a map's `flag` entities — the same vocabulary Capture
+     the Circle already reads. Kaukaz ships TWO of them, one standing in each
+     team's base, and this mode makes each one a team's flag: touch the enemy
+     flag to take it, run it home to your own one.
+
+     A point is only SCORED while your own flag stands at home — if it has been
+     stolen there is no exchange to make, which is what keeps a team from
+     winning while theirs is out in the field.
+
+     UNLIMITED respawns like the Circle and Base Defend — a flag that wins the
+     match for whoever happens to be alive would turn 5 minutes of work into
+     one ambush, and the tank who dies with a flag drops it where they fell:
+     a TEAMMATE picking a dropped flag up keeps it, an ENEMY touching it sends
+     it straight back to its own base.
+
+     First team to 5 points wins. 5 minutes otherwise: higher score wins, a tie
+     buys a 1-minute overtime in which every tank runs 1.25% faster and the
+     FIRST point ends the match instantly. Nobody scores in overtime: draw. */
+  stealFlag: {
+    id:'stealFlag', name:'Steal the Flag', maxTanks:11, botCount:10,
+    teamSize: 5,
+    glbUrl:'assets/maps/kaukaz.glb',
+    glbScale: 120,
+    /* Kaukaz's own boundary (see the same field being described in
+       map-voting.js): the model's bounds derive ~640 because the terrain
+       extends well toward +Z, but every ACTION — spawns, both flags — lives
+       inside ~440, so the arena is declared there rather than letting the
+       boundary push players two map-widths out into empty terrain. */
+    worldHalf: 470,
+    pointsToWin: 5,        // first to five flags exchanged
+    timeLimit: 300,        // 5 minutes; then upper score wins
+    overtimeTime: 60,      // a tie buys this many seconds
+    overtimeSpeedMult: 1.0125,  // +1.25% tank speed to every tank in overtime
+    pickupRadius: 5,       // touch distance, flag take / take-down / return
+    captureRadius: 9,      // how close to your own base the exchange happens
+    respawnTime: 5,        // unlimited respawns, at your own spawn point
+    spawnShield: 3,
+  },
 };
 
 /* ---------- TANK ROSTER ---------- */
@@ -420,7 +503,7 @@ const TANKS = {
      accel:18, shellType:'shell',
      mass:30, viewRange:105,
      armor:{front:10, sides:30, back:10},
-     desc:'Balanced all-rounder.',
+     desc:'Balanced all-rounder with a 3-bomb airstrike. Tip: fight mid-range, use cover, and drop the airstrike on clustered enemies.',
      friction: 0.88,
      superType:'airstrike',
      airstrikeBombs:3, airstrikeDelay:3, airstrikeRadius:15, airstrikeDamage:70,
@@ -437,10 +520,22 @@ const TANKS = {
     damage:18, reload:0.10, shellSpeed:84, shellRange:40,
     accel:18, shellType:'flame',
     mass:34, viewRange:78,
-    model:'helix', modelScale:1.0,
+    /* helix.glb (TL/fixed tanks/final). Re-measured, because this is a DIFFERENT
+       model from the one the old numbers described: authored 12.87 along X and
+       4.90 tall, where the old file was small enough that scale 1.0 worked. At
+       scale 1.0 the new hull would be 25.7 live units — two and a half times
+       Cool Buddy's 10.5 yardstick — so 0.408 (10.5 / (12.87 x 2)) is the only
+       value that puts it in the same lineup. The muzzle `firing` sits at +X, so
+       -90 turns the barrel down +Z like every other tank here. */
+    /* Hull is authored long-axis along +X and the gun points the same way, so
+       -90 is the correction that puts both on the game's +Z. This was 180,
+       which left the hull broadside-on while the fallback muzzle pointed
+       forward — a tank driving sideways and firing from a point that was not
+       its barrel. */
+    model:'helix', modelScale:0.408, modelYaw:-90,
     fireConeHalfAngle:0.18,
     armor:{front:30, sides:30, back:30},
-    desc:'Flamethrower. Devastating up close. Overheats 25% faster.',
+    desc:'Flamethrower that melts tanks at point-blank and overheats 25% faster. Tip: close the gap behind cover, burn the target, then back off before overheat.',
     friction: 0.85,
     superType:'molotov',
     molotovRadius:24, molotovDuration:10, molotovDamage:16, molotovTick:0.3,
@@ -455,33 +550,34 @@ const TANKS = {
        Tank Editor's measured turret mount point. Both live in one object —
        x/y/z on their own would leave w/h/l undefined and take the damage
        numbers and gun ribbons to NaN. */
-    turret:{ w:1.7, h:0.75, l:2.6, x:-1.786, y:1.823, z:0.003 },
-    /* The point the hull turns about, in turret-parts space. */
-    pivot:{ x:-1.52, y:1.823, z:0.003 },
-    /* Where the shell leaves the barrel, and where the spent casing drops. */
-    firePoint:{ x:0.009, y:3.258, z:-0.013 },
-    casingPoint:{ x:0, y:0, z:0 },
+    turret:{ w:1.7, h:0.75, l:2.6 },
+    /* No measured pivot / firePoint / casingPoint any more. Those numbers were
+       taken against TL_ark_fi; ark.glb is a different hull, and stale editor
+       numbers do not fail loudly — they silently move the turret ring and the
+       muzzle somewhere the new mesh is not. The loader measures both from the
+       model itself when they are absent. */
     barrelLen:2.2, barrelR:0.13,
     hp:140, speed:23, turn:1.9,
     turretTurn:2.8,
     damage:30, reload:1.4, shellSpeed:280, shellRange:65,
     accel:20, shellType:'shell',
     mass:28, viewRange:135,
-    // TL_ark_fi.glb — authored hull root + turret root, "firing" muzzle empty
-    // and the "Cylinder" gun node (recoils). Built lengthwise along +X while
-    // the game aims along +Z.
-    // NOTE: this revision ships WITHOUT the "hitbox" helper the old TL_ark.glb
-    // had. Nothing breaks — the loader treats it as optional and the collision
-    // volume then comes from the visible mesh bounds, which is if anything more
-    // faithful. Re-adding a node named exactly "hitbox" would restore the
-    // authored box if you ever want it back.
-    model:'TL_ark_fi', modelScale:0.35, modelYaw:-90,
+    // ark.glb (TL/fixed tanks/final) — authored hull root, turret root, a
+    // "firing" muzzle empty, a recoiling "gun" and a "shell" casing port.
+    // Built lengthwise along +Z with the muzzle at -Z, so it needs a half turn:
+    // at yaw 0 the barrel reads [0,0,-1] and the tank would shoot backwards.
+    // Scale: authored 10.04 long, and live length is authored x modelScale x 2
+    // (Tank doubles the scale at load), so 0.523 lands it on the 10.5-unit
+    // yardstick every other hull is measured against. Measured with
+    // tools/glb-measure.cjs, not guessed.
+    model:'ark', modelScale:0.7845, modelYaw:180,
+    rig:{ hull:['Cube.015'], turret:'Cube.019', gun:'gun' },
     /* 140 HP and the longest barrel in the game: it dies to anything that sees
        it first, so a bot driving one goes and hides in foliage on its own side
        when it has no shot worth taking. Read by BotBrain._wantsCover(). */
     seeksCover:true,
     armor:{front:30, sides:30, back:30},
-    desc:'Glass cannon. Fast, long-range shells.',
+    desc:'Glass cannon with fast, long-range shells. Tip: stay at max range, never trade shots up close, and use the Giant Bush super to ambush.',
     friction: 0.90,
     superType:'bush',
     bushMax:3, bushScale:4,
@@ -498,7 +594,10 @@ const TANKS = {
     damage:14, reload:0.45, shellSpeed:190, shellRange:65,
     accel:30, shellType:'shell',
     mass:18, viewRange:110,
-    model:'ghost', modelScale:0.3, modelYaw:-90, modelAutoFlip:false,
+    /* ghost.glb (TL/fixed tanks/final): 6.83 long on Z, muzzle `firing` at +Z,
+       so no yaw correction — the old -90 was correcting a model that is no
+       longer loaded. 0.768 = 10.5 / (6.83 x 2). */
+    model:'ghost', modelScale:0.768, modelAutoFlip:false,
     /* `outline:false` used to be set here, and it made Ghost the only tank in the
        game with no silhouette. That was invisible while outlines were broken
        everywhere anyway; now that every other tank has a working hull, Ghost is
@@ -508,7 +607,7 @@ const TANKS = {
        outline as well. */
     playAnims:false,
     armor:{front:30, sides:30, back:30},
-    desc:'Tiny, fast, hit-and-run.',
+    desc:'Tiny and the fastest tank in the game; cloaks to ambush. Tip: flank, take one shot, cloak and relocate before the enemy turns.',
     friction: 0.82,
     superType:'cloak',
     cloakWindup:0.3, cloakMax:8, cloakSpeedMult:1.4, cloakFirstShotMult:2.5,
@@ -525,7 +624,9 @@ const TANKS = {
     damage:0, reload:999, shellSpeed:0, shellRange:0,
     accel:0, shellType:'shell',
     mass:999, viewRange:0,
-    model:'helix', modelScale:1.0,
+    /* Same helix.glb the Inferno drives, so it needs the same measured numbers
+       (0.408 / -90): at the old 1.0 this target dummy was a 25-unit slab. */
+    model:'helix', modelScale:0.408, modelYaw:-90,
     armor:{front:10, sides:30, back:10},
     desc:'Target dummy. Respawns on death.',
     friction: 1.0,
@@ -582,7 +683,7 @@ const TANKS = {
        because six nodes shared one geometry and were rescaling each other.
        Deriving a scale from a measurement made by the code under test is how a
        wrong number becomes load-bearing. Re-measure after changing the model. */
-    model:'TL_tashenratte_fixed', modelScale:0.30,
+    model:'TL_tashenratte_fixed', modelScale:0.45,
     /* WHICH WAY THIS MODEL IS AUTHORED.
 
        Tank Editor exported this as `modelFront:'-X', modelUp:'+X'`. That pair is
@@ -611,7 +712,7 @@ const TANKS = {
        like it worked and do nothing. */
     _modelOffset: { x:-0.77, y:0.858, z:0 },
     armor:{front:30, sides:30, back:30},
-    desc:'Juggernaut. Massive shells, very slow.',
+    desc:'Juggernaut with the most HP and massive shells. Tip: push the front line, anchor choke points, and let escorts cover your flanks.',
     friction: 0.92,
     superType:'panzers',
     panzerDelay:1.2, panzerCount:3, panzerLife:25, panzerHp:120,
@@ -631,7 +732,7 @@ const TANKS = {
     model:'coolbuddy', modelScale:8.4, modelFlipY:true,
     magSize:3, magReload:2.6,
     armor:{front:10, sides:20, back:10},
-    desc:'Shell magazine. Sprays 3 quick shells, then reloads.',
+    desc:'3-shell magazine that unloads fast. Tip: dump all three into one target, then use cover during the reload.',
     friction: 0.88,
   },
 
@@ -646,10 +747,10 @@ const TANKS = {
     damage:30, reload:0.22, shellSpeed:180, shellRange:65,
     accel:11, shellType:'shell',
     mass:48, viewRange:100,
-    model:'sturmratte', modelScale:1.4,
+    model:'sturmratte', modelScale:2.1,
     magSize:5, magReload:4.5,
     armor:{front:30, sides:30, back:30},
-    desc:'Shell magazine. Heavy 5-round rotary burst.',
+    desc:'Heavy 5-shell rotary burst. Tip: commit to one target and keep firing; reposition only after the magazine empties.',
     friction: 0.92,
   },
 
@@ -664,9 +765,13 @@ const TANKS = {
     damage:7, reload:0.8, shellSpeed:190, shellRange:65,
     accel:24, shellType:'shell',
     mass:14, viewRange:90,
-    model:'ghost', modelScale:0.25,
+    /* ghost.glb (TL/fixed tanks/final) is 6.83 long, so the escort panzer's
+       0.25 was sizing it against the OLD ghost and left it 3.4 units — a toy
+       next to the tank it escorts. 0.384 is 8/ (6.83 x 2): deliberately just
+       under a full tank, since it is an escort. */
+    model:'ghost', modelScale:0.384,
     armor:{front:10, sides:20, back:10},
-    desc:'Sturmratte escort panzer.',
+    desc:'Escort panzer for the Sturmratte. Tip: screen for the big tank and draw fire away from it.',
     friction: 0.85,
   },
 
@@ -698,17 +803,10 @@ const TANKS = {
        a thrown mine over a dropped one. */
     mineFlight:0.85, mineArc:1.7,
     mass:32, viewRange:105,
-    /* Yaw 0 is correct here (muzzle reads [0,0,1]) — no correction needed. Scale 1.0
-       put it at 12.5 live, 19% over Cool Buddy; 0.843 brings it to 10.5. */
-    /* modelYaw 180, and this one is the exception that proves the rule: the
-       launcher tube sits at turret-local +X with its `firing` node directly
-       ABOVE it, so there is no forward-facing barrel to read. Yaw 0 left the
-       muzzle pointing [0,0,-1] — the only tank in the game that fires backwards
-       — and 180 puts it at [0,0,1] like all the others. The mine's landing spot
-       comes from the tank's heading either way, but the aim line and the spawn
-       point both follow the barrel, so a backwards one draws its own trajectory
-       behind the tank. */
-    model:'demolisher', modelScale:0.843, modelYaw:180,
+    /* Hull and launcher are authored long-axis along +X, so -90 is the
+       correction that puts the tube on the game's +Z. The previous 180 left the
+       hull broadside-on and the tube pointing -X. */
+    model:'demolisher', modelScale:0.843, modelYaw:-90,
     /* RIGGED BY NAME, and the names are the RUNTIME ones. GLTFLoader strips the
        dots from glTF node names on the way in, so "Cube.001" arrives as
        "Cube001" — declaring the dotted spelling silently finds nothing and falls
@@ -723,7 +821,7 @@ const TANKS = {
     rig:{ hull:['Cylinder010','Cylinder001'], turret:'turret', gun:'gun' },
     mineDamage:65, mineRadius:4.5, mineFuse:30, mineProximity:3.0,
     armor:{front:15, sides:25, back:15},
-    desc:'No gun. Throws landmines up to 10m ahead that detonate on proximity or after 30s.',
+    desc:'No gun; throws landmines up to 10m ahead. Tip: seed mines across choke points and retreat paths, not at the enemy directly.',
     friction: 0.88,
     superType:'mine_dash', dashTime:1.3, dashSpeedMult:3, dashMineEvery:0.14,
   },
@@ -766,19 +864,12 @@ const TANKS = {
        the clearest possible "this one bursts" tell at a glance. */
     shellModel:'TL_bullet_f', shellSpin:6.0,
     mass:30, viewRange:95,
-    /* NO modelYaw. Measured with the muzzle node, not guessed: Tank.muzzle() takes
-       its forward vector from the model's own `barrelEnd` quaternion, so it is a
-       real test rather than an assumption. At yaw 0 the Grom's barrel reads
-       [0,0,1] — straight down the tank's nose — and at -90 it reads [-1,0,0],
-       sideways. The -90 that was here was wrong.
-
-       The model IS authored long-axis-along-X (hull 9.86 x 7.19), which is
-       exactly the sort of thing that invites a -90 "correction". It does not need
-       one: the `firing` node the author exported already points the right way, so
-       the geometry being side-on and the barrel being forward are not the same
-       fact. Yawing to fix the first would have broken the second — which is
-       exactly the sideways-tank screenshot that prompted this. */
-    model:'tl_GROM_FIX', modelScale:0.45, muzzleAxis:'x',
+    /* HULL AND BARREL ARE BOTH LONG-AXIS ALONG X, with the barrel pointing
+       -X. Yaw +90 therefore puts the hull nose and the muzzle on the game's
+       +Z. The old "no yaw" note was measured through the fallback barrel end,
+       which pointed +Z no matter where the real barrel was — the hull itself
+       was sideways. */
+    model:'tl_GROM_FIX', modelScale:0.45, modelYaw:90, muzzleAxis:'x',
     /* Named groups, because the launcher is nested INSIDE the turret rather than
        being a child of the hull — an altitude split would scatter it. */
     /* Runtime names — the GLB's "Cube"/"Cube.001" arrive as "Cube"/"Cube001".
@@ -805,7 +896,7 @@ const TANKS = {
        Runtime names again (GLTFLoader strips the dots): "Cube.001" -> "Cube001". */
     rig:{ hullRest:true, turret:'Cube001', gun:'Cylinder' },
     armor:{front:0, sides:0, back:0},
-    desc:'Splash shells, no armour. Direct fire that bursts on impact — deadly up close, and it dies to anything that shoots back.',
+    desc:'Splash shells with zero armour. Tip: fire at the ground next to targets to splash; never duel head-on.',
     friction: 0.9,
     superType:'big_shells', bigShellCount:3, bigShellRadiusMult:3, bigShellDamageMult:1.6,
   },
@@ -844,14 +935,14 @@ const TANKS = {
        length is authored x modelScale x 2. Burst is authored 6.01 across, and at
        1.05 that put it at 12.6 — 20% longer than Cool Buddy (10.5), the yardstick
        every tank is measured against. 0.874 lands it on 10.5. */
-    model:'burst', modelScale:0.874, modelYaw:180,
+    model:'burst', modelScale:0.848, modelYaw:180,
     /* Runtime names again — the GLB's "Cube.003"/"Cube.004" arrive dotless.
        `Cube003` is the body (two children of its own); `Cube004` is the turret
        and already holds `gun`, `firing`, the shell ports and the muzzle, so this
        model needs almost no help beyond saying which node is which. */
     rig:{ hull:['Cube003'], turret:'Cube004', gun:'gun' },
     armor:{front:11, sides:18, back:11},
-    desc:'30 km/h and a ten-pellet spread. Enormous damage per second inside 20m and almost nothing past it.',
+    desc:'30 km/h with a ten-pellet spread. Enormous DPS inside 20m, almost nothing past it. Tip: get inside 20m, aim centre mass, and keep firing.',
     friction: 0.88,
     superType:'nova', novaPellets:32, novaDamage:70, novaRadius:16,
   },
@@ -875,14 +966,11 @@ const TANKS = {
        turned it onto its side, barrel across the tank. Scale 0.30 was authored 12.27
        long, landing at 7.4 live — 30% shorter than Cool Buddy and visibly stunted.
        0.428 puts it on the same 10.5 as everything else. */
-    model:'TL_predator_fix', modelScale:0.44,
-    /* Predator is the flat one — 49 sibling roots, no turret node anywhere — so
-       it gets a DECLARED rig anyway rather than the altitude split. The split
-       puts its whole upper deck in the turret, which means the hull turns with
-       the steering while the deck swings on top of it, and the barrel ends up
-       in the wrong group entirely. Naming the hull costs nothing here and makes
-       the turret actually rotate as one piece. */
-    rig:{ hullRest:true, turret:['Cube020','Cube021','Cube022','Cube023','Cylinder018','Cylinder019','Cube024'] },
+    model:'predator', modelScale:0.799, modelYaw:180,
+    /* predator.glb (TL/fixed tanks/final) ships its own `hull` and `turret`
+       nodes, so the loader's named rig takes it apart correctly on its own. The
+       long list of flat sibling roots that used to live here described the OLD
+       paintover model and would match nothing in this file. */
     fireAnim:'gun firing',
     ejectShell:true,
     /* FIVE SHOTS, HALF A SECOND APART. The old value was 0.011s, which fired
@@ -893,7 +981,7 @@ const TANKS = {
     /* 1.3x smaller shell: 1 / 1.3 = 0.769. */
     shellScale:0.769,
     armor:{front:10, sides:30, back:10},
-    desc:'5-round burst, half a second between rounds. Cool Buddy numbers in a slower, better-tracked hull.',
+    desc:'5-round burst, half a second between rounds. Tip: lead targets, fire the burst into their path, and reposition during the long reload.',
     friction: 0.88,
     superType:'hunt', huntTime:7, huntSpeedMult:1.35, huntReloadMult:3,
   },
@@ -915,7 +1003,7 @@ const TANKS = {
     magSize:2, magReload:2.5,
     doubleBarrel:true, doubleBonus:1.1,
     armor:{front:20, sides:35, back:20},
-    desc:'Heavy double-barrel tank. Toggle single/double fire. Double shot = +10% combined damage.',
+    desc:'Heavy double-barrel tank; toggle single/double fire for +10% combined damage. Tip: use double fire on slow targets, single for sustained fire.',
     friction: 0.82,
     superType:'twin_salvo', salvoShots:14, salvoEvery:0.09,
   },
@@ -1127,7 +1215,7 @@ const TANKS = {
        the shell leaves the tank sideways — see the note in Tank._loadModel. */
     muzzleAxis:'x',
     armor:{front:12, sides:20, back:8},      /* paper: it ricochets off things */
-    desc:'Artillery. Arcs over cover and splashes a whole group — but it has a 22m minimum range, a five second reload, and the worst armour and traverse in the game.',
+    desc:'Artillery that arcs over cover and splashes a whole group. Tip: stay behind cover, lob shells over obstacles, and never let enemies close to 22m.',
     friction: 0.93,
     /* 90 HP, no direct hit and a ten second reload is not a tank that can trade
        shots, so a bot driving one goes and hides in foliage on its own side
@@ -1137,6 +1225,102 @@ const TANKS = {
        pick for it: the shell IS the weapon, so cutting the reload cuts the
        rate of fire on that weapon. */
     superType:'barrage', airstrikeBombs:7, airstrikeDelay:1.2, airstrikeRadius:9, airstrikeDamage:40, airstrikeSpread:14, airstrikeStagger:70,
+  },
+
+  /* ============================================================================
+     THE THREE TANKS THAT USED TO BE "COMING SOON" SIGNS.
+
+     Collections 2 and 3 always carried three placeholder slots — Hellfire,
+     Bradley and Striker — drawn as locked tiles with a planned name. Their
+     models now exist (TL/fixed tanks/final), so the signposts are real tanks:
+     the roster, the Collections screen and the research path all read this
+     table, so those slots became rewards with nothing else to edit.
+
+     SCALES AND YAWS ARE MEASURED, not guessed — tools/glb-measure.cjs prints
+     both numbers for each file, and the rule is the same one every other tank
+     here follows: authored long axis x modelScale x 2 = 10.5 live units, and
+     the `firing` empty decides the yaw (a muzzle on +X needs -90, one on +Z
+     needs nothing).
+
+     IDS. `striker` is, and has to stay, the id of ARK — it is what saved
+     profiles and bot rosters store. So the new Striker takes `striker2`; the id
+     is internal, and every player-facing string is the display name.
+     ========================================================================== */
+
+  /* HELLFIRE — collection 2, slot 1. Small, quick, hits harder than it looks.
+     Authored 3.27 long on Z with its muzzle on +Z, so no yaw correction and a
+     1.605 scale (10.5 / (3.27 x 2)). Its `Cube` root carries the gun, the
+     muzzle and the shell port, and there is no `hull` node at all — hence
+     hullRest rather than a name list. */
+  hellfire: {
+    id:'hellfire', name:'Hellfire', tier:1, collection:2,
+    color:0x38241c, turretColor:0xb4451f,
+    body:{ w:2.2, h:0.9, l:3.4 },
+    turret:{ w:1.3, h:0.7, l:1.9 },
+    barrelLen:1.5, barrelR:0.12,
+    hp:170, speed:26, turn:2.1,
+    turretTurn:3.0,
+    damage:24, reload:0.95, shellSpeed:210, shellRange:60,
+    accel:24, shellType:'shell',
+    mass:22, viewRange:112,
+    model:'hellfire', modelScale:1.605,
+    rig:{ hullRest:true, turret:'Cube', gun:'gun' },
+    fireAnim:'gun firing',
+    ejectShell:true,
+    armor:{front:14, sides:24, back:10},
+    desc:'Fast light tank with a quick gun and thin hull. Tip: flank and harass, never hold ground; use speed to disengage.',
+    friction: 0.87,
+    superType:'hunt', huntTime:6, huntSpeedMult:1.4, huntReloadMult:2.6,
+  },
+
+  /* BRADLEY — collection 2, slot 5. The autocannon: low damage per shell,
+     very short reload, so it wins by never stopping. Ships its own `hull` and
+     `turret` nodes, and the muzzle is on +X, hence -90. */
+  bradley: {
+    id:'bradley', name:'Bradley', tier:1, collection:2,
+    color:0x4a5240, turretColor:0x6a7458,
+    body:{ w:2.8, h:1.2, l:5.0 },
+    turret:{ w:1.6, h:0.8, l:2.0 },
+    barrelLen:1.6, barrelR:0.11,
+    hp:230, speed:19, turn:1.7,
+    turretTurn:2.7,
+    damage:12, reload:0.32, shellSpeed:185, shellRange:58,
+    accel:16, shellType:'shell',
+    mass:34, viewRange:108,
+    model:'bradley', modelScale:0.837, modelYaw:-90,
+    fireAnim:'gun firing',
+    ejectShell:true,
+    armor:{front:18, sides:28, back:12},
+    desc:'Autocannon with tiny shells and almost no reload. Tip: hold the trigger on one target; the constant fire stops them healing or repositioning.',
+    friction: 0.88,
+    superType:'panzers',
+  },
+
+  /* STRIKER — collection 3, slot 4. The heavy: one slow, heavy shell that
+     really hurts. Muzzle on +X so -90; authored 10.29 long, 0.510 scale. Its
+     turret node is `turret.001`, which GLTFLoader sanitises to `turret001` —
+     declared here so the rig is exact rather than left to the altitude split. */
+  striker2: {
+    id:'striker2', name:'Striker', tier:2, collection:3,
+    color:0x2c3a2e, turretColor:0x4a5c48,
+    body:{ w:3.2, h:1.1, l:5.2 },
+    turret:{ w:1.9, h:0.9, l:2.6 },
+    barrelLen:2.4, barrelR:0.16,
+    hp:200, speed:20, turn:1.6,
+    turretTurn:2.1,
+    damage:0, reload:2.3, shellSpeed:240, shellRange:70,
+    splashDamage:52, splashMinDamage:12, splashRadius:4.0,
+    magSize:3, magReload:5.0,
+    accel:15, shellType:'shell',
+    mass:38, viewRange:118,
+    model:'striker', modelScale:0.510, modelYaw:-90,
+    rig:{ hull:'hull', turret:'turret001', gun:'gun' },
+    fireAnim:'gun firing',
+    ejectShell:true,
+    armor:{front:24, sides:30, back:14},
+    desc:'Heavy sniper with a 3-shell magazine and splash shells. Tip: hold high ground, fire all three into a cluster, then reload behind cover.',
+    friction: 0.9,
+    superType:'big_shells', bigShellCount:2, bigShellRadiusMult:2.4, bigShellDamageMult:1.8,
   },
 };
 
@@ -1174,7 +1358,7 @@ const SUPER_INFO = {
   barrage:    { name:'Barrage',      icon:'\u2604',     color:0xff8844, desc:'Pick a spot anywhere in range: seven shells rain down across it.' },
 };
 
-const TANK_ORDER = ['coolbuddy','demolisher','predator','grom','helix','striker','double','burst','ghost','sturmratte','mortar','tankdisplay'];
+const TANK_ORDER = ['coolbuddy','demolisher','predator','grom','helix','striker','double','burst','ghost','sturmratte','mortar','hellfire','bradley','striker2','tankdisplay'];
 const U_TO_KMH = CONFIG.U_TO_KMH;
 
 /* World palette */
@@ -1274,7 +1458,7 @@ function loadSettings(){
          does not exist. */
       xrayEnabled: s.xrayEnabled !== false,
       xrayStyle:   (['stripes','scanlines','hatch','dots','solid','pulse'].includes(s.xrayStyle)) ? s.xrayStyle : 'stripes',
-      xrayOpacity: (s.xrayOpacity != null ? s.xrayOpacity : 0.92),
+      xrayOpacity: (s.xrayOpacity != null ? s.xrayOpacity : 0.22),
       xrayColor:   s.xrayColor || '#ffffff',
       xrayScope:   (['all','enemies'].indexOf(s.xrayScope) >= 0) ? s.xrayScope : 'all',
       viewRangeOpacity: (s.viewRangeOpacity!=null? s.viewRangeOpacity : CONFIG.VIEW_RANGE_OPACITY),
@@ -1306,7 +1490,12 @@ function loadSettings(){
          so the view you left at is the view you come back to. */
       camTwoMode:       s.camTwoMode !== false,
       cameraStage:      (typeof s.cameraStage === 'number' && s.cameraStage >= 0 && s.cameraStage <= 5) ? s.cameraStage : 2,
-      camPitchIdx:     (typeof s.camPitchIdx === 'number' && s.camPitchIdx >= 0 && s.camPitchIdx <= 4) ? s.camPitchIdx : 4,
+      camPitchIdx:     (typeof s.camPitchIdx === 'number' && s.camPitchIdx >= 0 && s.camPitchIdx <= 5) ? s.camPitchIdx : 0,
+      /* What the wheel does. 'distance' (the shipped behaviour) steps the six
+         CAMERA_STOPS above; 'angle' keeps one distance and steps the pitch
+         through CAM_PITCH_OPTIONS instead, so a zoom tilts the view rather
+         than pulling the camera back. */
+      zoomMode:        (s.zoomMode === 'angle') ? 'angle' : 'distance',
       // Which renderer to build: 'auto' (WebGPU when the device has it, WebGL 2
       // otherwise), 'webgpu' (force WebGPU) or 'webgl2' (stay on WebGL 2).
       rendererBackend: ['auto','webgpu','webgl2'].indexOf(s.rendererBackend) >= 0 ? s.rendererBackend : 'auto',
@@ -1333,18 +1522,31 @@ function loadSettings(){
          reset the 6-boxes-per-12-hours limit and re-ran the camera reset. */
       winBoxes:         (s.winBoxes && typeof s.winBoxes.start === 'number') ? { start: s.winBoxes.start, earned: s.winBoxes.earned || 0 } : null,
       brawlCamV1:       !!s.brawlCamV1,
+      camDefaultsV2:    !!s.camDefaultsV2,
       camFollowHull:    !!s.camFollowHull,
+      /* TANK RESEARCH (research.js): the XP wallet, which path steps have been
+         claimed, and which half of a two-tank step was chosen.
+
+         Whitelisted for the same reason as the trophy fields above — this
+         literal IS the saved settings object, so a key missing from it is
+         silently dropped on every round trip. Without these three lines the
+         research path would forget every unlocked tank the first time anything
+         else saved settings, which is instantly. */
+      researchXP:      (typeof s.researchXP === 'number' && isFinite(s.researchXP)) ? Math.max(0, s.researchXP) : 0,
+      researchClaimed: (s.researchClaimed && typeof s.researchClaimed === 'object' && !Array.isArray(s.researchClaimed)) ? s.researchClaimed : {},
+      researchChoice:  (s.researchChoice && typeof s.researchChoice === 'object' && !Array.isArray(s.researchChoice)) ? s.researchChoice : {},
     };
   }catch(e){
     return {binds:defaults(), selectedTank:'coolbuddy', playerName:generatePlayerName(), playerClan:'', cash:0, coins:0, gold:0,
             aimLineOpacity:CONFIG.AIM_LINE_OPACITY, aimLineColor:CONFIG.AIM_LINE_COLOR, aimLineDesign:'default', aimLineStyle:'fade',
             viewRangeOpacity:CONFIG.VIEW_RANGE_OPACITY, viewRangeColor:CONFIG.VIEW_RANGE_COLOR,
             viewRangeWidth:CONFIG.VIEW_RANGE_WIDTH, graphicsQuality:'default', camRotation:0, camMode:'arrows', pinchZoom:true, ricochetIndicator:true,
-            xrayEnabled:true, xrayStyle:'stripes', xrayOpacity:0.92, xrayColor:'#ffffff', xrayScope:'all',
+            xrayEnabled:true, xrayStyle:'stripes', xrayOpacity:0.22, xrayColor:'#ffffff', xrayScope:'all',
             unlockedTanks:['coolbuddy'], allUnlocked:false, clanWeeklyXP:0, clanWeekKey:0, clanWeeklyRewarded:false,
             clanWeekWins:0, clanWeekWinsBonus:false, clanWeekLoginXP:0, clanLastLoginDay:0, tlPlus:false,
             screenShake:100, muzzleFx:true, showFps:false, invertCamRot:false, cameraMode:'dynamic', cameraMouseRotate:false, cameraSensitivity:100,
-            camTwoMode:true, cameraStage:2,
+            camTwoMode:true, cameraStage:2, camPitchIdx:0, zoomMode:'distance',
+            researchXP:0, researchClaimed:{}, researchChoice:{},
             trophyOwnedIds:[], equippedTrophyId:null, trophyCount:0, winBoxes:null, brawlCamV1:false, camFollowHull:false};
   }
 }

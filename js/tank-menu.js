@@ -9,45 +9,72 @@ window.TankMenu = (function(){
   var MECHANICS = {
     flamethrower: {
       name:'Flamethrower', icon:'🔥',
-      desc:'Short-range continuous fire stream. Ignores armor and deals damage over time. Devastating in close quarters but useless at range.'
+      desc:'Short-range continuous fire stream. Ignores armor and deals damage over time. Devastating in close quarters but useless at range. Tip: close the gap behind cover, burn the target, then back off before overheat.'
     },
     magazine: {
       name:'Magazine', icon:'🔁',
-      desc:'Fires a burst of shells in quick succession, then reloads the full magazine. Timing your bursts is key.'
+      desc:'Fires a burst of shells in quick succession, then reloads the full magazine. Timing your bursts is key. Tip: dump the whole magazine into one target, then use cover during the reload.'
     },
     railgun: {
       name:'Railgun', icon:'⚡',
-      desc:'Charged electromagnetic shot that pierces through armor and enemies. Slow fire rate but devastating penetration.'
+      desc:'Charged electromagnetic shot that pierces through armor and enemies. Slow fire rate but devastating penetration. Tip: hold high ground and line up shots through multiple targets.'
     },
     healShells: {
       name:'Heal Shells', icon:'💚',
-      desc:'Specialized rounds that repair allied tanks on impact. Support your team by keeping them in the fight.'
+      desc:'Specialized rounds that repair allied tanks on impact. Support your team by keeping them in the fight. Tip: stay behind the front line and top up teammates between fights.'
     },
     doubleBarrel: {
       name:'Double Barrel', icon:'🎯',
-      desc:'Twin cannons fire alternating shots. Higher sustained damage output but requires careful aim to align both barrels.'
+      desc:'Twin cannons fire alternating shots. Higher sustained damage output but requires careful aim to align both barrels. Tip: toggle double fire on slow targets, single for sustained fire.'
     },
     autocannon: {
       name:'Autocannon', icon:'💥',
-      desc:'Rapid-fire rotary cannon. Shreds light targets with sheer volume of fire but struggles against heavy armor.'
+      desc:'Rapid-fire rotary cannon. Shreds light targets with sheer volume of fire but struggles against heavy armor. Tip: hold the trigger on one target and never let them breathe.'
     },
     heatMagazine: {
       name:'HEAT Magazine', icon:'💣',
-      desc:'Explosive anti-tank rounds in a magazine. Each shell deals massive burst damage but magazine reload is punishing.'
+      desc:'Explosive anti-tank rounds in a magazine. Each shell deals massive burst damage but magazine reload is punishing. Tip: commit to one target and keep firing; reposition only after the magazine empties.'
+    },
+    splashShells: {
+      name:'Splash Shells', icon:'💣',
+      desc:'Shells burst on impact, damaging nearby enemies. Tip: fire at the ground next to targets to splash; never duel head-on.'
+    },
+    landmines: {
+      name:'Landmines', icon:'💣',
+      desc:'Throws landmines that detonate on proximity or after 30s. Tip: seed mines across choke points and retreat paths, not at the enemy directly.'
+    },
+    burstFire: {
+      name:'Burst Fire', icon:'🎯',
+      desc:'Fires a multi-round burst with a short delay between shots. Tip: lead targets and fire the burst into their path.'
+    },
+    shotgun: {
+      name:'Shotgun', icon:'🔫',
+      desc:'Fires a spread of pellets; devastating up close. Tip: get inside 20m, aim centre mass, and keep firing.'
+    },
+    artillery: {
+      name:'Artillery', icon:'💣',
+      desc:'Arcs shells over cover to splash a whole group. Tip: stay behind cover, lob shells over obstacles, and never let enemies close to 22m.'
     }
   };
 
   var TANK_MECHANICS = {
     coolbuddy: [],
-    demolisher:['landmines'],
-    predator:  ['burst','reload_boost'],
-    grom:      ['splash_shells'],
     helix:     ['flamethrower'],
     striker:   ['railgun'],
-    double:    ['doubleBarrel','landfield'],
-    burst:     ['shotgun','knockback'],
-    ghost:     ['autocannon'],
-    sturmratte:['doubleBarrel','railgun']
+    ghost:     [],
+    sturmratte:['doubleBarrel','railgun'],
+    rapid:     ['magazine'],
+    vulkan:    ['heatMagazine'],
+    panzer:    [],
+    demolisher:['landmines'],
+    grom:      ['splashShells'],
+    burst:     ['shotgun'],
+    predator:  ['burstFire'],
+    double:    ['doubleBarrel','magazine'],
+    mortar:    ['artillery'],
+    hellfire:  [],
+    bradley:   ['autocannon'],
+    striker2:  ['railgun','splashShells','magazine']
   };
 
   var STAT_ICONS = {
@@ -96,31 +123,75 @@ window.TankMenu = (function(){
     var eq = getEquippedSprays();
     var ids = Object.keys(eq);
     for(var i = 0; i < ids.length; i++){
-      if(eq[ids[i]] === sprayId) return ids[i];
+      var v = eq[ids[i]];
+      var has = Array.isArray(v) ? v.indexOf(sprayId) >= 0 : v === sprayId;
+      if(has) return ids[i];
     }
     return null;
   }
-  function setEquippedSpray(tankId, sprayId){
+  /* ============================================================
+     HOW MANY SPRAYS A TANK WEARS
+
+     WHAT WAS WRONG: one spray was a tank's entire budget, and that one spray
+     could be stamped three times. So owning three sprays gave you no more than
+     owning one, and the "3" in the UI meant three copies of the same sticker.
+
+     WHAT IT MEANS NOW: a spray is one stamp. The 3 limit is how many DIFFERENT
+     sprays a tank can carry, and it is additionally capped by how many you
+     actually own — own one spray and you can place exactly one. Each spray
+     still lives on exactly one tank, so taking it to another tank means taking
+     it off this one first.
+
+     The stored record stays a plain map, tankId -> id or array of ids. Both
+     shapes are read: saves written before this change hold a string, and
+     rewriting them on load would log every player out of their spray for no
+     reason.
+     ============================================================ */
+  var MAX_SPRAYS = 3;
+
+  function equippedListFor(tankId){
+    var eq = getEquippedSprays();
+    var v = eq[tankId];
+    var list = Array.isArray(v) ? v.slice() : (v ? [v] : []);
+    var owned = getOwnedSprays();
+    /* A spray only counts while you own it — you get them from the store. */
+    return list.filter(function(id){ return owned.indexOf(id) >= 0; });
+  }
+  function sprayBudget(){
+    return Math.min(MAX_SPRAYS, getOwnedSprays().length);
+  }
+  function saveEquippedList(tankId, list){
     var data = loadSpraysData();
     if(!data.equipped) data.equipped = {};
-    if(sprayId){
-      /* A spray lives on exactly one tank. If another tank is wearing it,
-         leave that tank alone and don't take it here. */
-      var owner = getSprayOwner(sprayId);
-      if(owner && owner !== tankId) return;
-      data.equipped[tankId] = sprayId;
-    }else{
-      delete data.equipped[tankId];
-    }
+    if(list && list.length) data.equipped[tankId] = list.slice(0, MAX_SPRAYS);
+    else delete data.equipped[tankId];
     saveSpraysData(data);
   }
+  function addEquippedSpray(tankId, sprayId){
+    if(!sprayId) return false;
+    if(getOwnedSprays().indexOf(sprayId) < 0) return false;
+    var owner = getSprayOwner(sprayId);
+    if(owner && owner !== tankId) return false;
+    var list = equippedListFor(tankId);
+    if(list.indexOf(sprayId) >= 0) return true;
+    if(list.length >= sprayBudget()) return false;
+    list.push(sprayId);
+    saveEquippedList(tankId, list);
+    return true;
+  }
+  function removeEquippedSpray(tankId, sprayId){
+    saveEquippedList(tankId, equippedListFor(tankId).filter(function(id){ return id !== sprayId; }));
+  }
+  /* Legacy single-value setter, kept for the two callers that mean "all of it"
+     (unequip everything) and for any save that still spells a spray as a string. */
+  function setEquippedSpray(tankId, sprayId){
+    if(!sprayId){ saveEquippedList(tankId, []); return; }
+    var owner = getSprayOwner(sprayId);
+    if(owner && owner !== tankId) return;
+    saveEquippedList(tankId, [sprayId]);
+  }
   function getEquippedSprayForTank(tankId){
-    var equipped = getEquippedSprays();
-    var id = equipped[tankId] || null;
-    /* A spray only counts as equipped while you actually own it — you get
-       sprays from the store, never for showing up. */
-    if(id && getOwnedSprays().indexOf(id) === -1) return null;
-    return id;
+    return equippedListFor(tankId)[0] || null;
   }
   function getSprayPlacements(){
     return loadSpraysData().placements || {};
@@ -144,13 +215,16 @@ window.TankMenu = (function(){
   var _scene = null, _camera = null, _renderer = null, _tankGroup = null;
   var _previewTank = null;   /* the real Tank the viewer is showing */
   var _viewerHost = null;
+  var _dragRoot = null;
+  var _bottomRO = null;
   var _tankReady = false;   /* tank geometry finished building (model loads async) */
   var _usingModel = false;  /* preview shows the real GLB instead of the box build */
   var _gunBox = null;       /* root-space box covering the gun */
   var _viewerToken = 0;     /* bumped by destroy() so a late model load bails out */
   var _loopId = null;
   var _dragging = false, _lastX = 0, _rotY = 0, _velX = 0;
-  var _autoRotate = true, _autoTimer = null;
+  /* Never on its own — see the turntable block near onDragStart(). */
+  var _autoRotate = false, _autoTimer = null;
   var _zoom = 0; /* 0 = default, 1 = zoomed in (closer) */
   var _zoomTarget = 0;
 
@@ -666,11 +740,14 @@ window.TankMenu = (function(){
         if(cosmoType === 'sprays'){
           renderSpraysTab(body);
         }else if(cosmoType === 'style'){
-          /* The stamp buttons belong to the Sprays tab only. */
+          /* The stamp bar and the placement ghost belong to the Sprays tab
+             only — leaving it disarms the hull so a click cannot stamp a
+             sticker the player is no longer looking at. */
+          exitPlaceMode();
           if(actionBar) actionBar.innerHTML = '';
           renderStylesTab(body);
         }else{
-          /* The stamp buttons belong to the Sprays tab only. */
+          exitPlaceMode();
           if(actionBar) actionBar.innerHTML = '';
           if(body) body.innerHTML = '<div class="tm-cosmo-placeholder">' +
             'Paint customization coming soon</div>';
@@ -781,174 +858,238 @@ window.TankMenu = (function(){
     TankStyles.removeFromModel(_tankGroup);
   }
 
-  /* ============================================================
-     SPRAY SYSTEM — click-to-place decals on the tank
-     ============================================================ */
-  const SPRAY_DEFS = {
-    first_spray: { name: 'First Spray', icon: '🏷️', texture: 'assets/sprays/first_spray.webp', free: true },
-  };
+    /* ============================================================
+     SPRAYS
 
-  /* Three little lamps showing how many of the three stamps are used. */
-  function stampPips(count){
-    var html = ' <span class="tm-spray-pips">';
-    for(var i = 0; i < 3; i++) html += '<i class="' + (i < count ? 'on' : '') + '"></i>';
-    return html + '</span>';
+     THE RULES THIS UI HAS TO TELL THE TRUTH ABOUT:
+
+       * a spray is a sticker you own, not a "type with three charges";
+       * a tank wears as many DIFFERENT sprays as you own, up to MAX_SPRAYS —
+         so owning one spray means one stamp, not three;
+       * one spray = one stamp. Putting it down again moves it;
+       * tapping a spray is enough: it goes on the hull and the tank is armed
+         for placement at once, with no second button to hunt for;
+       * the size is chosen BEFORE it goes on, and the hover ghost shows exactly
+         where and how big it will land, with an arrow pointing at the spot.
+     ============================================================ */
+
+  var SPRAY_MIN = 0.55, SPRAY_MAX = 1.5;
+  var _spraySize = 1.0;        /* multiplier on TankSprays.SPRAY_SIZE */
+
+  function clampSpraySize(v){
+    v = parseFloat(v);
+    if(!isFinite(v)) return 1;
+    return Math.max(SPRAY_MIN, Math.min(SPRAY_MAX, v));
+  }
+
+  function tankLabelFor(id){
+    try{
+      var d = window.TANKS && TANKS[id];
+      if(d && d.name) return d.name;
+    }catch(e){}
+    return id;
+  }
+
+  function sprayStateFor(key){
+    var tankId = _currentTank;
+    if(equippedListFor(tankId).indexOf(key) >= 0) return { on: true, other: null };
+    var owner = getSprayOwner(key);
+    if(owner && owner !== tankId) return { on: false, other: owner };
+    return { on: false, other: null };
+  }
+
+  function sprayHintText(worn, budget){
+    if(!_tankReady) return 'Loading tank…';
+    if(!getOwnedSprays().length) return 'You do not own a spray yet — the store has one.';
+    if(!_selectedSpray) return 'Tap a spray below, then tap the tank where it should go.';
+    if(worn.length >= budget) return 'Every slot is used — tap the tank to MOVE a stamp, or ✕ to take one off.';
+    return 'Hover the tank to see the stamp, then click to place it.';
   }
 
   function renderSpraysTab(body){
-    if(!body) return;    var tankId = _currentTank;
+    if(!body) return;
+    var tankId = _currentTank;
     var owned = getOwnedSprays();
-    var equipped = getEquippedSprayForTank(tankId);
+    var worn = equippedListFor(tankId);
+    var budget = sprayBudget();
     var placement = readPlacement(tankId);
+    var stamps = (placement && placement.stamps) || [];
+
+    /* Opening the tab on a painted tank arms the first spray it wears, so
+       moving an existing stamp is one hover away instead of a click away. */
+    if(!_selectedSpray && worn.length) _selectedSpray = worn[0];
+    if(_selectedSpray && worn.indexOf(_selectedSpray) < 0) _selectedSpray = null;
+    _placeMode = !!(_selectedSpray && _tankReady);
+    if(!_placeMode) hideGhost();
 
     var html = '<div class="tm-sprays-container">';
-    
-    /* Owned sprays list */
+
     html += '<div class="tm-sprays-section">';
-    html += '<div class="tm-sprays-section-title"><span class="tm-ico">🎨</span>Your Sprays</div>';
-    html += '<div class="tm-sprays-grid">';
-    
-    var shownCount = 0;
-    var wornElsewhere = 0;
-    Object.keys(SPRAY_DEFS).forEach(function(key){
-      var def = SPRAY_DEFS[key];
-      /* Sprays are not handed out: until you have claimed it in the store it
-         simply isn't part of your list. */
-      if(owned.indexOf(key) === -1) return;
-      var isEquipped = equipped === key;
-      /* If another tank is wearing this spray, don't offer it here at all. */
-      var owner = getSprayOwner(key);
-      if(owner && owner !== tankId){ wornElsewhere++; return; }
-      shownCount++;
+    html += '<div class="tm-sprays-section-title"><span class="tm-ico">🏷️</span>Your sprays' +
+            '<span class="tm-spray-budget">' + worn.length + ' / ' + budget + stampPips(worn.length, budget) + '</span></div>';
+    html += '<div class="tm-spray-hintbar">' + sprayHintText(worn, budget) + '</div>';
 
-      html += '<div class="tm-spray-card owned' + (isEquipped ? ' equipped' : '') + '" data-spray="' + key + '">';
-      html += '<div class="tm-spray-preview" style="background-image:url(' + def.texture + ')"></div>';
-      html += '<div class="tm-spray-info">';
-      html += '<span class="tm-spray-name">🏷️ ' + def.name + '</span>';
-      if(isEquipped){
-        html += '<span class="tm-spray-equipped">✅ Already Equipped</span>';
-      }else{
-        html += '<button class="tm-spray-btn tm-spray-equip" data-spray="' + key + '">✨ Equip</button>';
-      }
-      html += '</div>';
-      html += '</div>';
-    });
-
-    if(shownCount === 0){
-      html += wornElsewhere
-        ? '<div class="tm-spray-placeholder">🔄 Your spray is on another tank — take it off there first.</div>'
-        : '<div class="tm-spray-empty">' +
-            '<div class="tm-spray-placeholder">🛍️ No sprays yet — grab the free First Spray in the store.</div>' +
-            '<button class="tm-spray-btn tm-spray-store" id="tm-spray-store">🛒 Open Store</button>' +
-          '</div>';
-    }
-
-    html += '</div></div>';
-
-    /* Placement info — the buttons themselves live above the tab row,
-       rendered by renderSprayActions(). */
-    html += '<div class="tm-sprays-section">';
-    html += '<div class="tm-sprays-section-title"><span class="tm-ico">📌</span>Placement</div>';
-    if(!equipped){
-      html += '<div class="tm-spray-placeholder">' +
-        (wornElsewhere
-          ? '⚠️ This spray is already on another tank.'
-          : '👆 Equip a spray first, then click the tank to place it (max 3 stamps)') +
-        '</div>';
-    }else if(!_tankReady){
-      html += '<div class="tm-spray-placeholder">⏳ Loading tank...</div>';
+    if(!owned.length){
+      html += '<div class="tm-spray-empty">' +
+                '<div class="tm-spray-placeholder">No sprays yet — the store has a free one.</div>' +
+                '<button class="tm-spray-btn tm-spray-store" id="tm-spray-store">🛒 Open Store</button>' +
+              '</div>';
     }else{
-      var stampCount = placement ? (placement.stamps ? placement.stamps.length : 0) : 0;
-      html += '<div class="tm-spray-placement-info">';
-      html += '<span>🏷️ Stamps: ' + stampCount + '/3' + stampPips(stampCount) + '</span>';
-      html += '<span class="tm-spray-hint">👆 Tap the tank to stamp it — 🖱️ drag to turn it</span>';
+      html += '<div class="tm-sprays-grid">';
+      owned.forEach(function(key){
+        var def = SPRAY_DEFS[key];
+        if(!def) return;
+        var st = sprayStateFor(key);
+        var isSel = st.on && _selectedSpray === key;
+        var stamped = stamps.some(function(s){ return s.spray === key; });
+        var cls = 'tm-spray-card' + (st.on ? ' worn' : '') + (isSel ? ' active' : '') + (st.other ? ' locked' : '');
+        html += '<div class="' + cls + '" data-wear="' + key + '">';
+        html += '<span class="tm-spray-art" style="background-image:url(' + def.texture + ')"></span>';
+        html += '<span class="tm-spray-name">' + def.name + '</span>';
+        if(st.other){
+          html += '<span class="tm-spray-tag">On ' + tankLabelFor(st.other) + '</span>';
+        }else if(st.on){
+          html += '<span class="tm-spray-tag on">' + (stamped ? 'Placed' : 'Tap the tank') + '</span>';
+          html += '<button class="tm-spray-x" data-strip="' + key + '" title="Take off this tank">✕</button>';
+        }else{
+          html += '<span class="tm-spray-tag">Tap to wear</span>';
+        }
+        html += '</div>';
+      });
       html += '</div>';
     }
     html += '</div>';
+
+    /* The size slider is drawn in the action strip (renderSprayActions), not as
+       a second panel here — it is one thin control and does not need a card. */
     html += '</div>';
-    
     body.innerHTML = html;
     renderSprayActions();
-    
-    /* Wire events — sprays themselves are only ever claimed in the store, so
-       there is no in-tab "get" button any more. */
-    body.querySelectorAll('.tm-spray-equip').forEach(function(btn){
-      btn.onclick = function(){
-        var sprayId = btn.dataset.spray;
-        setEquippedSpray(tankId, sprayId);
-        renderSpraysTab(body);
+
+    body.querySelectorAll('[data-wear]').forEach(function(card){
+      card.onclick = function(ev){
+        if(ev.target && ev.target.closest && ev.target.closest('[data-strip]')) return;
+        wearSpray(card.dataset.wear);
       };
     });
-    var placeBtn = document.getElementById('tm-spray-place');
-    if(placeBtn){
-      placeBtn.onclick = function(){ enterPlaceMode(); };
-    }
-    var clearBtn = document.getElementById('tm-spray-clear');
-    if(clearBtn){
-      clearBtn.onclick = function(){ clearSprayPlacement(); };
-    }
-    var unequipBtn = document.getElementById('tm-spray-unequip');
-    if(unequipBtn){
-      unequipBtn.onclick = function(){
-        exitPlaceMode();
-        clearSprayPlacement();               /* drop the stamps on this tank */
-        setEquippedSpray(tankId, null);      /* and take the spray off it */
-        renderSpraysTab(document.getElementById('tm-cosmo-body'));
+    body.querySelectorAll('[data-strip]').forEach(function(btn){
+      btn.onclick = function(ev){
+        if(ev.stopPropagation) ev.stopPropagation();
+        stripSpray(btn.dataset.strip);
       };
-    }
+    });
     var storeBtn = document.getElementById('tm-spray-store');
     if(storeBtn){
-      storeBtn.onclick = function(){
-        if(window.Menu && Menu.show) Menu.show('menu-store');
-      };
+      storeBtn.onclick = function(){ if(window.Menu && Menu.show) Menu.show('menu-store'); };
     }
   }
 
-  /* The Place Stamp / Clear All / Take Spray Off buttons sit in their own row
-     ABOVE the SPRAYS / PAINT / STYLE tabs, so they stay reachable no matter
-     how tall the panel content gets. */
+  /* ONE TAP PUTS IT ON AND ARMS IT. This is the whole of "it should be simple":
+     wearing a spray and placing it used to be two different screens. */
+  function wearSpray(key){
+    var tankId = _currentTank;
+    var st = sprayStateFor(key);
+    if(st.other){
+      if(window.Menu && Menu.toast) Menu.toast('That spray is on the ' + tankLabelFor(st.other) + ' — take it off there first');
+      return;
+    }
+    if(!st.on && !addEquippedSpray(tankId, key)){
+      var b = sprayBudget();
+      if(window.Menu && Menu.toast){
+        Menu.toast(b ? 'This tank already wears ' + b + ' — take one off first' : 'You do not own a spray yet');
+      }
+      return;
+    }
+    armPlacement(key);
+    renderSpraysTab(document.getElementById('tm-cosmo-body'));
+  }
+
+  function stripSpray(key){
+    removeEquippedSpray(_currentTank, key);
+    removeStampMeshes(key);
+    var placement = readPlacement(_currentTank);
+    if(placement && placement.stamps){
+      placement.stamps = placement.stamps.filter(function(s){ return s.spray !== key; });
+      setSprayPlacement(_currentTank, placement.stamps.length ? placement : null);
+    }
+    if(_selectedSpray === key){
+      _selectedSpray = equippedListFor(_currentTank)[0] || null;
+      _placeMode = !!(_selectedSpray && _tankReady);
+      if(!_placeMode) hideGhost();
+    }
+    renderSpraysTab(document.getElementById('tm-cosmo-body'));
+  }
+
+  /* The bar ABOVE the tab row, so it stays reachable however tall the panel
+     content grows. Deliberately thin: the placement work happens on the hull,
+     not in a button strip, so there is one button here and it is "undo". */
   function renderSprayActions(){
     var bar = document.getElementById('tm-spray-actions');
     if(!bar) return;
     var tankId = _currentTank;
-    var equipped = getEquippedSprayForTank(tankId);
+    var worn = equippedListFor(tankId);
     var placement = readPlacement(tankId);
-    var stampCount = (placement && placement.stamps) ? placement.stamps.length : 0;
+    var stamps = (placement && placement.stamps) || [];
 
-    if(!equipped || !_tankReady){
+    if(!worn.length || !_tankReady){
       bar.innerHTML = '';
       bar.classList.remove('active');
       return;
     }
 
-    var html = '<span class="tm-spray-actions-label">🏷️ Stamps: ' + stampCount + '/3' + stampPips(stampCount) + '</span>';
-    if(stampCount < 3){
-      html += '<button class="tm-spray-btn tm-spray-place" id="tm-spray-place">🖌️ Place Stamp</button>';
-    }else{
-      html += '<span class="tm-spray-max">🛑 Maximum 3 stamps reached</span>';
+    var budget = sprayBudget();
+    var html = '<span class="tm-spray-actions-label">🏷️ ' + stamps.length + ' / ' + budget + stampPips(stamps.length, budget) + '</span>';
+    html += '<span class="tm-spray-actions-hint">' +
+            (stamps.length < budget ? 'Tap the tank to stamp' : 'Tap the tank to move a stamp') + '</span>';
+
+    /* THE SIZE, AS ONE THIN CONTROL INSTEAD OF A SECOND PANEL.
+
+       A whole bordered card was spent on a single slider, which took half the
+       bottom of the screen and left a large empty block next to the sprays.
+       The control is a slider — it needs a row, not a room — so it lives here,
+       in the strip that already talks about the stamp, between the count it
+       applies to and the undo button. The percentage keeps it honest after a
+       drag: you can see the limit you stopped at. */
+    html += '<span class="tm-spray-size' + (_placeMode ? '' : ' off') + '" title="Stamp size">' +
+              '<span class="tm-spray-size-end">S</span>' +
+              '<input type="range" id="tm-spray-size" min="' + Math.round(SPRAY_MIN * 100) +
+                 '" max="' + Math.round(SPRAY_MAX * 100) + '" step="5" value="' +
+                 Math.round(_spraySize * 100) + '"' + (_placeMode ? '' : ' disabled') + '>' +
+              '<span class="tm-spray-size-end">L</span>' +
+              '<span class="tm-spray-size-val" id="tm-spray-size-val">' + Math.round(_spraySize * 100) + '%</span>' +
+            '</span>';
+
+    if(stamps.length){
+      html += '<button class="tm-spray-btn tm-spray-clear" id="tm-spray-clear">🧹 Clear paint</button>';
     }
-    if(stampCount > 0){
-      html += '<button class="tm-spray-btn tm-spray-clear" id="tm-spray-clear">🧹 Clear All</button>';
-    }
-    html += '<button class="tm-spray-btn tm-spray-remove" id="tm-spray-unequip">↩️ Take Spray Off</button>';
     bar.innerHTML = html;
     bar.classList.add('active');
+    var clear = document.getElementById('tm-spray-clear');
+    if(clear) clear.onclick = function(){ clearSprayPlacement(); };
+
+    var slider = document.getElementById('tm-spray-size');
+    if(slider){
+      slider.oninput = slider.onchange = function(){
+        _spraySize = clampSpraySize(parseInt(slider.value, 10) / 100);
+        var out = document.getElementById('tm-spray-size-val');
+        if(out) out.textContent = Math.round(_spraySize * 100) + '%';
+        updateGhostFromLastPointer();
+      };
+    }
   }
 
-  function enterPlaceMode(){
-    if(!_tankReady) return;
-    _placeMode = true;
-    _selectedSpray = getEquippedSprayForTank(_currentTank);
-    if(window.Menu) Menu.toast('🖌️ Click on the tank to place spray stamp (max 3)');
-    if(_sprayMarker) { _scene.remove(_sprayMarker); _sprayMarker = null; }
+  function armPlacement(key){
+    _selectedSpray = key || equippedListFor(_currentTank)[0] || null;
+    _placeMode = !!(_selectedSpray && _tankReady);
+    hideGhost();
+    renderSprayActions();
   }
 
   function exitPlaceMode(){
     _placeMode = false;
-    _selectedSpray = null;
-    if(_sprayMarker) { _scene.remove(_sprayMarker); _sprayMarker = null; }
+    hideGhost();
+    renderSprayActions();
   }
-
   /* ---------------------------------------------------------------
      LEGACY PLACEMENTS.
 
@@ -979,9 +1120,8 @@ window.TankMenu = (function(){
     }
   }
 
-  /* Read the placement for a tank, retiring it if it belongs to a frame that
-     is gone. Every read goes through here, so the migration happens once and
-     only on the screen where it can be explained. */
+  /* Every read of a placement goes through here, so the migration happens once
+     and only on the screen where it can be explained. */
   function readPlacement(tankId){
     var p = getSprayPlacement(tankId);
     if(!p || isCurrentPlacement(p)) return p;
@@ -989,29 +1129,28 @@ window.TankMenu = (function(){
     return null;
   }
 
-  function clearSprayPlacement(){
-    setSprayPlacement(_currentTank, null);
-    if(_tankGroup){
-      /* The decals are parented to the part they landed on, not to the
-         turntable group, so clearing means finding them rather than sweeping
-         one level of children. */
-      var doomed = [];
-      _tankGroup.traverse(function(o){
-        if(o.userData && o.userData.isSpray) doomed.push(o);
-      });
-      doomed.forEach(function(o){
-        if(o.parent) o.parent.remove(o);
-        /* Geometry is built per stamp and this is its only owner. The
-           material is shared with every other tank wearing this spray — and
-           is flagged sharedWithCache so a dying tank cannot take it away
-           either — so it deliberately outlives these meshes. */
-        if(o.geometry) o.geometry.dispose();
-      });
-    }
-    var body = document.getElementById('tm-cosmo-body');
-    renderSpraysTab(body);
+  /* Strip every stamp mesh off the preview — all of them, or just one spray's.
+     The geometry is built per stamp and this meshes are its only owner; the
+     material is shared with every other tank wearing that spray (and flagged
+     sharedWithCache so a dying tank cannot take it away), so it outlives them. */
+  function removeStampMeshes(sprayId){
+    if(!_tankGroup) return;
+    var doomed = [];
+    _tankGroup.traverse(function(o){
+      if(o.userData && o.userData.isSpray && (!sprayId || o.userData.spray === sprayId)) doomed.push(o);
+    });
+    doomed.forEach(function(o){
+      if(o.parent) o.parent.remove(o);
+      if(o.geometry) o.geometry.dispose();
+    });
   }
 
+  function clearSprayPlacement(){
+    setSprayPlacement(_currentTank, null);
+    removeStampMeshes(null);
+    hideGhost();
+    renderSpraysTab(document.getElementById('tm-cosmo-body'));
+  }
   function placeSprayAt(hit){
     if(!_selectedSpray || !_previewTank) return;
     var sprayDef = SPRAY_DEFS[_selectedSpray];
@@ -1028,12 +1167,14 @@ window.TankMenu = (function(){
        a group above the root, so its angle drops out of the record and the
        stamp comes back on the same panel at any turntable angle. */
     var f = TankSprays.toRootFrame(_previewTank, hit.point.clone(), quatW);
+    var s = TankSprays.SPRAY_SIZE * _spraySize;
 
     addStampRecord({
+      spray: _selectedSpray,
       texture: sprayDef.texture,
       pos:  f.pos.toArray(),
       quat: [f.quat.x, f.quat.y, f.quat.z, f.quat.w],
-      size: [TankSprays.SPRAY_SIZE, TankSprays.SPRAY_SIZE, TankSprays.SPRAY_DEPTH]
+      size: [s, s, TankSprays.SPRAY_DEPTH]
     });
   }
 
@@ -1041,54 +1182,256 @@ window.TankMenu = (function(){
     return { v: TankSprays.PLACEMENT_V, stamps: [] };
   }
 
-  /* Build the stamp, save it, and draw it — all through the one projection
-     the battle uses, on a tank built by the same code. `rec` is already in
-     root space. */
+  /* Build the stamp, save it and draw it — all through the one projection the
+     battle uses, on a tank built by the same code. `rec` is already root-space.
+
+     ONE STAMP PER SPRAY: a record is keyed by `spray`, so placing the same
+     spray again MOVES its stamp instead of stacking a second copy — which is
+     what "one spray = one stamp" has to mean once the budget counts sprays. */
   function addStampRecord(rec){
-    if(!_previewTank) return;
+    if(!_previewTank || !rec || !rec.spray) return;
     var placement = readPlacement(_currentTank) || newPlacement();
-    if(placement.stamps.length >= 3) return;   /* hard cap, enforced once, here */
+    if(!placement.stamps || !Array.isArray(placement.stamps)) placement.stamps = [];
+
+    var idx = -1;
+    for(var i = 0; i < placement.stamps.length; i++){
+      if(placement.stamps[i].spray === rec.spray){ idx = i; break; }
+    }
+    var budget = sprayBudget();
+    if(idx < 0 && placement.stamps.length >= budget){
+      if(window.Menu && Menu.toast){
+        Menu.toast('All ' + budget + ' spray slot' + (budget === 1 ? '' : 's') + ' used — take one off first');
+      }
+      return;
+    }
 
     var parts = TankSprays.project(_previewTank, rec);
-    if(!parts.length) return; /* nothing solid under the projector — no ghost record */
+    if(!parts.length) return;   /* nothing solid under the projector — no record */
 
-    placement.stamps.push({
-      texture: rec.texture, pos: rec.pos, quat: rec.quat, size: rec.size
-    });
+    var saved = { spray: rec.spray, texture: rec.texture, pos: rec.pos, quat: rec.quat, size: rec.size };
+    if(idx >= 0) placement.stamps[idx] = saved;
+    else placement.stamps.push(saved);
     setSprayPlacement(_currentTank, placement);
 
+    removeStampMeshes(rec.spray);   /* the previous position of this same spray */
     TankSprays.texture(rec.texture).then(function(tex){
-      if(tex) TankSprays.addDecals(_previewTank, parts, tex);
+      if(tex && _previewTank) TankSprays.addDecals(_previewTank, parts, tex, rec.spray);
       renderSpraysTab(document.getElementById('tm-cosmo-body'));
     });
   }
 
-  /* Re-project every saved stamp onto the freshly built tank. */
+  /* Re-project every saved stamp onto the freshly built tank. Paint only comes
+     back with the sprays the tank still wears: a spray taken off (or no longer
+     owned) leaves no sticker behind. */
   function restoreStamps(){
-    /* Paint only comes back with the spray itself: if it is not equipped on
-       this tank any more (or you no longer own it), the tank stays clean. */
-    if(!getEquippedSprayForTank(_currentTank)) return;
+    var worn = equippedListFor(_currentTank);
+    if(!worn.length) return;
     var placement = readPlacement(_currentTank);
     if(!placement || !placement.stamps || !placement.stamps.length) return;
     if(!_previewTank) return;
 
-    var keep = [];
-    var dropped = false;
+    var keep = [], dropped = false;
     placement.stamps.forEach(function(rec){
+      /* A spray that is not worn any more cannot stay painted. */
+      if(!rec.spray || worn.indexOf(rec.spray) < 0){ dropped = true; return; }
       var parts = TankSprays.project(_previewTank, rec);
-      /* Don't let a stamp that no longer shows take up one of the three
-         slots. If NOTHING projected we leave the records alone — a tank that
-         was still building must never cost you paint you already placed. */
+      /* Don't let a stamp that no longer shows take up a slot. If NOTHING
+         projects we leave the records alone — a tank that was still building
+         must never cost you paint you already placed. */
       if(!parts.length){ dropped = true; return; }
       keep.push(rec);
       TankSprays.texture(rec.texture).then(function(tex){
-        if(tex) TankSprays.addDecals(_previewTank, parts, tex);
+        if(tex) TankSprays.addDecals(_previewTank, parts, tex, rec.spray);
       });
     });
-    if(dropped && keep.length){
+    if(dropped && keep.length !== placement.stamps.length){
       placement.stamps = keep;
-      setSprayPlacement(_currentTank, placement);
+      setSprayPlacement(_currentTank, keep.length ? placement : null);
     }
+  }
+  const SPRAY_DEFS = {
+    first_spray: { name: 'First Spray', icon: '🏷️', texture: 'assets/sprays/first_spray.webp', free: true },
+  };
+
+  /* One lamp per slot the tank actually has — owning one spray draws one lamp,
+     not three, so the bar cannot promise room you do not have. */
+  function stampPips(count, budget){
+    var n = Math.max(0, Math.min(6, (budget === undefined ? MAX_SPRAYS : budget) | 0));
+    var html = ' <span class="tm-spray-pips">';
+    for(var i = 0; i < n; i++) html += '<i class="' + (i < count ? 'on' : '') + '"></i>';
+    return html + '</span>';
+  }
+  /* ---------------------------------------------------------------
+     THE HOVER GHOST
+
+     What the spray will look like, where it will land and how big it will be
+     — before the click. Without it, placing a sticker is a guess that costs a
+     stamp, a menu round-trip and the player's patience.
+
+     Two pieces: a quad carrying the spray's own art at the exact size, and a
+     yellow arrow floating just off the surface pointing at it. The arrow is the
+     part that answers "where", which a translucent square on a curved hull does
+     not answer on its own.
+     --------------------------------------------------------------- */
+  var _sprayGhost = null, _ghostQuad = null, _ghostFrame = null, _ghostArrow = null;
+  var _ghostTexFor = null, _ghostOn = false, _ghostPickAt = 0, _lastPointer = null;
+
+  function ensureGhost(){
+    if(_sprayGhost || !_scene) return _sprayGhost;
+    var g = new THREE.Group();
+    g.visible = false;
+
+    var quad = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({
+        color: 0xffdb00, transparent: true, opacity: 0.42,
+        depthWrite: false, side: THREE.DoubleSide, fog: false
+      })
+    );
+    quad.renderOrder = 2000;
+    g.add(quad);
+
+    var frame = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.PlaneGeometry(1, 1)),
+      new THREE.LineBasicMaterial({ color: 0xffdb00, transparent: true, opacity: 0.95, depthTest: false, fog: false })
+    );
+    frame.position.z = 0.004;
+    frame.renderOrder = 2001;
+    g.add(frame);
+
+    var arrow = new THREE.Group();
+    /* An ink cone behind a yellow one: the double-cone trick gives the marker a
+       black outline from every angle without a shader. */
+    var ink = new THREE.Mesh(
+      new THREE.ConeGeometry(0.15, 0.40, 14),
+      new THREE.MeshBasicMaterial({ color: 0x0b0e13, fog: false, depthTest: false, side: THREE.BackSide })
+    );
+    ink.scale.set(1.34, 1.2, 1.34);
+    ink.renderOrder = 2002;
+    var head = new THREE.Mesh(
+      new THREE.ConeGeometry(0.15, 0.40, 14),
+      new THREE.MeshBasicMaterial({ color: 0xffdb00, fog: false, depthTest: false })
+    );
+    head.renderOrder = 2003;
+    arrow.add(ink);
+    arrow.add(head);
+    /* Aimed per hover in updateGhost(): the cone stands off the sticker and
+       leans back at it, so it reads as an arrow from any camera angle. */
+    g.add(arrow);
+
+    _scene.add(g);
+    _sprayGhost = g; _ghostQuad = quad; _ghostFrame = frame; _ghostArrow = arrow;
+    return g;
+  }
+
+  function updateGhost(hit){
+    if(!hit || !hit.face || !_scene) return;
+    var mesh = hit.object;
+    if(!TankSprays.isPaintable(mesh)){ hideGhost(); return; }
+    ensureGhost();
+    if(!_sprayGhost) return;
+
+    var norm = hit.face.normal.clone().transformDirection(mesh.matrixWorld).normalize();
+    var s = TankSprays.SPRAY_SIZE * _spraySize;
+
+    _sprayGhost.position.copy(hit.point).addScaledVector(norm, 0.05);
+    _sprayGhost.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), norm);
+    _ghostQuad.scale.set(s, s, 1);
+    _ghostFrame.scale.set(s, s, 1);
+
+    /* A CONE POINTING ALONG THE NORMAL IS A DOT.
+
+       The arrow used to be planted on the surface facing into it. Looking at a
+       hull from the front — the normal case, because that is the panel you are
+       aiming at — means looking straight down the cone's axis, so the marker
+       degraded into a yellow circle with no direction in it at all.
+
+       It now stands off the sticker, offset ALONG the hull (the component of
+       world-up that lies in the surface plane) and slightly out of it, with its
+       tip turned back at the stamp centre. The axis is then roughly
+       perpendicular to the view, which is the only way an arrow can read as an
+       arrow. On a flat top deck, where "along the hull" collapses, the offset
+       is taken from a tangent instead so it still has a direction. */
+    var invQ = _sprayGhost.quaternion.clone().invert();
+    var upLocal = new THREE.Vector3(0, 1, 0).applyQuaternion(invQ);
+    upLocal.z = 0;                       /* keep it in the surface plane */
+    if(upLocal.lengthSq() < 0.04) upLocal.set(0, 1, 0);
+    upLocal.normalize();
+    var lift = upLocal.multiplyScalar(s * 1.05);
+    lift.z = 0.34 + s * 0.14;            /* just off the paint */
+    _ghostArrow.position.copy(lift);
+    _ghostArrow.scale.setScalar(Math.max(0.85, s * 0.45));
+    _ghostArrow.quaternion.setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0), lift.clone().negate().normalize());
+
+
+    var def = SPRAY_DEFS[_selectedSpray];
+    if(def && _ghostTexFor !== def.texture){
+      _ghostTexFor = def.texture;
+      TankSprays.texture(def.texture).then(function(tex){
+        if(!tex || !_ghostQuad) return;
+        _ghostQuad.material.map = tex;
+        _ghostQuad.material.color.set(0xffffff);
+        _ghostQuad.material.opacity = 0.62;
+        _ghostQuad.material.needsUpdate = true;
+      });
+    }
+
+    _sprayGhost.visible = true;
+    _ghostOn = true;
+  }
+
+  function hideGhost(){
+    _ghostOn = false;
+    if(_sprayGhost) _sprayGhost.visible = false;
+  }
+
+  function updateGhostFromLastPointer(){
+    if(!_placeMode || !_lastPointer) return;
+    var pick = raycastTank(_lastPointer.x, _lastPointer.y);
+    if(!pick || pick.refused) hideGhost();
+    else updateGhost(pick.hit);
+  }
+  /* One picker for the hover ghost and the click alike, so the thing you see is
+     always the thing you get. */
+  function raycastTank(clientX, clientY){
+    if(!_camera || !_tankGroup) return null;
+    var host = _viewerHost || document.getElementById('tm-viewer');
+    if(!host) return null;
+    var rect = host.getBoundingClientRect();
+    if(!rect.width || !rect.height) return null;
+    _mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    _mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    _raycaster.setFromCamera(_mouse, _camera);
+    /* The turntable only updates matrices inside the render loop; make sure they
+       are current before raycasting (the loop may not have run yet). */
+    _camera.updateMatrixWorld(true);
+    _tankGroup.updateMatrixWorld(true);
+    var hits = _raycaster.intersectObject(_tankGroup, true);
+    for(var i = 0; i < hits.length; i++){
+      var hit = hits[i], obj = hit.object, u = obj.userData || {};
+      if(!obj.isMesh || obj.visible === false) continue;
+      if(!obj.geometry || !obj.geometry.getAttribute('position')) continue;
+      if(u.isOutline || u.isSpray || u.noSpray) continue;   /* shells and old stamps aren't targets */
+      /* Say why nothing happened rather than silently dropping the tap. A click
+         on a named gun part, or on the front of the turret where every barrel
+         sits, is refused here AND by the same projection in battle, so the two
+         can never disagree about where a stamp may go. */
+      if(TankSprays.isGunMesh(obj) || inGunZone(hit.point)) return { hit: hit, refused: true };
+      return { hit: hit, refused: false };
+    }
+    return null;
+  }
+
+  function onHover(e){
+    _lastPointer = { x: e.clientX, y: e.clientY };
+    if(!_placeMode || !_selectedSpray || !_tankReady || !_previewTank || _dragging) return;
+    var now = (window.performance && performance.now) ? performance.now() : Date.now();
+    if(now - _ghostPickAt < 40) return;      /* ~25 rays a second, not 200 */
+    _ghostPickAt = now;
+    var pick = raycastTank(e.clientX, e.clientY);
+    if(!pick || pick.refused) hideGhost();
+    else updateGhost(pick.hit);
   }
 
   /* Warm the one shared texture cache for every spray in the catalogue, so
@@ -1365,17 +1708,48 @@ window.TankMenu = (function(){
 
     _rotY = 0;
     _velX = 0;
-    _autoRotate = true;
+    _autoRotate = false;
 
-    /* Drag events */
-    host.addEventListener('mousedown', onDragStart);
+    /* Drag events — on the whole screen, not just the canvas. A press that
+       starts on a control is filtered out inside onDragStart(). */
+    _dragRoot = document.getElementById('menu-tank') || host;
+    _dragRoot.addEventListener('mousedown', onDragStart);
     window.addEventListener('mousemove', onDragMove);
     window.addEventListener('mouseup', onDragEnd);
-    host.addEventListener('touchstart', onTouchStart, {passive:false});
+    _dragRoot.addEventListener('touchstart', onTouchStart, {passive:false});
     window.addEventListener('touchmove', onTouchMove, {passive:false});
     window.addEventListener('touchend', onDragEnd);
     /* Click for spray placement */
     host.addEventListener('click', onClick);
+    /* Hover feeds the placement ghost — where the stamp would land and how big
+       it would be, before the click is spent. Assigned rather than added, so a
+       reopened viewer replaces the handler instead of queueing a second one. */
+    host.onmousemove = onHover;
+    host.onmouseleave = function(){ hideGhost(); };
+    /* The stat column ends where the bottom block begins.
+
+       The bottom block grows and shrinks with the cosmetics panel, and the
+       stats column is a fixed overlay, so the two overlapped: the last rows
+       sat BEHIND the XP strip and the upgrade buttons with no way to reach
+       them. The gap is measured from the real element rather than hard-coded,
+       because it changes when the sprays tab expands or a tab body collapses.
+       CSS uses the number to cap the column; nothing is hidden, it scrolls. */
+    var bottomBlock = document.querySelector('#menu-tank .tm-overlay-bottom');
+    var menuRoot = document.getElementById('menu-tank');
+    if(bottomBlock && menuRoot && window.ResizeObserver){
+      var applyBottomGap = function(){
+        var h = Math.round(bottomBlock.getBoundingClientRect().height);
+        menuRoot.style.setProperty('--tm-bottom-h', h + 'px');
+      };
+      _bottomRO = new ResizeObserver(applyBottomGap);
+      _bottomRO.observe(bottomBlock);
+      applyBottomGap();
+    }
+    /* The column scrolls now, so it must always open at the top — a screen
+       that remembers being halfway down its own stats reads as broken. */
+    var statCol = document.querySelector('#menu-tank .tm-overlay-right');
+    if(statCol) statCol.scrollTop = 0;
+
     /* Zoom events */
     host.addEventListener('wheel', onWheel, {passive:false});
     host.addEventListener('touchstart', onPinchStart, {passive:false});
@@ -1395,73 +1769,60 @@ window.TankMenu = (function(){
     _renderer.setSize(w, h);
   }
 
-  function onDragStart(e){ _dragging = true; _autoRotate = false; _lastX = e.clientX; _velX = 0; }
-  function onTouchStart(e){ if(e.touches.length===1){ e.preventDefault(); _dragging=true; _autoRotate=false; _lastX=e.touches[0].clientX; _velX=0; } }
-  function onDragMove(e){ if(!_dragging) return; var dx=e.clientX-_lastX; _rotY+=dx*0.008; _velX=dx*0.008; _lastX=e.clientX; }
-  function onTouchMove(e){ if(!_dragging||e.touches.length!==1) return; e.preventDefault(); var dx=e.touches[0].clientX-_lastX; _rotY+=dx*0.008; _velX=dx*0.008; _lastX=e.touches[0].clientX; }
-  function onDragEnd(){ _dragging=false; clearTimeout(_autoTimer); _autoTimer=setTimeout(function(){ _autoRotate=true; },2500); }
+  /* ── turning the tank ────────────────────────────────────────────────
 
+     Two rules were wrong for a detail screen.
+
+     The tank spun on its own. A model that keeps moving while you are trying
+     to read its stats, or aim a sticker at its flank, is noise: the thing you
+     are looking at drifts away from you. It now stands still until you turn
+     it, and the turn you gave it is kept.
+
+     The turn only worked if the drag STARTED on the hull. That is a hidden
+     rule — the screen looks like a turntable, so grabbing any empty part of it
+     should behave like one. Drags now start anywhere, except on a control: a
+     press that begins on a button, the tab row or the cosmetics panel belongs
+     to that control and must never turn the tank under it. */
   var _clickThreshold = 5; // pixels
   var _dragStartX = 0, _dragStartY = 0;
   var _noSprayToastAt = 0;
+  var DRAG_BLOCKERS = 'button, input, a, label, .tm-panel, .tm-overlay-top-left, ' +
+    '.tm-overlay-right, .tm-bottom-actions, .tm-cosmetics-bar, .tm-spray-card, .tm-cosmo-tab';
 
-  function onDragStart(e){ 
-    _dragging = true; 
-    _autoRotate = false; 
-    _lastX = e.clientX; 
-    _velX = 0; 
+  function dragAllowed(target){
+    return !(target && target.closest && target.closest(DRAG_BLOCKERS));
+  }
+  function onDragStart(e){
+    if(!dragAllowed(e.target)) return;
+    _dragging = true;
+    _lastX = e.clientX;
+    _velX = 0;
     _dragStartX = e.clientX;
     _dragStartY = e.clientY;
   }
-  function onTouchStart(e){ 
-    if(e.touches.length===1){ 
-      e.preventDefault(); 
-      _dragging=true; 
-      _autoRotate=false; 
-      _lastX=e.touches[0].clientX; 
-      _velX=0; 
-      _dragStartX = e.touches[0].clientX;
-      _dragStartY = e.touches[0].clientY;
-    } 
+  function onTouchStart(e){
+    if(e.touches.length !== 1 || !dragAllowed(e.target)) return;
+    e.preventDefault();
+    _dragging = true;
+    _lastX = e.touches[0].clientX;
+    _velX = 0;
+    _dragStartX = e.touches[0].clientX;
+    _dragStartY = e.touches[0].clientY;
   }
+  function onDragMove(e){ if(!_dragging) return; var dx=e.clientX-_lastX; _rotY+=dx*0.008; _velX=dx*0.008; _lastX=e.clientX; }
+  function onTouchMove(e){ if(!_dragging||e.touches.length!==1) return; e.preventDefault(); var dx=e.touches[0].clientX-_lastX; _rotY+=dx*0.008; _velX=dx*0.008; _lastX=e.touches[0].clientX; }
+  function onDragEnd(){ _dragging=false; }
 
   function onClick(e){
     if(!_placeMode || !_selectedSpray || !_previewTank) return;
-    // Check if this was a click (not a drag)
-    var dx = e.clientX - _dragStartX;
-    var dy = e.clientY - _dragStartY;
-    if(Math.hypot(dx, dy) > _clickThreshold) return;
-    
+    /* A drag is a turn of the turntable, not a stamp. */
+    if(Math.hypot(e.clientX - _dragStartX, e.clientY - _dragStartY) > _clickThreshold) return;
+
+    var pick = raycastTank(e.clientX, e.clientY);
+    if(!pick) return;
     e.preventDefault();
-    
-    var host = _viewerHost || document.getElementById('tm-viewer');
-    if(!host) return;
-    var rect = host.getBoundingClientRect();
-    _mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-    _mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-    
-    _raycaster.setFromCamera(_mouse, _camera);
-    /* The turntable only updates matrices inside the render loop; make sure
-       they are current before raycasting (the loop may not have run yet). */
-    _camera.updateMatrixWorld(true);
-    if(_tankGroup) _tankGroup.updateMatrixWorld(true);
-    var intersects = _raycaster.intersectObject(_tankGroup, true);
-    for(var i = 0; i < intersects.length; i++){
-      var hit = intersects[i];
-      var obj = hit.object;
-      if(!obj || !obj.geometry || obj.visible === false) continue;
-      var u = obj.userData || {};
-      if(!obj.isMesh || obj.visible === false) continue;
-      if(!obj.geometry || !obj.geometry.getAttribute('position')) continue;
-      if(u.isOutline || u.isSpray || u.noSpray) continue;   /* shells and old stamps aren't targets */
-      /* Say why nothing happened rather than silently dropping the tap. A click
-         on a named gun part, or on the front of the turret where every barrel
-         sits, is refused here AND refused by the same projection in battle, so
-         the two can never disagree about where a stamp may go. */
-      if(TankSprays.isGunMesh(obj) || inGunZone(hit.point)){ toastGun(); return; }
-      placeSprayAt(hit);
-      break;
-    }
+    if(pick.refused){ toastGun(); return; }
+    placeSprayAt(pick.hit);
   }
 
   /* Say why nothing happened instead of silently ignoring the tap. */
@@ -1557,8 +1918,11 @@ window.TankMenu = (function(){
   function animate(){
     _loopId = requestAnimationFrame(animate);
     if(!_renderer||!_scene||!_camera) return;
-    if(_autoRotate){ _rotY += 0.003; }
-    else { _rotY += _velX; _velX *= 0.93; if(Math.abs(_velX)<0.00005) _velX=0; }
+    /* No idle spin: the turntable only moves when it is turned. Momentum from
+       the last drag coasts to a stop. */
+    _rotY += _velX;
+    _velX *= 0.93;
+    if(Math.abs(_velX) < 0.00005) _velX = 0;
     if(_tankGroup) _tankGroup.rotation.y = _rotY;
 
     /* Smooth zoom interpolation */
@@ -1592,16 +1956,28 @@ window.TankMenu = (function(){
     /* dispose() alone keeps the WebGL context; browsers only allow about 16. */
     if(_renderer){ _renderer.dispose(); try { _renderer.forceContextLoss(); } catch(e){} _renderer=null; }
     _scene=null; _camera=null; _tankGroup=null;
-    _dragging=false; _autoRotate=true; _zoom=0; _zoomTarget=0;
+    /* The ghost lived in that scene. Dropping the references (rather than
+       reusing them) is what makes the next viewer build a fresh one, in ITS
+       scene, instead of pointing a new turntable at a disposed group. */
+    _sprayGhost=null; _ghostQuad=null; _ghostFrame=null; _ghostArrow=null;
+    _ghostTexFor=null; _ghostOn=false; _lastPointer=null;
+    _placeMode=false;
+    _dragging=false; _autoRotate=false; _zoom=0; _zoomTarget=0;
     window.removeEventListener('resize', onResize);
+    if(_dragRoot){
+      _dragRoot.removeEventListener('mousedown',onDragStart);
+      _dragRoot.removeEventListener('touchstart',onTouchStart);
+      _dragRoot = null;
+    }
+    if(_bottomRO){ try{ _bottomRO.disconnect(); }catch(e){} _bottomRO = null; }
     var host = document.getElementById('tm-viewer');
     if(host){
-      host.removeEventListener('mousedown',onDragStart);
-      host.removeEventListener('touchstart',onTouchStart);
       host.removeEventListener('touchmove',onTouchMove);
       host.removeEventListener('wheel',onWheel);
       host.removeEventListener('touchstart',onPinchStart);
       host.removeEventListener('click',onClick);
+      host.onmousemove = null;
+      host.onmouseleave = null;
     }
     window.removeEventListener('mousemove',onDragMove);
     window.removeEventListener('mouseup',onDragEnd);

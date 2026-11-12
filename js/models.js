@@ -501,6 +501,45 @@ const Models = window.Models = {
     const nodes = [];
     root.traverse(o => nodes.push(o));
 
+    /* SNAPSHOT THE NAMED MARKER EMPTIES BEFORE ANY SCALE GOES AWAY.
+
+       Baking a node's scale folds it into that node's VERTICES and then resets
+       the node's scale to 1. Vertices keep their world position because the
+       conjugate does the work. A CHILD empty does not: it inherits the scale
+       through the hierarchy, so the moment its parent is reset the empty's own
+       translation is no longer multiplied by it, and it jumps outwards by
+       (1 - scale) x offset.
+
+       That is the muzzle. Hellfire's `firing` empty hangs 5.06 behind a gun node
+       scaled 0.45 on Z; after the bake it sat 5.06 out instead of 2.28, which
+       measured as a firing point 15.3 world units in front of the tank and 19.5
+       from its turret pivot (see test/harness/tank-rig-harness.html). The gun it
+       belongs to did not move at all -- only the invisible marker the shell, the
+       muzzle flash, the flame cone and the aim line are all read from. Burst and
+       Demolisher drift the same way, just less.
+
+       The world positions are remembered here and written back once the bake is
+       done, as a local translation in whatever parent the marker ends up under.
+       Only non-mesh markers are touched: a mesh child was baked by the
+       innermost-scaled-ancestor rule above, so its geometry already accounts
+       for the hierarchy and moving its node would double the correction. */
+    const markers = [];
+    root.traverse(o => {
+      if(o.isMesh || !o.name) return;
+      const n = String(o.name).toLowerCase();
+      if(n.indexOf('firing') >= 0 || n.indexOf('muzzle') >= 0 ||
+         n.indexOf('shell') >= 0 || n.indexOf('ejection') >= 0) markers.push(o);
+    });
+    const markerWorld = markers.map(m => m.getWorldPosition(new THREE.Vector3()));
+    /* And the box of the part each marker hangs off, so the restore below can
+       tell "the empty drifted away from its part" from "the part itself moved".
+       Only the first one is this method's to fix. */
+    const markerPartBox = markers.map(m => {
+      if(!m.parent) return null;
+      const b = new THREE.Box3().setFromObject(m.parent);
+      return b.isEmpty() ? null : b.clone();
+    });
+
     /* ONE BUFFER PER NODE, BEFORE ANY BAKING HAPPENS.
 
        A glTF mesh can be referenced by many nodes at once, and GLTFLoader hands
@@ -618,6 +657,38 @@ const Models = window.Models = {
       n.scale.set(1, 1, 1);
       n.updateMatrixWorld(true);
     }
+    /* PUT THE MARKERS BACK WHERE THE AUTHOR LEFT THEM. See the snapshot note at
+       the top of this method for why the bake moves them. */
+    for(let i = 0; i < markers.length; i++){
+      const m = markers[i];
+      if(!m.parent) continue;
+      /* updateWorldMatrix(true, ...) pulls the whole ANCESTOR chain current.
+         updateMatrixWorld only walks down, and every scale this method just
+         reset lives above the marker. */
+      m.parent.updateWorldMatrix(true, false);
+
+      /* ONLY PUT IT BACK IF THE PART IS STILL WHERE THE TIP IS.
+
+         Some models nest one scaled node under another (Grom's launcher under
+         its turret). Removing the outer scale moves that whole part -- a
+         separate, larger problem than this one -- so the marker's authored
+         position can end up a barrel away from the gun the player can see.
+         In that case the marker stays on its part; a marker snapshot cannot
+         repair a part that moved.
+
+         Tested against the part's CURRENT box, in world space: 0.75 units is
+         the same "still on the gun" tolerance the rig harness uses, and it is a
+         world distance, so a large model is not held to a tighter standard than
+         a small one. */
+      const now = new THREE.Box3().setFromObject(m.parent);
+      if(markerPartBox[i] && !now.isEmpty() &&
+         now.distanceToPoint(markerWorld[i]) > 0.75) continue;
+
+      const invP = new THREE.Matrix4().copy(m.parent.matrixWorld).invert();
+      m.position.copy(markerWorld[i].applyMatrix4(invP));
+      m.updateMatrixWorld(true);
+    }
+
     /* Nodes deeper in `scaled` may hold an ancestor whose scale was baked away by
        a descendant's reset; one more pass over the whole tree is not needed,
        because each node resets its OWN scale exactly once, above. */

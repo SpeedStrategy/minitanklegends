@@ -361,6 +361,14 @@ input:focus{border-color:var(--accent)}
 .tank-slot .lock-icon{font-size:64px;color:rgba(255,255,255,0.3)}
 .tank-slot .tank-name{font-size:18px;color:#fff;margin-top:10px;text-align:center;line-height:1.2;padding:6px 12px;background:rgba(0,0,0,0.45);border-radius:6px;white-space:nowrap;text-shadow:0 1px 4px rgba(0,0,0,0.8);display:inline-block}
 
+/* ANNOUNCED SLOT ({ soon: 'Name' } in Menu._COLLECTIONS). Not the same thing as
+   an empty slot: the tank already exists on the roster plan, so the tile shows
+   its name and a stamp instead of a bare padlock. */
+.tank-slot.soon{border-style:dashed;border-color:rgba(255,177,43,0.28);background:repeating-linear-gradient(135deg,rgba(255,177,43,0.05) 0 12px,rgba(0,0,0,0.25) 12px 24px)}
+.tank-slot.soon .lock-icon{opacity:0.5;font-size:50px}
+.tank-slot.soon .soon-name{background:rgba(255,177,43,0.16);color:#ffd27a;border:1px solid rgba(255,177,43,0.35)}
+.tank-slot .soon-badge{position:absolute;top:10px;left:50%;transform:translateX(-50%) rotate(-3deg);font-size:11px;font-weight:900;letter-spacing:2px;padding:4px 10px;border-radius:6px;background:rgba(255,177,43,0.9);color:#1a1206;box-shadow:0 2px 0 rgba(0,0,0,0.5)}
+
 .collection-lock{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:0 6px;flex-shrink:0;opacity:0;animation:lockFadeIn .4s .5s ease both}
 .collection-lock.open{opacity:1}
 .collection-lock .lock-big{font-size:36px;color:rgba(255,255,255,0.15);transition:all .4s ease}
@@ -611,9 +619,9 @@ input:focus{border-color:var(--accent)}
    tank - it now sits down-left of the turret, where the arrow in the sketch
    points. Offsets are from screen centre, so it stays the same distance from
    the tank (the follow-cam keeps the tank centred) at any window size. */
-#reload-indicator{position:absolute;left:calc(50% - 300px);bottom:calc(50% - 90px);width:112px;height:112px;pointer-events:none}
+#reload-indicator{position:absolute;left:calc(50% - 214px);bottom:calc(50% - 90px);width:112px;height:112px;pointer-events:none}
 
-@media (max-width:768px){#reload-indicator{width:92px;height:92px;left:calc(50% - 175px);bottom:calc(50% - 70px)}}
+@media (max-width:768px){#reload-indicator{width:92px;height:92px;left:calc(50% - 155px);bottom:calc(50% - 70px)}}
 
 @media (max-height:500px){#reload-indicator{width:76px;height:76px}}
 
@@ -666,25 +674,9 @@ input:focus{border-color:var(--accent)}
 
 
 
-/* Camouflage indicator */
-
-#camo-indicator{position:absolute;left:50%;bottom:38px;transform:translateX(-50%);
-
-  display:flex;align-items:center;gap:8px;background:rgba(20,20,20,.85);border:1px solid var(--line);
-
-  border-radius:16px;padding:4px 12px;font-size:11px;font-weight:700;letter-spacing:.06em;
-
-  pointer-events:none;white-space:nowrap}
-
-#camo-dot{width:10px;height:10px;border-radius:50%;background:#888;transition:background .2s,box-shadow .2s}
-
-#camo-dot.on{background:#5fdc3a;box-shadow:0 0 8px #5fdc3a}
-
-#camo-dot.mid{background:#f0a020;box-shadow:0 0 8px #f0a020}
-
-#camo-dot.off{background:#666}
-
-#camo-text{color:#ddd;text-shadow:0 1px 2px #000}
+/* The camouflage pill that used to sit here ("In bush — stay still 2s to
+   vanish") is gone. Cover is now shown on the tank's own nameplate: a bush icon
+   appears in its right-hand gutter while that tank is in a bush. */
 
 
 
@@ -794,6 +786,44 @@ input:focus{border-color:var(--accent)}
   .base-hud-col{width:132px}
   #base-hud{top:8px;padding:6px 10px 8px}
   .base-hud-num{font-size:11px}
+}
+
+/* STEAL THE FLAG strip — #flag-hud reuses the .base-hud-* classes one to one
+   (same strip, same glance-read purpose), and only adds the three pieces this
+   mode's cells need: the flag state word that replaces the HP number, the
+   clock cell that turns upright during overtime, and the score fills whose
+   inline colours js/steal-flag.js does not touch. */
+#flag-hud{position:absolute;left:50%;top:14px;transform:translateX(-50%);
+  z-index:20;pointer-events:none;
+  display:flex;flex-direction:column;align-items:center;gap:5px;
+  padding:8px 14px 10px;
+  background:linear-gradient(180deg,rgba(10,13,20,.82) 0%,rgba(10,13,20,.68) 100%);
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:16px;
+  box-shadow:0 6px 28px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.08);
+  backdrop-filter:blur(14px) saturate(1.3);
+  -webkit-backdrop-filter:blur(14px) saturate(1.3)}
+
+#flag-hud .base-hud-col{width:210px}
+
+.base-hud-number-row{height:16px;display:flex;align-items:center}
+
+.flag-hud-score{font-size:11px;font-weight:800;letter-spacing:.08em;
+  color:rgba(255,255,255,.92);text-align:left;white-space:nowrap}
+
+.flag-hud-time{font-size:14px;font-weight:900;letter-spacing:.04em;
+  color:rgba(255,255,255,.88);text-align:center;font-variant-numeric:tabular-nums}
+
+#flag-hud.overtime .flag-hud-time{color:#fbbf24}
+
+.flag-hud-vs-cap{font-size:9px;font-weight:900;letter-spacing:.2em;
+  color:rgba(255,255,255,.34);text-align:center}
+
+@media (max-width: 700px){
+  #flag-hud{top:8px;padding:6px 10px 8px}
+  #flag-hud .base-hud-col{width:150px}
+  .flag-hud-time{font-size:12px}
+  .flag-hud-score{font-size:10px}
 }
 
 /* Spectator HUD (bottom bar) */
@@ -2378,14 +2408,6 @@ html, body {
 
   }
 
-  #camo-indicator {
-
-    font-size: 9px;
-
-    padding: 2px 6px;
-
-  }
-
   #drown-bar-wrap {
 
     width: 160px;
@@ -3908,15 +3930,6 @@ html, body {
 
   }
 
-  #camo-indicator {
-
-    font-size: 8px;
-
-    padding: 1px 5px;
-
-    gap: 4px;
-
-  }
 
   #drown-bar-wrap {
 
@@ -3996,7 +4009,6 @@ html, body {
 
   #hp-text { font-size: 7px; }
 
-  #camo-indicator { font-size: 7px; padding: 1px 4px; }
 
   #drown-bar-wrap { width: 90px; }
 
@@ -6407,6 +6419,7 @@ html, body {
   width: calc(var(--ui-scale) * 252px);
 }
 .main-menu-side .menu-side-btn {
+  position: relative;
   margin-top: 0;
   display: flex;
   align-items: center;
@@ -6460,6 +6473,27 @@ html, body {
   box-shadow: none;
   transform: translateY(2px);
   filter: brightness(0.9);
+}
+.main-menu-side .menu-side-btn .workshop-xp-tip {
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 8px);
+  transform: translateY(-50%);
+  padding: calc(var(--ui-scale) * 3px) calc(var(--ui-scale) * 10px);
+  background: #2a2f38;
+  border: 2px solid #0b0c0e;
+  border-radius: calc(var(--ui-scale) * 6px);
+  color: #ffd24a;
+  font-family: 'Lilita One', 'Fredoka', sans-serif;
+  font-size: calc(var(--ui-scale) * 12px);
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.5px;
+  text-transform: none;
+  text-shadow: none;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: none;
 }
 .main-menu-side .btn:nth-child(6) { animation-delay: 0.4s; }
 
@@ -9033,6 +9067,178 @@ body.strategic-mode .cam-rotate-btns{ display: none !important; }
   box-shadow: 0 0 7px rgba(255,177,43,0.85);
 }
 .tm-spray-equipped { text-shadow: 0 0 8px rgba(255,177,43,0.45); }
+
+/* ── Sprays tab, second pass ───────────────────────────────────────────
+   One spray = one sticker. The card is a small sticker tile: the art on the
+   left, the name over its state, and the ✕ in the corner — grid areas rather
+   than a row of boxes so the ✕ never pushes the name into the ellipsis. */
+.tm-sprays-grid {
+  grid-template-columns: repeat(auto-fill, minmax(158px, 1fr));
+  gap: 8px;
+}
+.tm-spray-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  grid-template-areas:
+    'art name x'
+    'art tag  x';
+  align-items: center;
+  gap: 2px 9px;
+  padding: 7px 8px;
+  border: 2px solid #0b0e13;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #2b2f36, #1b1e24);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.07), 0 3px 0 #0b0e13;
+  cursor: pointer;
+  transition: transform 0.12s, box-shadow 0.12s, border-color 0.12s;
+}
+.tm-spray-card:hover {
+  transform: translateY(-2px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.09), 0 5px 0 #0b0e13;
+}
+.tm-spray-card:active {
+  transform: translateY(1px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 2px 0 #0b0e13;
+}
+.tm-spray-card.worn {
+  border-color: #ffdb00;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.09), 0 3px 0 #0b0e13, 0 0 12px rgba(255,219,0,0.22);
+}
+.tm-spray-card.active {
+  background: linear-gradient(180deg, #3a3520, #23200f);
+  border-color: #ffdb00;
+}
+.tm-spray-card.locked { opacity: 0.45; cursor: not-allowed; }
+.tm-spray-art {
+  grid-area: art;
+  width: 44px;
+  height: 44px;
+  border-radius: 5px;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-color: rgba(0,0,0,0.35);
+  border: 2px solid #0b0e13;
+  transition: transform 0.15s;
+}
+.tm-spray-card:hover .tm-spray-art { transform: rotate(-4deg) scale(1.06); }
+.tm-spray-name {
+  grid-area: name;
+  font-size: 12px;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tm-spray-tag {
+  grid-area: tag;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.42);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tm-spray-tag.on { color: #ffdb00; }
+.tm-spray-x {
+  grid-area: x;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 5px;
+  border: 2px solid #0b0e13;
+  background: linear-gradient(180deg, #4a4f57, #2b2f36);
+  color: rgba(255,255,255,0.75);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 2px 0 #0b0e13;
+}
+.tm-spray-x:hover { background: linear-gradient(180deg, #7a2b2b, #4a1a1a); color: #fff; }
+.tm-spray-x:active { transform: translateY(1px); box-shadow: 0 1px 0 #0b0e13; }
+
+/* Count of used slots, right-aligned in the section title. */
+.tm-spray-budget {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 800;
+  color: #ffdb00;
+  letter-spacing: 0.4px;
+}
+.tm-spray-hintbar {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+  color: rgba(255,255,255,0.55);
+  background: rgba(0,0,0,0.28);
+  border-left: 3px solid #ffdb00;
+  border-radius: 0 5px 5px 0;
+  padding: 7px 10px;
+  margin-bottom: 10px;
+}
+.tm-spray-actions-hint {
+  font-size: 11px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.45);
+}
+
+/* ── Stamp size slider ────────────────────────────────────────────────
+   S / L at the ends, percentage on the right of the title. Yellow fill on a
+   dark groove, black outline, exactly like the 3D buttons. */
+.tm-spray-size {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 2px 4px;
+}
+.tm-spray-size.off { opacity: 0.35; }
+.tm-spray-size-end {
+  font-size: 11px;
+  font-weight: 800;
+  color: rgba(255,255,255,0.5);
+}
+.tm-spray-size-val {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 800;
+  color: #ffdb00;
+}
+.tm-spray-size input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  height: 12px;
+  border-radius: 7px;
+  background: linear-gradient(180deg, #14161a, #23262c);
+  border: 2px solid #0b0e13;
+  outline: none;
+  cursor: pointer;
+}
+.tm-spray-size input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffe95c, #ffdb00 55%, #c9a800);
+  border: 2px solid #0b0e13;
+  box-shadow: 0 2px 0 #0b0e13;
+  cursor: grab;
+}
+.tm-spray-size input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #ffe95c, #ffdb00 55%, #c9a800);
+  border: 2px solid #0b0e13;
+  box-shadow: 0 2px 0 #0b0e13;
+  cursor: grab;
+}
+.tm-spray-size input[type="range"]:disabled { cursor: not-allowed; }
 
 /* ============================================================
    FULLSCREEN GAMEMODE SELECTOR (gm-*)
@@ -13246,8 +13452,8 @@ body.is-mobile #menu-profile .profile-card { margin: 8px auto 16px; max-height: 
   width: min(78vw, 920px);
   min-height: 96px;
   padding: 14px 18px;
-  background: linear-gradient(180deg, #2a2a2a 0%, #1a1a1a 100%);
-  border: 2px solid #000;
+  background: linear-gradient(180deg, #3b6fd9 0%, #1f3f8a 100%);
+  border: 3px solid #000;
   border-radius: 12px;
   box-shadow: 8px 8px 0 #000, 0 0 40px rgba(0,0,0,0.6);
   transform: translateX(120%) translateY(-40%);
@@ -13300,7 +13506,7 @@ body.is-mobile #menu-profile .profile-card { margin: 8px auto 16px; max-height: 
 .bi-bar-bot .bi-bar-inner{ align-items:flex-start; text-align:left; }
 .bi-title{
   font-family:'Lilita One',sans-serif; font-size:20px; letter-spacing:3px;
-  color:#ffb12b; text-shadow:2px 2px 0 #000;
+  color:#ffd84a; text-shadow:3px 3px 0 #000, 0 0 12px rgba(255,216,74,0.6);
 }
 .bi-names{ display:flex; flex-wrap:wrap; gap:6px; max-width:100%; }
 .bi-bar-top .bi-names{ justify-content:flex-end; }
@@ -13720,3 +13926,3711 @@ body.tkp-open #tank-switch-panel.tank-switch-panel:not(.hidden) { background: li
   .pt-seat,.pt-seat::after,.pt-plus,#pl-start,.pt-cd-num.pt-pop,.pt-chat-row{ animation:none; }
 }
 .pt-opt:has(input[type=checkbox]){ justify-content:flex-start; cursor:pointer; }
+
+/* ============================================================================
+   TANK RESEARCH -- blueprint void (js/research.js)
+   ============================================================================
+
+   THE LOOK (2026-11 second rework)
+   Direction from the player: dark, but NOT the old cold charcoal sheet, and
+   NOT a park. A stylized blueprint void in three colors only:
+       dark gray   -- the void, the grid, the hills, the road
+       yellow      -- the one accent: progress, the ready step, XP
+       white       -- type and hairlines
+   Fake dark-gray hills sit on the horizon behind the footer as decoration.
+
+   THE FLOOR. The tanks do not hang: every reward stands on a dark hairline
+   ellipse pad (the "void floor station") and a canvas-drawn contact shadow
+   (js/research.js) plants it. Lighting is a calm neutral studio rig -- the
+   models must read as MODELS, not as glowing things.
+
+   ONE PATH. All collections share a single continuous road; a small numbered
+   diamond marks where each collection's line begins. The tabs are jump
+   anchors, not filters.
+
+   MOTION RULE: no structural element animates opacity; opacity flicker is
+   decoration only (twinkle, ping, beams).
+   ========================================================================== */
+
+.rs-overlay{
+  position:fixed; inset:0; z-index:12000;
+  display:flex;
+  /* THE ROOM IS THE BACKGROUND NOW. The old void gradient stays only as the
+     colour seen for the instant before the artwork paints, and under the
+     footer band when the photo's apron ends above the fold. */
+  background:
+    radial-gradient(1100px 520px at 50% 38%, rgba(255,255,255,.035), transparent 70%),
+    linear-gradient(180deg,#17191d 0%,#131519 52%,#0f1114 100%);
+  color:#eef0f3;
+  font-family:'Fredoka','Nunito','Segoe UI',Tahoma,sans-serif;
+  overflow:hidden;
+}
+.rs-overlay.hidden{ display:none !important; }
+body.rs-lock{ overflow:hidden; }
+
+/* THE BLUEPRINT PAPER IS RETIRED. It was ink under the models on a void; over
+   a photograph of a hall it reads as a bug — a drafting grid floating in the
+   middle of the artwork. Kept as a rule so the pseudo-element still exists if
+   anything ever wants it back, but silenced.
+
+   THE BLUEPRINT PAPER, TONED DOWN.
+
+   The old sheet was 2px lines every 32px at 5.5% white plus 3px majors at 11%,
+   which is a drafting grid drawn with a marker: it competed with the tanks for
+   attention and made the whole panel read as busy rather than as paper. It is
+   now 1px hairlines -- 2.2% fine every 40px, 5% major every 200px -- and the
+   mask pulls the sheet down to nothing well before the edges, so the grid is
+   ink UNDER the models instead of texture across the screen. */
+.rs-overlay::before{
+  content:''; position:absolute; inset:0; pointer-events:none;
+  display:none;
+  background-image:
+    linear-gradient(rgba(255,255,255,.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.022) 1px, transparent 1px),
+    linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px);
+  background-size:40px 40px, 40px 40px, 200px 200px, 200px 200px;
+  mask-image:radial-gradient(76% 62% at 50% 48%, #000 0%, rgba(0,0,0,.5) 52%, transparent 86%);
+  -webkit-mask-image:radial-gradient(76% 62% at 50% 48%, #000 0%, rgba(0,0,0,.5) 52%, transparent 86%);
+}
+/* faint yellow work-light behind the road band */
+.rs-overlay::after{
+  content:''; position:absolute; inset:0; pointer-events:none;
+  background:radial-gradient(760px 260px at 50% 60%, rgba(255,210,74,.045), transparent 74%);
+}
+
+/* -- horizon furniture --------------------------------------------------- */
+
+/* THE HILLS ARE GONE. They were a silhouette standing in for a horizon on a
+   void; the room artwork already HAS a floor, so keeping them would put two
+   ground lines on screen. The element stays (it is the click-outside target)
+   but draws nothing. */
+.rs-backdrop{
+  display:block; position:absolute;
+  left:0; right:0; top:58%; bottom:0;
+  pointer-events:none;
+  background:none;
+}
+
+/* ============================================================
+   THE ROOM (pass 12) — the player's own foundry artwork, unedited.
+
+   This is a LAYER, not a flex child. js/research.js writes its left/top/width/
+   height every time the screen opens or the viewport changes, choosing a size
+   that puts the floor seam drawn in the picture exactly under the models' feet
+   (see layoutRoom). Anything that puts this <img> back in normal flow pushes
+   .rs-shell — the entire UI — off the right edge of the screen.
+
+   z-index 0 is deliberate: the scrim, the shell and the models all sit above
+   it, so no UI can ever end up painted into the photograph.
+   ============================================================ */
+.rs-room{
+  position:absolute; left:0; top:0;
+  z-index:0;
+  pointer-events:none;
+  user-select:none;
+  -webkit-user-drag:none;
+  max-width:none;
+}
+
+/* The scrim: two gradients, top and bottom, so white headings and gold prices
+   stay readable over a lit photograph. The middle is left completely clear —
+   that is where the tanks stand and where the artwork is supposed to be seen. */
+.rs-scrim{
+  position:absolute; inset:0;
+  z-index:1;
+  pointer-events:none;
+  background:
+    linear-gradient(180deg,
+      rgba(9,10,12,.88) 0%, rgba(9,10,12,.66) 12%,
+      rgba(9,10,12,.28) 24%, rgba(9,10,12,0) 38%),
+    linear-gradient(0deg,
+      rgba(9,10,12,.94) 0%, rgba(9,10,12,.74) 10%,
+      rgba(9,10,12,.22) 22%, rgba(9,10,12,0) 34%);
+}
+/* far ridge: flat dark-gray silhouette */
+.rs-backdrop::before{
+  content:''; position:absolute; left:-4%; right:-4%; bottom:-2%; height:46%;
+  display:none;
+  background:
+    radial-gradient(46% 130% at 12% 100%, #202329 64%, transparent 65%),
+    radial-gradient(60% 150% at 46% 100%, #23262c 66%, transparent 67%),
+    radial-gradient(52% 125% at 82% 100%, #1e2126 64%, transparent 65%);
+}
+/* near ridge: slightly lighter gray, the footer sits on it */
+.rs-backdrop::after{
+  content:''; position:absolute; left:-4%; right:-4%; bottom:-2%; height:26%;
+  display:none;
+  background:
+    radial-gradient(62% 150% at 30% 100%, #2a2d34 66%, transparent 67%),
+    radial-gradient(72% 165% at 74% 100%, #26292f 68%, transparent 69%);
+}
+
+/* the old ribbon spans: faint yellow light beams, almost invisible */
+.rs-bg{ position:absolute; inset:0; overflow:hidden; pointer-events:none; z-index:0; }
+.rs-bg .rs-ribbon{
+  position:absolute; left:-20%; right:-20%;
+  height:1px;
+  transform:rotate(-12deg);
+  background:linear-gradient(90deg,
+    transparent 0%, rgba(255,210,74,.05) 22%,
+    rgba(255,210,74,.09) 50%,
+    rgba(255,210,74,.05) 78%, transparent 100%);
+}
+.rs-ribbon.r1{ top:16%; }
+.rs-ribbon.r2{ top:52%; opacity:.45; }
+.rs-ribbon.r3{ top:86%; opacity:.3; }
+/* the old sun span: a soft corner work-light */
+.rs-bg .rs-grid-glow{
+  position:absolute; top:-90px; right:-60px;
+  width:340px; height:340px;
+  background:radial-gradient(circle, rgba(255,210,74,.06), transparent 66%);
+}
+
+/* hairline trims at the very top and bottom */
+.rs-edge{
+  position:absolute; left:0; right:0; height:1px; pointer-events:none; z-index:3;
+  background:linear-gradient(90deg,
+    rgba(255,255,255,0) 0%, rgba(255,255,255,.22) 18%,
+    rgba(255,210,74,.55) 50%,
+    rgba(255,255,255,.22) 82%, rgba(255,255,255,0) 100%);
+}
+.rs-edge.top{ top:0; }
+.rs-edge.bottom{ bottom:0; }
+
+/* ------------------------------------------------------------------- shell */
+
+.rs-shell{
+  position:relative; z-index:2;
+  flex:1; min-width:0;
+  display:flex; flex-direction:column;
+  height:100%;
+  padding:22px clamp(18px,3vw,44px) 14px;
+  text-align:left;
+}
+
+/* -------------------------------------------------------------------- head */
+
+.rs-head{
+  flex:0 0 auto;
+  display:flex; align-items:center; justify-content:space-between; gap:22px;
+  padding-bottom:12px;
+}
+/* LEFT: the hall's mark and its name, as one lockup. The icon is a plate, not
+   a sticker: dark glass, hairline gold edge, so it belongs to the header
+   rather than floating on the photograph. */
+.rs-brand{
+  flex:1; min-width:0;
+  display:flex; align-items:center; gap:16px;
+}
+.rs-brand-mark{
+  flex:0 0 auto;
+  width:52px; height:52px;
+  padding:9px;
+  box-sizing:border-box;
+  object-fit:contain;
+  border-radius:12px;
+  background:rgba(12,14,17,.62);
+  border:1px solid rgba(255,210,74,.32);
+  box-shadow:0 6px 18px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.06);
+  filter:drop-shadow(0 2px 3px rgba(0,0,0,.5));
+}
+.rs-brand-txt{ min-width:0; }
+/* RIGHT: the wallet, then the way out. Two chips, one baseline. */
+.rs-head-right{
+  flex:0 0 auto;
+  display:flex; align-items:center; gap:18px;
+}
+.rs-title-wrap{ flex:1; min-width:0; }
+.rs-title{
+  margin:0;
+  text-align:left;
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-size:clamp(24px,2.8vw,42px);
+  line-height:.95;
+  letter-spacing:3px;
+  text-transform:uppercase;
+  color:#ffffff;
+}
+/* The gold diamond that used to open the title is retired: the brand mark now
+   does that job, and two markers side by side is a cartoon stutter. */
+.rs-title::before{ display:none; }
+.rs-sub{
+  margin:6px 0 0 0;
+  text-align:left;
+  font-size:clamp(10.5px,1vw,12.5px);
+  letter-spacing:.6px;
+  color:rgba(238,240,243,.45);
+}
+
+/* the XP chip */
+.rs-xp-badge{
+  flex:0 0 auto;
+  display:flex; align-items:center; gap:9px;
+  padding:0 4px 2px 18px;
+  border-left:2px solid rgba(255,210,74,.55);
+}
+.rs-xp-star{
+  align-self:center;
+  width:7px; height:7px;
+  background:#ffd24a;
+  transform:rotate(45deg);
+  box-shadow:0 0 10px rgba(255,210,74,.45);
+}
+.rs-xp-val{
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-size:clamp(22px,2.2vw,32px);
+  line-height:1;
+  color:#ffd24a;
+  font-variant-numeric:tabular-nums;
+}
+/* the XP art tile replaces the word -- it already READS "XP" */
+.rs-xp-ico{
+  display:inline-block;
+  width:auto; height:clamp(24px,2.4vw,34px);
+  filter:drop-shadow(0 3px 4px rgba(0,0,0,.45));
+  vertical-align:middle;
+  margin-right:-4px;
+}
+.rs-xp-ico-mini{
+  width:auto; height:12px;
+  filter:drop-shadow(0 1px 1px rgba(0,0,0,.5));
+  vertical-align:-2px;
+  margin-left:2px;
+}
+
+.rs-close{
+  flex:0 0 auto;
+  width:40px; height:40px;
+  border:1px solid rgba(255,255,255,.22);
+  border-radius:10px;
+  background:rgba(12,14,17,.55);
+  color:#eef0f3;
+  font-family:inherit; font-size:16px; line-height:1;
+  cursor:pointer;
+  transition:color .15s, border-color .15s, transform .2s;
+}
+.rs-close:hover{ color:#ffd24a; border-color:#ffd24a; transform:rotate(90deg); }
+
+/* -------------------------------------------------------------------- tabs */
+
+/* jump anchors, not filters: the path is one continuous line and these scroll
+   you to a collection's segment. Minimal words with a yellow underline. */
+.rs-tabs{
+  flex:0 0 auto;
+  display:flex; gap:clamp(14px,2.4vw,30px);
+  padding:4px 0 12px;
+  overflow-x:auto;
+  border-bottom:1px solid rgba(255,255,255,.10);
+  scrollbar-width:none;
+}
+.rs-tabs::-webkit-scrollbar{ display:none; }
+.rs-tab{
+  position:relative;
+  flex:0 0 auto;
+  display:flex; align-items:baseline; gap:7px;
+  padding:4px 0 8px;
+  background:none; border:none;
+  color:rgba(238,240,243,.42);
+  font-family:inherit; font-size:11.5px; font-weight:700;
+  letter-spacing:2px; text-transform:uppercase;
+  cursor:pointer;
+  transition:color .15s;
+}
+.rs-tab:hover{ color:#fff; }
+.rs-tab.active{ color:#ffd24a; }
+.rs-tab.active::after{
+  content:''; position:absolute; left:0; right:0; bottom:-12px;
+  height:2px; background:#ffd24a;
+}
+.rs-tab-num{
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-size:14px; letter-spacing:0;
+}
+.rs-tab-count{
+  font-size:9.5px; letter-spacing:1px;
+  opacity:.55; font-variant-numeric:tabular-nums;
+}
+.rs-tab.has-next::before{
+  content:''; position:absolute; left:-11px; top:50%;
+  width:5px; height:5px; margin-top:-2px;
+  border-radius:50%; background:#ffd24a;
+  box-shadow:0 0 8px #ffd24a;
+  animation:rsBadge 1.6s ease-in-out infinite;
+}
+@keyframes rsBadge{
+  0%,100%{ opacity:.55; }
+  50%    { opacity:1; }
+}
+
+.rs-ruler{ display:none; }
+
+/* -------------------------------------------------------------------- path */
+
+.rs-path-scroll{
+  position:relative;
+  flex:1 1 auto;
+  min-height:0;
+  /* GROUNDED: content anchored to the band's bottom, tanks rising toward the
+     top of the void -- the road line itself sits LOW on screen */
+  display:flex; align-items:flex-end;
+  overflow-x:auto; overflow-y:hidden;
+  scrollbar-width:thin;
+  scrollbar-color:rgba(255,210,74,.28) transparent;
+  overscroll-behavior-x:contain;
+}
+/* A QUIET SCROLLBAR. A gold slab across the whole width reads as a loading bar;
+   this one is a hairline that only brightens under the cursor. */
+.rs-path-scroll::-webkit-scrollbar{ height:6px; }
+.rs-path-scroll::-webkit-scrollbar-track{ background:transparent; }
+.rs-path-scroll::-webkit-scrollbar-thumb{
+  background:rgba(255,210,74,.22);
+  border-radius:99px;
+  transition:background .15s;
+}
+.rs-path-scroll:hover::-webkit-scrollbar-thumb{ background:rgba(255,210,74,.4); }
+.rs-path-scroll::-webkit-scrollbar-thumb:hover{ background:rgba(255,210,74,.62); }
+/* MIDDLE-DRAG PANNING. The line is dragged, so the whole band takes the grab
+   cursor while a drag is in flight -- including the models under it, which would
+   otherwise still advertise their own spin cursor mid-pan. */
+.rs-path-scroll.rs-panning,
+.rs-path-scroll.rs-panning *{ cursor:grabbing !important; user-select:none !important; }
+
+/* the drafting caption above the row */
+.rs-sheet{
+  position:absolute; left:0; right:0; top:clamp(6px,3vh,34px);
+  z-index:0;
+  text-align:center;
+  font-size:clamp(9px,1.1vw,11px);
+  font-weight:700;
+  letter-spacing:clamp(3px,.7vw,7px);
+  text-transform:uppercase;
+  color:rgba(255,255,255,.16);
+  white-space:nowrap;
+  pointer-events:none;
+}
+.rs-sheet b{ color:rgba(255,210,74,.25); font-weight:700; margin:0 10px; }
+.rs-sheet s{ text-decoration:none; color:rgba(255,255,255,.2); margin-left:8px; }
+
+/* the grounded bottom-up layout: models grow UP from the road, so the band
+   anchors the column to its bottom edge -- the road line sits LOW, close to
+   the horizon hills, the way the user asked (no floating row in mid-air) */
+.rs-path{
+  /* ONE sizing knob for the whole row --fed to the 3D stage through the
+     slot rects, so the CSS knob IS the tank scale */
+  /* HERO SCALE. The exhibits are the point of the screen, so the slot is
+     bigger than the old 250px ceiling and the height has room for a full
+     3/4 pose. One knob still sizes the CSS box AND the 3D stage, because the
+     stage fits each tank to the measured slot. */
+  --rs-model-w:clamp(232px,23vw,380px);
+  --rs-node-w:calc(var(--rs-model-w) + 34px);
+  --rs-node-pair-w:calc(var(--rs-model-w) * 2 + 52px);
+  --rs-gap:clamp(10px,1.6vw,30px);
+  --rs-pad:clamp(14px,3vw,60px);
+  --rs-model-h:clamp(184px,32vh,340px);
+  --rs-dot:11px;
+
+  position:relative; z-index:1;
+  width:max-content;
+  min-width:100%;
+  margin:0;
+  flex:0 0 auto;
+  display:flex; align-items:flex-start; justify-content:center;
+  gap:var(--rs-gap);
+  /* the line drops: just enough room below for label + cost, tanks above */
+  padding:clamp(8px,2vh,22px) var(--rs-pad) clamp(46px,7vh,64px);
+}
+
+/* the one canvas all the models are drawn on */
+.rs-canvas{
+  position:absolute; inset:0;
+  width:100%; height:100%;
+  pointer-events:none;
+  z-index:1;
+}
+
+/* ------------------------------------------------------------------- nodes */
+
+.rs-node{
+  position:relative;
+  flex:0 0 var(--rs-node-w);
+  width:var(--rs-node-w);
+  display:flex; flex-direction:column; align-items:center;
+  text-align:center;
+  cursor:pointer;
+  padding-bottom:2px;
+}
+.rs-node.locked{ cursor:default; }
+.rs-node-pair{ flex-basis:var(--rs-node-pair-w); width:var(--rs-node-pair-w); }
+
+/* the ready step: a soft vertical shaft of yellow light, nothing else */
+.rs-node.next::before{
+  content:''; position:absolute; z-index:0;
+  left:50%; top:-6px; bottom:22px;
+  width:min(100%, 190px);
+  transform:translateX(-50%);
+  background:radial-gradient(62% 74% at 50% 40%, rgba(255,210,74,.12), transparent 72%);
+  pointer-events:none;
+}
+/* a tiny twinkling mark on the ready step */
+.rs-node.next::after{
+  content:'\2726';
+  position:absolute; right:14%; bottom:clamp(68px,10vh,112px);
+  z-index:5;
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-size:15px;
+  color:#ffd24a;
+  text-shadow:0 0 8px rgba(255,210,74,.8), 0 2px 0 rgba(0,0,0,.6);
+  pointer-events:none;
+  animation:rsTwinkle 2.4s ease-in-out infinite;
+}
+@keyframes rsTwinkle{
+  0%,100%{ transform:scale(.6); opacity:.3; }
+  55%    { transform:scale(1.1); opacity:1; }
+}
+
+.rs-model{
+  position:relative; z-index:2;
+  width:min(100%, var(--rs-model-w)); height:var(--rs-model-h);
+  display:flex; align-items:flex-end; justify-content:center;
+}
+/* THE VOID FLOOR PAD: a hairline ellipse "station" the tank stands inside,
+   plus a dark pool so the shadow has a surface to land on */
+.rs-model::before{
+  content:''; position:absolute; z-index:-1;
+  left:50%; bottom:-7px;
+  width:92%; height:30%;
+  transform:translateX(-50%);
+  border-radius:50%;
+  background:radial-gradient(closest-side, rgba(0,0,0,.55), rgba(0,0,0,.25) 58%, transparent 78%);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.10);
+}
+.rs-node.next .rs-model::before{
+  background:radial-gradient(closest-side, rgba(0,0,0,.6), rgba(0,0,0,.3) 58%, transparent 78%);
+  box-shadow:inset 0 0 0 1px rgba(255,210,74,.35);
+}
+.rs-model-slot{
+  position:relative;
+  flex:1 1 0; height:100%;
+  cursor:grab;
+  touch-action:none;
+}
+.rs-model-slot:active{ cursor:grabbing; }
+.rs-model-pair{
+  width:100%;
+  gap:0;
+  justify-content:space-between;
+}
+.rs-model-pair::before{
+  content:''; position:absolute; z-index:1;
+  left:8%; right:8%; top:54%;
+  height:1px;
+  background:repeating-linear-gradient(90deg, rgba(255,210,74,.30) 0 5px, transparent 5px 11px);
+  pointer-events:none;
+}
+.rs-model-pair .rs-model-slot{ flex:0 0 var(--rs-model-w); }
+.rs-model-pair .rs-ring{ width:64%; margin-left:-32%; }
+
+/* the turntable plate: a dashed ellipse that appears under a hovered model */
+.rs-ring{
+  position:absolute; left:50%; bottom:2px;
+  width:76%; height:18px;
+  margin-left:-38%;
+  border:1px dashed rgba(255,210,74,.35);
+  border-radius:50%;
+  opacity:0;
+  transition:opacity .18s ease;
+  pointer-events:none;
+}
+.rs-node:hover .rs-ring{ opacity:.7; }
+
+/* THE OR MARK. A minimal diamond: hairline yellow, transparent face. */
+.rs-or{
+  position:absolute; left:50%; top:55%;
+  transform:translate(-50%,-50%);
+  z-index:6;
+  display:grid; place-items:center;
+  width:38px; height:38px;
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-size:11px; letter-spacing:1px;
+  color:#ffd24a;
+  pointer-events:none;
+}
+.rs-or i,.rs-soon-mark i,.rs-choice-or i{
+  position:relative;
+  font-style:normal;
+}
+.rs-or::before{
+  content:''; position:absolute; inset:4px;
+  background:rgba(15,17,20,.9);
+  border:1.5px solid rgba(255,210,74,.6);
+  transform:rotate(45deg);
+  box-shadow:0 0 12px rgba(255,210,74,.12);
+}
+
+.rs-tier{
+  margin-left:8px;
+  padding-left:8px;
+  border-left:1px solid rgba(255,255,255,.14);
+  font-size:9px; letter-spacing:1.6px;
+  color:rgba(255,255,255,.34);
+}
+
+.rs-model-empty{ display:grid; place-items:center; }
+.rs-model-empty::before{ display:none; }
+.rs-soon-mark{
+  position:relative;
+  display:grid; place-items:center;
+  width:min(100%, 92px); height:min(100%, 92px);
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-size:32px;
+  color:rgba(255,255,255,.26);
+  text-shadow:0 2px 0 rgba(0,0,0,.6);
+}
+.rs-soon-mark::before{
+  content:''; position:absolute; inset:16px;
+  border:1.5px dashed rgba(255,255,255,.20);
+  transform:rotate(45deg);
+}
+
+/* the hairline from the model down to its dot */
+.rs-tick{
+  width:1px; height:16px;
+  background:linear-gradient(180deg, rgba(255,210,74,0), rgba(255,210,74,.55));
+}
+
+/* a collection gate on the one continuous road: a numbered diamond where the
+   next line starts. It does not cut the road -- it rides on it. */
+.rs-divider{
+  position:relative;
+  flex:0 0 34px;
+  width:34px;
+  align-self:stretch;
+  pointer-events:none;
+}
+.rs-divider i{
+  position:absolute; left:50%; top:calc(var(--rs-model-h) + 22px);
+  transform:translate(-50%,-50%) rotate(45deg);
+  z-index:2;
+  display:grid; place-items:center;
+  width:24px; height:24px;
+  border:1.5px solid rgba(255,210,74,.65);
+  background:rgba(15,17,20,.95);
+  box-shadow:0 0 10px rgba(255,210,74,.16);
+  pointer-events:auto;
+}
+.rs-divider b{
+  position:relative;
+  transform:rotate(-45deg);
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-size:11px; font-weight:400;
+  color:#ffd24a;
+  letter-spacing:0;
+}
+
+/* --------------------------------------------------------------------- rail */
+
+/* the road board. JS sets left/right/top in pixels; this transform centers
+   the board on that same dot line. */
+/* A HAIRLINE ON THE FLOOR, not a shelf. At 18px deep with a lit top edge and a
+   drop shadow the road read as a plank the tanks stood ON, which is the one
+   thing the room must not say. Now it is a 3px inlay: the artwork's own floor
+   is the surface, and this is the line drawn across it. */
+.rs-rail{
+  position:absolute;
+  height:3px;
+  transform:translateY(-50%);
+  box-sizing:border-box;
+  z-index:0;
+  border-radius:2px;
+  background:rgba(10,12,15,.55);
+  box-shadow:0 1px 0 rgba(255,255,255,.06);
+}
+/* faint white dashes on the un-researched stretch */
+.rs-rail::after{
+  content:''; position:absolute; left:2px; right:2px; top:50%;
+  height:1px; margin-top:-1px;
+  background:repeating-linear-gradient(90deg, rgba(255,255,255,.22) 0 10px, transparent 10px 20px);
+  border-radius:2px;
+}
+.rs-rail-fill{
+  position:absolute; left:0; top:0; bottom:0;
+  width:0;
+  border-radius:2px;
+  box-sizing:border-box;
+  background:linear-gradient(180deg,#ffe074,#ffb424);
+  box-shadow:0 0 14px rgba(255,210,74,.5);
+  transition:width .5s cubic-bezier(.22,1,.36,1);
+}
+/* the golden tip where the researched road meets the next step */
+.rs-rail-fill::after{
+  content:''; position:absolute; right:-6px; top:50%;
+  width:11px; height:11px;
+  transform:translateY(-50%) rotate(45deg);
+  border-radius:2px;
+  background:#ffd24a;
+  border:2px solid #14161a;
+  box-shadow:0 0 10px rgba(255,210,74,.8);
+}
+
+/* --------------------------------------------------------------------- dots */
+
+.rs-dot{
+  position:relative; z-index:3;
+  width:var(--rs-dot); height:var(--rs-dot);
+  border-radius:50%;
+  box-sizing:border-box;
+  background:#191c21;
+  border:2px solid rgba(255,255,255,.42);
+  box-shadow:0 0 0 3px rgba(10,11,14,.9);
+}
+.rs-node.claimed .rs-dot{
+  background:#ffd24a; border-color:#ffd24a;
+  box-shadow:0 0 0 3px rgba(10,11,14,.9), 0 0 12px rgba(255,210,74,.5);
+}
+.rs-node.next .rs-dot{
+  background:#ffffff; border-color:#ffffff;
+  animation:rsPing 1.7s ease-in-out infinite;
+}
+@keyframes rsPing{
+  0%,100%{ box-shadow:0 0 0 3px rgba(10,11,14,.9), 0 0 0 0 rgba(255,255,255,.4); }
+  55%    { box-shadow:0 0 0 3px rgba(10,11,14,.9), 0 0 0 8px rgba(255,255,255,0); }
+}
+.rs-node.soon .rs-dot{
+  border-style:dashed;
+  border-color:rgba(255,255,255,.26);
+}
+
+/* ------------------------------------------------------------ labels + cost */
+
+/* BOLD CARTOON TYPE: labels are Lilita One headings with an ink drop, costs
+   are heavier too -- text reads like a comic poster, not UI body copy */
+.rs-label{
+  margin-top:12px;
+  max-width:100%;
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-weight:400;
+  font-size:clamp(12.5px,1.3vw,16px);
+  letter-spacing:1.4px;
+  text-transform:uppercase;
+  color:rgba(238,240,243,.82);
+  text-shadow:0 2px 0 rgba(0,0,0,.72), 0 0 1px rgba(0,0,0,.4);
+}
+.rs-node.next .rs-label{ color:#ffd24a; }
+.rs-node.claimed .rs-label{ color:#ffffff; }
+.rs-node.claimed .rs-label::after{
+  content:' \2713';
+  color:#ffd24a;
+  text-shadow:0 2px 0 rgba(0,0,0,.72);
+}
+.rs-node.soon .rs-label{ color:rgba(238,240,243,.32); }
+
+.rs-cost{
+  margin-top:5px;
+  display:flex; align-items:center;
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-weight:400;
+  font-size:clamp(10.5px,1vw,12.5px);
+  letter-spacing:2.2px;
+  color:rgba(238,240,243,.4);
+  text-shadow:0 2px 0 rgba(0,0,0,.6);
+}
+.rs-node.next .rs-cost{ color:rgba(255,210,74,.9); }
+.rs-node.claimed .rs-cost{ color:rgba(255,210,74,.42); }
+
+/* --------------------------------------------------------------------- foot */
+
+.rs-foot{
+  flex:0 0 auto;
+  display:flex; align-items:center; gap:20px;
+  padding-top:13px;
+  border-top:1px solid rgba(255,255,255,.10);
+}
+.rs-earn{
+  display:flex; align-items:center; gap:8px;
+  max-width:38%;
+  font-size:11px;
+  line-height:1.3;
+  color:rgba(238,240,243,.5);
+}
+.rs-earn b{ color:#ffd24a; font-weight:700; }
+.rs-earn-ico{ color:#ffd24a; flex:0 0 auto; }
+.rs-progress-wrap{ flex:1; min-width:0; display:flex; flex-direction:column; gap:7px; }
+.rs-progress{
+  height:6px;
+  border-radius:99px;
+  background:rgba(255,255,255,.10);
+  overflow:hidden;
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.5);
+}
+.rs-progress-fill{
+  position:relative;
+  width:0; height:100%;
+  border-radius:99px;
+  background:linear-gradient(90deg,#c78f16,#ffd24a);
+  box-shadow:0 0 10px rgba(255,210,74,.55);
+  transition:width .5s ease;
+}
+.rs-progress-fill::after{
+  content:''; position:absolute; right:0; top:-2px; bottom:-2px;
+  width:14px;
+  background:radial-gradient(closest-side, rgba(255,240,180,.9), transparent 70%);
+}
+.rs-tip{
+  flex:0 0 auto;
+  max-width:34%;
+  font-size:10.5px;
+  line-height:1.35;
+  letter-spacing:.4px;
+  color:rgba(238,240,243,.42);
+}
+.rs-tip b{ color:rgba(255,210,74,.85); font-weight:700; }
+@media (max-width:980px){ .rs-tip{ display:none; } }
+.rs-hint{
+  font-size:10px;
+  letter-spacing:1.6px;
+  text-transform:uppercase;
+  color:rgba(238,240,243,.42);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+/* BACK, TOP LEFT, LIKE EVERY OTHER MENU. It used to sit at the end of the
+   footer, bottom right, which is the one corner nobody looks at when they want
+   to leave. Same chip, glyph and key badge as the menus (see #mtl-back-slot at
+   the end of this file); only the z-index differs, so it stays over the sheet. */
+.rs-back{ z-index:5 !important; }
+
+.rs-empty{
+  width:100%;
+  padding:60px;
+  text-align:center;
+  font-size:12px;
+  letter-spacing:2px;
+  text-transform:uppercase;
+  color:rgba(238,240,243,.38);
+}
+
+/* ------------------------------------------------------------ reward picker */
+
+.rs-choice{
+  position:fixed; inset:0; z-index:13000;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  gap:6px;
+  padding:24px;
+  background:
+    linear-gradient(rgba(255,255,255,.03) 1px, transparent 1px) 0 0 / 26px 26px,
+    linear-gradient(90deg, rgba(255,255,255,.03) 1px, transparent 1px) 0 0 / 26px 26px,
+    radial-gradient(620px 420px at 50% 42%, rgba(255,210,74,.08), transparent 70%),
+    rgba(11,13,16,.975);
+}
+.rs-choice.hidden{ display:none !important; }
+
+.rs-choice-title{
+  margin:0 0 4px;
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-size:clamp(19px,2.4vw,30px);
+  letter-spacing:4px;
+  text-transform:uppercase;
+  color:#ffffff;
+}
+.rs-choice-title::after{
+  content:''; display:block;
+  width:64px; height:2px; margin:10px auto 0;
+  background:#ffd24a;
+}
+
+.rs-choice-stage{
+  position:relative;
+  width:min(880px,92vw);
+  height:min(42vh,320px);
+}
+.rs-choice-slot{
+  position:absolute; top:0; bottom:0; width:50%;
+  z-index:3;
+  cursor:grab;
+  touch-action:none;
+}
+.rs-choice-slot:active{ cursor:grabbing; }
+.rs-choice-slot:nth-child(1){ left:0; }
+.rs-choice-slot:nth-child(2){ right:0; }
+.rs-choice-slot::before{
+  content:''; position:absolute; left:50%; top:60%;
+  width:88%; height:34%;
+  transform:translate(-50%,-50%);
+  border-radius:50%;
+  background:radial-gradient(closest-side, rgba(0,0,0,.5), rgba(0,0,0,.22) 60%, transparent 78%);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.09);
+  pointer-events:none;
+}
+.rs-choice-or{
+  position:absolute; left:50%; top:56%;
+  transform:translate(-50%,-50%);
+  z-index:4;
+  display:grid; place-items:center;
+  width:54px; height:54px;
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-size:14px; letter-spacing:1.5px;
+  color:#ffd24a;
+  pointer-events:none;
+}
+.rs-choice-or::before{
+  content:''; position:absolute; inset:5px;
+  background:rgba(11,13,16,.96);
+  border:1.5px solid rgba(255,210,74,.55);
+  transform:rotate(45deg);
+  box-shadow:0 0 16px rgba(255,210,74,.14);
+}
+
+.rs-choice-cards{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:clamp(20px,6vw,120px);
+  width:min(880px,92vw);
+  position:relative; z-index:3;
+}
+.rs-pick{
+  display:flex; flex-direction:column; align-items:center; gap:4px;
+  padding:14px 10px 10px;
+  background:none;
+  border:none;
+  border-top:1px solid rgba(255,255,255,.16);
+  color:#eef0f3;
+  font-family:inherit;
+  cursor:pointer;
+  transition:border-color .15s;
+}
+.rs-pick:hover{ border-top-color:#ffd24a; }
+.rs-pick-name{
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-size:clamp(18px,2.2vw,28px);
+  letter-spacing:2.5px;
+  text-transform:uppercase;
+  transition:color .15s;
+}
+.rs-pick:hover .rs-pick-name{ color:#ffd24a; }
+.rs-pick-meta{
+  font-size:9.5px; font-weight:700; letter-spacing:2.2px;
+  color:rgba(238,240,243,.42);
+}
+.rs-pick-cta{
+  margin-top:7px;
+  padding:8px 16px;
+  border:1.5px solid rgba(255,210,74,.6);
+  border-radius:99px;
+  background:rgba(255,210,74,.08);
+  font-size:10.5px; font-weight:800; letter-spacing:3px;
+  color:#ffd24a;
+  transition:background .15s, color .15s;
+}
+.rs-pick:hover .rs-pick-cta{ background:#ffd24a; color:#15171b; }
+.rs-pick-cta::after{ content:none; }
+
+.rs-choice-cancel{
+  margin-top:10px;
+  background:none; border:none;
+  color:rgba(238,240,243,.45);
+  font-family:inherit; font-size:10.5px; font-weight:700;
+  letter-spacing:2px; text-transform:uppercase;
+  cursor:pointer;
+  text-decoration:underline; text-underline-offset:4px;
+}
+.rs-choice-cancel:hover{ color:#ffd24a; }
+
+/* ============================================================================
+   THE TANK SHEET (pass 15) — the inspector, now asked for by name.
+
+   WHY THIS EXISTS. The line used to be click-to-buy: a stray click on a tank
+   spent XP, and nothing on screen said what the tank WAS or what the price
+   bought. Then it went the other way: a permanent inspector band under the row
+   that took a slice of the shop from every player on every visit, whether or
+   not they had a question. The path is the screen; the panel is an answer.
+
+   SO: clicking a tank SELECTS it and arms a small STATS pill over that model
+   (.rs-pill). The pill is the only door into this sheet, and the sheet is the
+   only thing that can spend XP.
+
+   THE SHEET IS AN OVERLAY, not a flow child, so the row keeps the full height
+   of the hall. It sits above the models (z 40) and BELOW the guide (13000) and
+   the reward-choice screen (13500), which can both open on top of it.
+   On a narrow screen it becomes a bottom sheet rather than a shrunken card.
+   ========================================================================== */
+
+.rs-detail{
+  position:relative;
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr) auto;
+  gap:clamp(12px,2vw,26px);
+  align-items:center;
+  margin:0;
+  padding:14px clamp(16px,2vw,24px);
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:18px;
+  background:linear-gradient(180deg, rgba(33,37,45,.97), rgba(14,16,20,.98));
+  box-shadow:0 30px 80px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.07);
+  backdrop-filter:blur(14px) saturate(1.05);
+  -webkit-backdrop-filter:blur(14px) saturate(1.05);
+}
+
+/* the scrim + the frame the card sits in */
+.rs-tank{
+  position:absolute; inset:0; z-index:40;
+  display:grid; place-items:center;
+  padding:clamp(12px,4vh,40px) clamp(12px,4vw,40px);
+}
+.rs-tank.hidden{ display:none !important; }
+.rs-tank-back{
+  position:absolute; inset:0;
+  background:radial-gradient(82% 72% at 50% 46%, rgba(5,7,10,.52), rgba(3,4,6,.8));
+  backdrop-filter:blur(3px);
+  -webkit-backdrop-filter:blur(3px);
+  animation:rsTankFade .16s ease both;
+}
+@keyframes rsTankFade{ from{ opacity:0 } to{ opacity:1 } }
+
+/* the card itself: one size for every viewport class, then the bottom sheet */
+.rs-tank-card{
+  position:relative; z-index:1;
+  width:min(820px,100%);
+  max-height:min(84vh,640px);
+  overflow:auto;
+  overscroll-behavior:contain;
+  animation:rsTankIn .24s cubic-bezier(.22,1,.36,1) both;
+}
+@keyframes rsTankIn{
+  from{ opacity:0; transform:translateY(16px) scale(.94); }
+  to  { opacity:1; transform:none; }
+}
+@media (prefers-reduced-motion: reduce){
+  .rs-tank-card{ animation:none; }
+  .rs-tank-back{ animation:none; }
+}
+
+/* the way out, in the corner of the card */
+.rs-tank-x{
+  position:absolute; top:8px; right:8px; z-index:2;
+  display:grid; place-items:center;
+  width:34px; height:34px;
+  padding:0;
+  border:1px solid rgba(255,255,255,.12);
+  border-radius:10px;
+  background:rgba(255,255,255,.04);
+  color:rgba(238,240,243,.6);
+  font-family:inherit; font-size:15px; line-height:1;
+  cursor:pointer;
+  transition:color .15s, border-color .15s, background .15s, transform .12s;
+}
+.rs-tank-x:hover{ color:#fff; border-color:rgba(255,210,74,.55); background:rgba(255,210,74,.1); }
+.rs-tank-x:active{ transform:scale(.94); }
+
+/* ------------------------------------------------ the STATS pill --------
+   position:fixed, moved by placeStatsBtn() in js/research.js. Fixed because
+   the row it points into scrolls: an absolutely positioned pill inside the
+   band would be clipped by its overflow:hidden in Y and would ride away with
+   the scroll. This one is re-aimed on select, scroll, resize and re-render. */
+.rs-pill{
+  position:fixed; left:0; top:0; z-index:60;
+  display:inline-flex; align-items:center; gap:7px;
+  padding:7px 9px 7px 13px;
+  border:1px solid rgba(255,210,74,.5);
+  border-radius:999px;
+  background:linear-gradient(180deg, rgba(38,42,50,.95), rgba(15,17,21,.97));
+  box-shadow:0 12px 26px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.08);
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-size:12px; letter-spacing:2.2px; text-transform:uppercase;
+  color:#ffd24a;
+  cursor:pointer;
+  touch-action:manipulation;
+  -webkit-tap-highlight-color:transparent;
+  opacity:0;
+  transform:translate(-50%,-100%) scale(.55);
+  transform-origin:50% 100%;
+  /* Faded = gone. A transparent button still eats clicks, and this one fades
+     out when its tank scrolls out of the band — it must not swallow a press
+     meant for whichever tank is under it now. */
+  pointer-events:none;
+  transition:opacity .14s ease, transform .22s cubic-bezier(.34,1.56,.64,1), border-color .15s;
+  will-change:transform, opacity;
+}
+.rs-pill[hidden]{ display:none !important; }
+.rs-pill.in{ opacity:1; transform:translate(-50%,-100%) scale(1); pointer-events:auto; }
+.rs-pill:hover{ border-color:rgba(255,210,74,.85); }
+.rs-pill:active{ transform:translate(-50%,-100%) scale(.94); }
+/* the little nub that points down at the tank it belongs to */
+.rs-pill::after{
+  content:''; position:absolute; left:50%; bottom:-5px;
+  width:9px; height:9px; margin-left:-4.5px;
+  border-radius:2px;
+  background:rgba(15,17,21,.97);
+  border-right:1px solid rgba(255,210,74,.5);
+  border-bottom:1px solid rgba(255,210,74,.5);
+  transform:rotate(45deg);
+}
+.rs-pill-txt{ line-height:1; }
+.rs-pill-q{
+  display:grid; place-items:center;
+  width:18px; height:18px;
+  border-radius:50%;
+  background:linear-gradient(180deg,#ffe08a,#ffb12b);
+  color:#26160a;
+  font-style:normal; font-size:11px; letter-spacing:0;
+  animation:rsPillQ 2.6s ease-in-out infinite;
+}
+@keyframes rsPillQ{
+  0%,100%{ box-shadow:0 0 8px rgba(255,210,74,.35); }
+  50%    { box-shadow:0 0 16px rgba(255,210,74,.8); }
+}
+@media (prefers-reduced-motion: reduce){
+  .rs-pill-q{ animation:none; }
+}
+/* gold filament along the top edge */
+.rs-detail::before{
+  content:''; position:absolute; left:16px; right:16px; top:0; height:2px;
+  background:linear-gradient(90deg,
+    rgba(255,210,74,0), #ffd24a 22%, #ffe9a8 50%, #ffd24a 78%, rgba(255,210,74,0));
+  opacity:.7;
+}
+/* and four corner brackets, the "drawn by hand" look */
+.rs-detail::after{
+  content:''; position:absolute; inset:7px; pointer-events:none; opacity:.32;
+  background:
+    linear-gradient(#ffd24a,#ffd24a) left top / 14px 2px no-repeat,
+    linear-gradient(#ffd24a,#ffd24a) left top / 2px 14px no-repeat,
+    linear-gradient(#ffd24a,#ffd24a) right top / 14px 2px no-repeat,
+    linear-gradient(#ffd24a,#ffd24a) right top / 2px 14px no-repeat,
+    linear-gradient(#ffd24a,#ffd24a) left bottom / 14px 2px no-repeat,
+    linear-gradient(#ffd24a,#ffd24a) left bottom / 2px 14px no-repeat,
+    linear-gradient(#ffd24a,#ffd24a) right bottom / 14px 2px no-repeat,
+    linear-gradient(#ffd24a,#ffd24a) right bottom / 2px 14px no-repeat;
+}
+
+.rs-detail-badge{
+  flex:0 0 auto;
+  display:grid; place-items:center;
+  width:56px; height:56px;
+  border-radius:14px;
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-size:19px; letter-spacing:.5px;
+  color:#ffd24a;
+  background:linear-gradient(180deg, rgba(255,210,74,.16), rgba(255,210,74,.03));
+  border:1px solid rgba(255,210,74,.4);
+  box-shadow:inset 0 0 18px rgba(255,210,74,.14);
+  text-shadow:0 0 14px rgba(255,210,74,.45);
+}
+.rs-detail-body{ min-width:0; }
+.rs-detail-top{
+  display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;
+}
+.rs-detail-name{
+  margin:0;
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-size:clamp(19px,2.1vw,28px);
+  letter-spacing:2px; text-transform:uppercase;
+  color:#ffffff;
+}
+.rs-detail-tag{
+  padding:3px 9px;
+  border:1px solid rgba(255,210,74,.35);
+  border-radius:999px;
+  background:rgba(255,210,74,.07);
+  font-size:9px; font-weight:800; letter-spacing:2.2px; text-transform:uppercase;
+  color:#ffd24a;
+}
+.rs-detail-state{
+  font-size:9px; font-weight:800; letter-spacing:2px; text-transform:uppercase;
+  color:rgba(238,240,243,.42);
+}
+.rs-detail-state.is-ready{ color:#7fe0a0; }
+.rs-detail-state.is-short{ color:#ff9a3c; }
+.rs-detail-desc{
+  margin:6px 0 9px;
+  max-width:78ch;
+  font-size:11.5px; line-height:1.45;
+  color:rgba(238,240,243,.6);
+}
+.rs-stats{ display:flex; flex-wrap:wrap; gap:8px clamp(12px,2vw,22px); }
+.rs-stat{
+  flex:1 1 150px;
+  display:flex; align-items:center; gap:8px;
+  min-width:140px;
+  font-size:9px; letter-spacing:1.6px; text-transform:uppercase;
+  color:rgba(238,240,243,.5);
+}
+.rs-stat i{
+  position:relative; flex:1; height:6px;
+  border-radius:99px;
+  background:rgba(255,255,255,.09);
+  box-shadow:inset 0 1px 2px rgba(0,0,0,.5);
+  overflow:hidden;
+  font-style:normal;
+}
+.rs-stat i b{
+  position:absolute; left:0; top:0; bottom:0;
+  width:var(--v,0%);
+  border-radius:99px;
+  background:linear-gradient(90deg,#c78f16,#ffd24a);
+  box-shadow:0 0 10px rgba(255,210,74,.4);
+  transition:width .45s cubic-bezier(.22,1,.36,1);
+}
+.rs-stat em{
+  min-width:2.6em; text-align:right;
+  font-style:normal; font-weight:800; color:#fff;
+  font-variant-numeric:tabular-nums;
+}
+
+.rs-detail-buy{
+  display:flex; flex-direction:column; gap:8px;
+  min-width:190px;
+}
+.rs-detail-price{
+  display:flex; flex-direction:column; gap:1px;
+  font-size:9px; letter-spacing:2px; text-transform:uppercase;
+  color:rgba(238,240,243,.4);
+}
+.rs-detail-price b{
+  display:flex; align-items:center; gap:6px;
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-size:21px; font-weight:400; letter-spacing:1px;
+  color:#ffd24a;
+}
+.rs-detail-price img{ height:18px; width:auto; }
+
+.rs-cta{
+  padding:11px 16px;
+  border:0; border-radius:12px;
+  cursor:pointer;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-size:13.5px; letter-spacing:2px; text-transform:uppercase;
+  color:#26160a;
+  background:linear-gradient(180deg,#ffe08a,#ffb12b);
+  box-shadow:0 4px 0 #8a4f07, 0 10px 24px rgba(255,170,60,.2);
+  transition:transform .12s ease, box-shadow .12s ease, filter .12s ease, background .12s ease;
+}
+.rs-cta:hover:not([disabled]){
+  filter:brightness(1.06);
+  transform:translateY(-1px);
+  box-shadow:0 6px 0 #8a4f07, 0 14px 28px rgba(255,170,60,.28);
+}
+.rs-cta:active:not([disabled]){ transform:translateY(2px); box-shadow:0 2px 0 #8a4f07; }
+.rs-cta[disabled]{
+  cursor:not-allowed;
+  color:rgba(238,240,243,.45);
+  background:linear-gradient(180deg, rgba(255,255,255,.11), rgba(255,255,255,.05));
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);
+}
+.rs-cta.is-ghost{
+  color:#ffd24a;
+  background:rgba(255,255,255,.05);
+  box-shadow:inset 0 0 0 1px rgba(255,210,74,.45);
+}
+.rs-cta.is-ghost:hover{
+  background:rgba(255,210,74,.12);
+  transform:translateY(-1px);
+  box-shadow:inset 0 0 0 1px rgba(255,210,74,.7);
+}
+
+.rs-detail-tools{ display:flex; gap:6px; }
+.rs-tool{
+  flex:1; height:32px;
+  display:grid; place-items:center;
+  border:1px solid rgba(255,255,255,.14);
+  border-radius:9px;
+  background:rgba(255,255,255,.04);
+  color:rgba(238,240,243,.75);
+  font-size:13px; line-height:1; cursor:pointer;
+  transition:background .14s, color .14s, border-color .14s, transform .12s;
+}
+.rs-tool:hover{
+  background:rgba(255,210,74,.12);
+  color:#ffd24a;
+  border-color:rgba(255,210,74,.45);
+  transform:translateY(-1px);
+}
+.rs-tool:active{ transform:translateY(1px); }
+.rs-tool[disabled]{ opacity:.35; cursor:not-allowed; }
+.rs-tool-hero{ color:#ffd24a; border-color:rgba(255,210,74,.3); }
+
+/* THE TURNTABLE RING sits ON the ground line, not under it: the model slot's
+   bottom edge is where the tracks touch, so a ring pinned 2px above that edge
+   hangs below the tank instead of around it. Centred on the line, half the
+   ellipse is "under the floor" and the tank stands inside it. */
+.rs-ring{ bottom:-8px; }
+
+/* -- SELECTED STEP on the line ------------------------------------------- */
+
+.rs-node.selected .rs-ring{
+  opacity:1;
+  border-style:solid;
+  border-color:rgba(255,210,74,.55);
+  box-shadow:0 0 12px rgba(255,210,74,.18);
+}
+.rs-node.selected .rs-label{
+  color:#ffffff;
+  text-shadow:0 2px 0 rgba(0,0,0,.72), 0 0 16px rgba(255,210,74,.3);
+}
+.rs-node.selected .rs-cost{ color:rgba(255,210,74,.95); }
+.rs-node.selected .rs-dot{
+  box-shadow:0 0 0 3px rgba(10,11,14,.9), 0 0 0 5px rgba(255,210,74,.22);
+}
+.rs-node.selected .rs-model::before{
+  box-shadow:inset 0 0 0 1px rgba(255,210,74,.45);
+}
+.rs-node:not(.soon):not(.locked):hover .rs-model::before{
+  box-shadow:inset 0 0 0 1px rgba(255,210,74,.32);
+}
+/* every step can be inspected, so every step advertises a click */
+.rs-node.locked,
+.rs-node.soon{ cursor:pointer; }
+
+/* -- THE ? IN THE HEADER, AND THE HOW-IT-WORKS CARD ---------------------- */
+
+.rs-help-btn{
+  flex:0 0 auto;
+  width:40px; height:40px;
+  border:1px solid rgba(255,255,255,.18);
+  border-radius:10px;
+  background:rgba(12,14,17,.55);
+  color:#eef0f3;
+  font-family:inherit; font-weight:900; font-size:15px; line-height:1;
+  cursor:pointer;
+  transition:color .15s, border-color .15s, background .15s;
+}
+.rs-help-btn:hover{ color:#ffd24a; border-color:#ffd24a; background:rgba(255,210,74,.08); }
+
+.rs-help-link{
+  flex:0 0 auto;
+  padding:0;
+  background:none; border:0;
+  color:rgba(238,240,243,.5);
+  font-family:inherit; font-size:10px; font-weight:800;
+  letter-spacing:2px; text-transform:uppercase;
+  cursor:pointer;
+  text-decoration:underline; text-underline-offset:4px;
+  transition:color .15s;
+}
+.rs-help-link:hover{ color:#ffd24a; }
+
+.rs-help{
+  position:fixed; inset:0; z-index:13500;
+  display:grid; place-items:center;
+  padding:24px;
+}
+.rs-help.hidden{ display:none !important; }
+.rs-help-back{
+  position:absolute; inset:0;
+  background:rgba(6,7,9,.72);
+  backdrop-filter:blur(4px);
+  -webkit-backdrop-filter:blur(4px);
+}
+.rs-help-card{
+  position:relative;
+  width:min(600px,94vw);
+  max-height:92vh; overflow:auto;
+  padding:clamp(22px,3vw,32px);
+  border-radius:20px;
+  border:1px solid rgba(255,255,255,.12);
+  background:linear-gradient(180deg,#23272f 0%, #14171b 100%);
+  box-shadow:0 30px 80px rgba(0,0,0,.62), inset 0 1px 0 rgba(255,255,255,.07);
+  color:#eef0f3;
+  font-family:'Fredoka','Nunito','Segoe UI',Tahoma,sans-serif;
+}
+.rs-help-card::before{
+  content:''; position:absolute; left:22px; right:22px; top:0; height:2px;
+  background:linear-gradient(90deg,
+    rgba(255,210,74,0), #ffd24a 30%, #ffe9a8 50%, #ffd24a 70%, rgba(255,210,74,0));
+}
+.rs-help-x{
+  position:absolute; top:12px; right:12px;
+  width:32px; height:32px;
+  border:1px solid rgba(255,255,255,.16);
+  border-radius:9px;
+  background:rgba(255,255,255,.04);
+  color:#eef0f3; font-size:13px; line-height:1; cursor:pointer;
+  transition:color .15s, border-color .15s, transform .2s;
+}
+.rs-help-x:hover{ color:#ffd24a; border-color:#ffd24a; transform:rotate(90deg); }
+.rs-help-kicker{
+  font-size:9.5px; font-weight:800; letter-spacing:3.4px; text-transform:uppercase;
+  color:rgba(255,210,74,.7);
+}
+.rs-help-title{
+  margin:6px 0 8px;
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-size:clamp(22px,3vw,32px);
+  letter-spacing:2px; text-transform:uppercase;
+}
+.rs-help-lead{
+  margin:0 0 18px;
+  font-size:12px; line-height:1.5;
+  color:rgba(238,240,243,.6);
+}
+.rs-help-steps{
+  list-style:none; margin:0; padding:0;
+  display:flex; flex-direction:column; gap:10px;
+}
+.rs-help-steps li{
+  display:grid; grid-template-columns:auto minmax(0,1fr); gap:14px; align-items:start;
+  padding:12px 14px;
+  border:1px solid rgba(255,255,255,.07);
+  border-radius:12px;
+  background:rgba(255,255,255,.03);
+}
+.rs-help-steps b{
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-size:15px; color:#ffd24a;
+}
+.rs-help-steps h4{
+  margin:0 0 3px;
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-size:13.5px; letter-spacing:1.2px; text-transform:uppercase;
+}
+.rs-help-steps p{
+  margin:0;
+  font-size:11.5px; line-height:1.45;
+  color:rgba(238,240,243,.55);
+}
+.rs-help-keys{
+  display:flex; flex-wrap:wrap; gap:10px 18px;
+  margin:18px 0;
+  font-size:10px; letter-spacing:1.4px; text-transform:uppercase;
+  color:rgba(238,240,243,.5);
+}
+.rs-help-keys kbd{
+  display:inline-block; margin-right:6px;
+  padding:3px 7px;
+  border:1px solid rgba(255,255,255,.18);
+  border-radius:6px;
+  background:rgba(255,255,255,.06);
+  font-family:inherit; font-size:9.5px; color:#fff;
+}
+.rs-help-go{
+  width:100%; padding:12px;
+  border:0; border-radius:12px; cursor:pointer;
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-size:13.5px; letter-spacing:2.4px; text-transform:uppercase;
+  color:#26160a;
+  background:linear-gradient(180deg,#ffe08a,#ffb12b);
+  box-shadow:0 4px 0 #8a4f07;
+  transition:transform .12s ease, box-shadow .12s ease, filter .12s ease;
+}
+.rs-help-go:hover{ filter:brightness(1.06); transform:translateY(-1px); box-shadow:0 6px 0 #8a4f07; }
+.rs-help-go:active{ transform:translateY(2px); box-shadow:0 2px 0 #8a4f07; }
+
+.rs-help-btn:focus-visible,
+.rs-help-link:focus-visible,
+.rs-pill:focus-visible,
+.rs-tank-x:focus-visible,
+.rs-tool:focus-visible,
+.rs-cta:focus-visible,
+.rs-help-go:focus-visible,
+.rs-help-x:focus-visible,
+.rs-close:focus-visible,
+.rs-tab:focus-visible,
+.rs-pick:focus-visible,
+.rs-back:focus-visible,
+.rs-choice-cancel:focus-visible{
+  outline:2px solid #ffd24a;
+  outline-offset:3px;
+}
+
+/* THE BACK CHIP IS FIXED at the top left of the viewport in every menu (see
+   #mtl-back-slot at the end of this file). On a wide, short window the header
+   starts high enough that the chip lands on top of the brand plate, so the
+   brand lockup gets out of its way. Narrow screens already start the header
+   below the chip. */
+@media (min-width:901px){
+  .rs-brand{ padding-left:54px; }
+}
+/* On a narrow window the header starts at the very top and the chip already
+   owns that corner, so the plate would sit underneath it. Drop the plate and
+   let the wordmark start to the right of the chip. */
+@media (max-width:900px){
+  .rs-brand-mark{ display:none; }
+  .rs-brand{ gap:0; }
+}
+
+/* the inspector stacks on narrow screens: badge + copy, then the buy column */
+@media (max-width:900px){
+  .rs-detail{
+    grid-template-columns:auto minmax(0,1fr);
+    gap:10px 14px;
+    padding:11px 14px;
+  }
+  .rs-detail-badge{ width:44px; height:44px; font-size:16px; border-radius:12px; }
+  .rs-detail-buy{
+    grid-column:1 / -1;
+    flex-direction:row; align-items:center; gap:10px;
+    min-width:0; flex-wrap:wrap;
+  }
+  .rs-detail-price{ flex:0 0 auto; }
+  .rs-detail-price b{ font-size:18px; }
+  .rs-cta{ flex:1 1 auto; }
+  .rs-detail-tools{ flex:0 0 auto; }
+  .rs-tool{ width:34px; flex:0 0 34px; }
+  /* the description is the part that EXPLAINS the tank, so it stays; it only
+     tightens up instead of being dropped on small screens */
+  .rs-detail-desc{ font-size:11px; line-height:1.38; margin:5px 0 7px; }
+  .rs-stat{ flex:1 1 120px; min-width:112px; }
+}
+
+/* THE SHEET ON A PHONE. A centred card on a 380px-wide screen is a postage
+   stamp with its own scrollbar, so it docks to the bottom edge instead and
+   takes the full width — the thumb is already there and the buy button lands
+   under it. .rs-tank switches from centring to end-alignment on the same
+   breakpoint the inspector's own stacking uses. */
+@keyframes rsTankUp{
+  from{ opacity:0; transform:translateY(40px); }
+  to  { opacity:1; transform:none; }
+}
+@media (max-width:900px){
+  .rs-tank{ place-items:end stretch; padding:0; }
+  .rs-tank-card{
+    width:100%;
+    max-height:min(78vh,600px);
+    border-radius:18px 18px 0 0;
+    border-bottom:0;
+    padding:16px 14px calc(14px + env(safe-area-inset-bottom,0px));
+    grid-template-columns:auto minmax(0,1fr);
+    gap:10px 14px;
+    animation-name:rsTankUp;
+    animation-duration:.26s;
+  }
+  /* the pill has to survive a thumb, not a 1px cursor */
+  .rs-pill{ min-height:44px; padding:9px 10px 9px 15px; font-size:13px; }
+  .rs-pill-q{ width:20px; height:20px; font-size:12px; }
+  .rs-tank-x{ width:38px; height:38px; top:6px; right:6px; }
+  /* the sheet's own controls are thumb targets too: the CTA is the button that
+     spends XP and the tools turn the model, so neither may be a 30px sliver */
+  .rs-tank-card .rs-cta{ min-height:44px; }
+  .rs-tank-card .rs-tool{ width:40px; flex:0 0 40px; min-height:38px; }
+}
+
+/* -------------------------------------------------------------- claim burst */
+
+.rs-confetti{
+  position:fixed; z-index:20000;
+  width:7px; height:12px; border-radius:1px;
+  pointer-events:none;
+  animation:rsConfetti 1.3s cubic-bezier(.2,.6,.4,1) forwards;
+}
+@keyframes rsConfetti{
+  0%  { transform:translate(0,0) rotate(0deg); opacity:1; }
+  100%{ transform:translate(var(--dx),calc(var(--dy) + 340px)) rotate(var(--rot)); opacity:0; }
+}
+
+/* ------------------------------- MENU WIPE -- the white-square transition */
+
+/* A full-screen grid of squares. They scale in along a diagonal wave until
+   they cover the screen, the menu swaps underneath, then they scale out.
+   Built by Menu._tileWipe() in js/menu.js; one element per cell carries its
+   cover delay (--d) and reveal delay (--d2) as custom props. */
+.menu-wipe{
+  position:fixed; inset:0; z-index:16000;
+  display:grid;
+  grid-template-columns:repeat(var(--mw-cols,14), 1fr);
+  grid-template-rows:repeat(var(--mw-rows,8), 1fr);
+  pointer-events:none;
+  background:rgba(10,11,14,0);
+}
+.menu-wipe.busy{ pointer-events:auto; }
+.menu-wipe i{
+  background:#ffffff;
+  border-radius:0;
+  box-shadow:inset 0 0 0 1px rgba(10,11,14,.10);
+  transform:scale(0);
+  will-change:transform,border-radius;
+}
+/* COVER: plain sharp squares, slightly oversized so neighbours overlap and
+   not a single hairline gap shows while the screen is covered. */
+.menu-wipe.cover i{
+  transform:scale(1.08);
+  border-radius:0;
+  transition:transform .16s cubic-bezier(.3,.7,.4,1) var(--d);
+}
+/* REVEAL: each square shrinks AND its corners round off, so the screen opens
+   through rounded white tiles instead of just hard squares vanishing. */
+.menu-wipe.reveal i{
+  transform:scale(0);
+  border-radius:26%;
+  transition:transform .22s cubic-bezier(.6,0,.3,1) var(--d2),
+             border-radius .18s ease var(--d2);
+}
+
+@media (prefers-reduced-motion:reduce){
+  .menu-wipe{ display:none; }
+}
+
+/* ------------------------------------- the Collections-screen entry button */
+
+.btn-research{
+  position:relative;
+  display:inline-flex; align-items:center; gap:9px;
+  margin:0;
+  padding:9px 16px;
+  border:3px solid #0b0c0e; border-radius:14px;
+  background:linear-gradient(180deg,#ffe08a,#ffb12b);
+  color:#2a1700;
+  font-family:inherit; font-weight:900; font-size:12px;
+  letter-spacing:1.4px; text-transform:uppercase;
+  cursor:pointer;
+  box-shadow:0 4px 0 #6b3a05;
+  transition:transform .1s ease, box-shadow .1s ease, background .12s ease;
+}
+.btn-research:hover{ transform:translateY(-2px); box-shadow:0 6px 0 #6b3a05; background:linear-gradient(180deg,#fff0b8,#ffc451); }
+.btn-research:active{ transform:translateY(2px); box-shadow:0 2px 0 #6b3a05; }
+.btn-research .rs-btn-ico{ font-size:16px; line-height:1; }
+.btn-research .rs-btn-xp{
+  display:inline-flex; align-items:center; gap:4px;
+  padding:2px 8px;
+  border-radius:999px;
+  background:rgba(0,0,0,.18);
+  font-size:10.5px;
+  letter-spacing:.5px;
+  font-variant-numeric:tabular-nums;
+}
+.btn-research .rs-btn-xp img{ height:13px; width:auto; }
+.btn-research.rs-ready::after{
+  content:''; position:absolute; inset:-4px;
+  border-radius:17px;
+  border:3px solid #ffd24a;
+  animation:rsBtnPulse 1.5s ease-in-out infinite;
+  pointer-events:none;
+}
+@keyframes rsBtnPulse{
+  0%,100%{ transform:scale(1); box-shadow:0 0 0 rgba(255,210,74,.45); }
+  50%    { transform:scale(1.035); box-shadow:0 0 18px rgba(255,210,74,.5); }
+}
+
+/* ------------------------------------------------------------------- small */
+
+@media (max-width:1100px){
+  .rs-path{ --rs-model-w:clamp(186px,19vw,292px); --rs-model-h:clamp(186px,27vh,272px); }
+  .rs-earn{ max-width:46%; font-size:10.5px; }
+  .rs-label{ font-size:12px; letter-spacing:1.4px; }
+}
+
+@media (max-width:820px){
+  .rs-shell{ padding:14px 14px 10px; }
+  .rs-head{ gap:12px; padding-bottom:8px; }
+  .rs-sub{ display:none; }
+  .rs-title{ letter-spacing:2px; }
+  .rs-title::before{ width:8px; height:8px; margin-right:9px; transform:translateY(-4px) rotate(45deg); }
+  .rs-xp-badge{ padding-left:11px; }
+  .rs-xp-ico{ height:26px; }
+  .rs-close{ width:34px; height:34px; font-size:14px; }
+  .rs-tabs{ gap:14px; padding-bottom:10px; }
+  .rs-tab{ font-size:10px; letter-spacing:1.5px; padding-bottom:6px; }
+  .rs-tab.active::after{ bottom:-10px; }
+  .rs-tab-count{ display:none; }
+  .rs-path{ --rs-model-w:166px; --rs-node-w:194px; --rs-node-pair-w:348px; --rs-gap:8px; --rs-pad:14px; --rs-model-h:clamp(160px,23vh,212px); --rs-dot:13px; }
+  .rs-rail{ height:14px; border-radius:8px; }
+  .rs-rail-fill::after{ width:8px; height:8px; right:-4px; }
+  .rs-divider{ flex:0 0 24px; width:24px; }
+  .rs-divider i{ width:19px; height:19px; }
+  .rs-divider b{ font-size:9px; }
+  .rs-label{ margin-top:8px; font-family:'Lilita One','Fredoka',sans-serif; font-weight:400; font-size:10.5px; letter-spacing:1.2px; }
+  .rs-cost{ font-size:9px; letter-spacing:1.6px; }
+  .rs-xp-ico-mini{ height:10px; }
+  .rs-tier{ display:none; }
+  .rs-or{ width:32px; height:32px; font-size:10px; }
+  .rs-soon-mark{ width:58px; height:58px; font-size:22px; }
+  .rs-soon-mark::before{ inset:10px; }
+  .rs-node.next::after{ display:none; }
+  /* the row scrolls on narrow screens: fade its trailing edge so a half-visible
+     tank reads as "there is more this way" instead of a clipping bug */
+  .rs-path-scroll{
+    -webkit-mask-image:linear-gradient(90deg, #000 0, #000 90%, transparent 100%);
+    mask-image:linear-gradient(90deg, #000 0, #000 90%, transparent 100%);
+  }
+  .rs-foot{ gap:10px; padding-top:9px; flex-wrap:wrap; }
+  .rs-earn{ order:3; flex-basis:100%; max-width:100%; font-size:9.5px; }
+  .rs-progress-wrap{ order:1; flex:1 1 100%; gap:5px; }
+  .rs-progress{ height:5px; }
+  .rs-hint{ font-size:8.5px; letter-spacing:1.2px; }
+  .rs-back{ order:2; margin-left:auto; font-size:10px; }
+  .rs-choice-stage{ height:min(34vh,240px); }
+  .rs-choice-cards{ gap:18px; }
+  .rs-choice-cancel{ font-size:9.5px; }
+  .rs-confetti{ display:none; }
+}
+
+@media (prefers-reduced-motion:reduce){
+  .rs-node.next .rs-dot,
+  .rs-node.next::after,
+  .rs-tab.has-next::before,
+  .btn-research.rs-ready::after{ animation:none !important; }
+}
+
+/* ============================================================================
+   ONE BACK CONTROL, TOP LEFT, IN EVERY MENU
+
+   Every screen used to put its own way out wherever its layout happened to
+   leave room: bottom of a centered card, footer of the shop sidebar, a corner
+   of the clan screen. Which means "where do I go back" had to be re-learned on
+   every screen. menu.js moves each menu's existing back control into this slot
+   (so the control keeps its own handler -- shop holds, sandbox rooms and
+   settings save-exit all still run through the button that owns them) and the
+   slot pins it to the top-left of the viewport.
+
+   WHY THE CONTROL IS MOVED RATHER THAN JUST REPOSITIONED: several back buttons
+   live inside .menu-card, which has backdrop-filter. A filtered element is a
+   containing block for fixed (and absolute) descendants, so `position:fixed`
+   inside a card is relative to the CARD, not the screen. Moving the node to a
+   zero-size slot on <body> is what makes the corner literal.
+
+   IT IS A FIXED-SIZE SQUARE ON PURPOSE. The controls it replaces are a dozen
+   different shapes -- a padded card button, a rotated shop plaque, a bare text
+   link, an icon-only arrow -- and text of a dozen different lengths. Left as
+   they were, the control had to grow to fit the longest label and that growth
+   is what covered whatever heading sat in that corner. A 44px square with one
+   white glyph is the same size on every screen, so it can be placed exactly
+   once and known to fit: nothing behind it is ever hidden more than 44px of
+   empty corner.
+
+   THE SHORTCUT IS THE SETTINGS KEY ART, not a typed letter: the badge in the
+   bottom-right corner is assets/icons/keybinds/026-letter-z.png, the same
+   picture Settings > Controls draws for the Z bind. menu.js swaps the content
+   (_decorateBackChip) so the glyph and the badge exist on every control,
+   including the research overlay's own.
+   ========================================================================== */
+#mtl-back-slot{
+  position:fixed; top:0; left:0;
+  width:0; height:0;
+  z-index:13000;
+  pointer-events:none;
+}
+/* The research overlay is fullscreen and owns its own back chip; the menu slot
+   must not float above it. body.rs-lock is exactly that state. */
+body.rs-lock #mtl-back-slot{ display:none !important; }
+
+/* Shared by the menu slot and the research overlay's back. */
+#mtl-back-slot > *,
+.rs-back{
+  position:fixed !important;
+  top:16px !important; left:20px !important;
+  right:auto !important; bottom:auto !important;
+  margin:0 !important;
+  width:46px !important; height:46px !important;
+  min-width:0 !important; min-height:0 !important;
+  max-width:none !important; max-height:none !important;
+  padding:0 !important;
+  display:none;
+  align-items:center; justify-content:center;
+  border:1px solid rgba(255,255,255,.16) !important;
+  border-radius:12px !important;
+  background:rgba(10,11,14,.62) !important;
+  backdrop-filter:blur(10px) saturate(1.1);
+  -webkit-backdrop-filter:blur(10px) saturate(1.1);
+  color:#fff !important;
+  box-shadow:0 8px 22px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.06);
+  cursor:pointer;
+  pointer-events:auto;
+  outline:none;
+  transform:none !important;
+  transition:color .15s, border-color .15s, background .15s, transform .15s;
+}
+#mtl-back-slot > .mtl-back-live{ display:flex; }
+.rs-back{ display:flex; }
+#mtl-back-slot > *:hover,
+#mtl-back-slot > *:focus-visible,
+.rs-back:hover,
+.rs-back:focus-visible{
+  color:#ffd24a !important;
+  border-color:rgba(255,210,74,.5) !important;
+  background:rgba(16,18,24,.85) !important;
+}
+/* Any old decoration the host button carried is dropped: the chip draws its own
+   arrow and its own key badge. */
+#mtl-back-slot > *::before,
+#mtl-back-slot > *::after,
+.rs-back::before,
+.rs-back::after{ content:none !important; display:none !important; }
+
+/* The glyph: a plain white back arrow, 2.4px round-capped strokes, nudged up and
+   left so the key badge owns the bottom-right corner cleanly. */
+#mtl-back-slot .mtl-back-glyph,
+.rs-back .mtl-back-glyph{
+  width:22px; height:22px;
+  display:block;
+  transform:translate(-2px, -2px);
+  overflow:visible;
+}
+#mtl-back-slot .mtl-back-glyph path,
+.rs-back .mtl-back-glyph path{
+  fill:none;
+  stroke:currentColor;
+  stroke-width:2.4;
+  stroke-linecap:round;
+  stroke-linejoin:round;
+}
+
+/* The shortcut key, in the bottom-right corner. Same artwork as the bind chips
+   in Settings > Controls, so the Z here and the Z there are one picture. */
+/* Straddling the corner rather than tucked inside it: the bind art has its own
+   keycap border, and at 17px inside a 46px chip the letter inside it was no
+   longer readable. At 24px on the corner it reads as the same Z key the bind
+   list shows, while the button itself stays a tidy square. */
+#mtl-back-slot .mtl-back-key,
+.rs-back .mtl-back-key{
+  position:absolute;
+  right:-4px; bottom:-4px;
+  height:24px; width:auto; max-width:34px;
+  object-fit:contain;
+  pointer-events:none;
+  user-select:none;
+  opacity:.95;
+  filter:drop-shadow(0 2px 3px rgba(0,0,0,.65));
+}
+#mtl-back-slot > *:hover .mtl-back-key,
+.rs-back:hover .mtl-back-key{ opacity:1; }
+
+/* ----------------------------------------------------------------------------
+   ROOM FOR THE CHIP
+
+   A 44px square still lands on the three headings that begin in the very top
+   left corner -- the research title, the shop's STORE wordmark and the platoon
+   bar -- so those three start just past it. The gamemode header no longer needs
+   anything: its kicker is centred, and a 44px chip never reaches it.
+   -------------------------------------------------------------------------- */
+@media (min-width:860px){
+  #research-overlay .rs-title-wrap{ padding-left:74px; }
+}
+@media (max-width:859px){
+  /* narrow: drop the head instead, the title would be squeezed beside the chip */
+  #research-overlay .rs-head{ padding-top:62px; }
+}
+#menu-store .shop-store-logo{ margin-top:46px; }
+#menu-platoon .pt-top{ padding-top:60px; }
+
+/* ============================================================================
+   MAIN-MENU PLAYER HEADER — NO CARD
+   ============================================================================
+   index.html used to wrap the player in a dark rounded panel, and the rank path
+   and gear sat OUTSIDE that panel, vertically centred against its height. That
+   is why they floated beside the name instead of lining up with it, and why the
+   whole top-left read as a widget rather than as a header.
+
+   There is no panel now. Name row = avatar, nickname, clan tag, rank path,
+   settings. Currencies sit underneath on the bare background with a shadow for
+   legibility over the garage. The avatar is the trophy ITSELF — no chip, no
+   border, no 3D slab — and shows a bold white + when nothing is equipped.
+   ========================================================================== */
+#profile-wrap{
+  position: absolute;
+  top: calc(var(--ui-scale) * 14px);
+  left: calc(var(--ui-scale) * 18px);
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+}
+#profile-wrap .profile{
+  position: static;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ui-scale) * 7px);
+  padding: 0;
+  min-width: 0;
+  background: none;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  pointer-events: none;
+}
+#profile-wrap .profile-top{
+  display: flex;
+  align-items: center;
+  gap: calc(var(--ui-scale) * 10px);
+  margin: 0;
+  pointer-events: none;
+}
+.profile-name{
+  font-family: 'Lilita One', 'Fredoka', sans-serif;
+  font-size: calc(var(--ui-scale) * 21px);
+  font-weight: 700;
+  letter-spacing: .8px;
+  color: #fff;
+  text-shadow: 0 2px 0 #0b0c0e, 0 0 14px rgba(0,0,0,.55);
+}
+.profile-clan{
+  font-size: calc(var(--ui-scale) * 13px);
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  color: #ffd24a;
+  text-shadow: 0 2px 0 #0b0c0e;
+}
+.profile-bottom{
+  display: flex;
+  gap: calc(var(--ui-scale) * 14px);
+  margin-left: calc(var(--ui-scale) * 2px);
+  font-size: calc(var(--ui-scale) * 13px);
+  font-weight: 700;
+  color: #e7ebf2;
+  pointer-events: none;
+}
+.profile-bottom .cur-img{
+  filter: drop-shadow(0 1px 2px rgba(0,0,0,.7));
+}
+.profile-coin span, .profile-crystal span{
+  text-shadow: 0 2px 0 #0b0c0e;
+}
+
+/* THE TROPHY IS THE FRAME. No chip, no border, nothing behind it — a bare,
+   drop-shadowed icon the size of the name's cap height. */
+.profile-strip-avatar{
+  width: calc(var(--ui-scale) * 44px);
+  height: calc(var(--ui-scale) * 44px);
+  flex: none;
+  padding: calc(var(--ui-scale) * 4px);
+  border: 2px solid rgba(0,0,0,0.55);
+  border-radius: calc(var(--ui-scale) * 10px);
+  background: rgba(10,12,16,0.55);
+  box-shadow: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  pointer-events: auto;
+  filter: drop-shadow(0 2px 3px rgba(0,0,0,.7));
+  transition: transform .12s ease, filter .12s ease;
+}
+.profile-strip-avatar img{
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  pointer-events: none;
+}
+.profile-strip-avatar:hover{
+  transform: scale(1.08);
+  filter: drop-shadow(0 3px 5px rgba(0,0,0,.75)) brightness(1.08);
+}
+.profile-strip-avatar:active{
+  transform: scale(.95);
+  box-shadow: none;
+}
+/* NOTHING EQUIPPED: a small, bold, white plus. Ink under it so it survives the
+   bright bits of the garage behind the header. */
+.profile-avatar-empty{
+  color: #fff;
+  font-family: 'Lilita One', 'Fredoka', sans-serif;
+  font-size: calc(var(--ui-scale) * 15px);
+  font-weight: 700;
+  line-height: 1;
+  text-shadow: 0 2px 0 #0b0c0e, 0 0 10px rgba(0,0,0,.6);
+}
+
+/* The rank path and the gear now belong to the name row, so they share its
+   height and its baseline instead of floating against a panel. */
+#profile-wrap .profile-top .trophy-menu-btn{
+  margin: 0 0 0 calc(var(--ui-scale) * 2px);
+  width: calc(var(--ui-scale) * 44px);
+  height: calc(var(--ui-scale) * 44px);
+  pointer-events: auto;
+}
+#profile-wrap .profile-top #btn-settings-gear{
+  width: calc(var(--ui-scale) * 44px);
+  height: calc(var(--ui-scale) * 44px);
+  pointer-events: auto;
+}
+#profile-wrap .profile-top .trophy-menu-btn .trophy-progress-icon{
+  width: calc(var(--ui-scale) * 26px);
+  height: calc(var(--ui-scale) * 26px);
+}
+
+/* ============================================================================
+   CODES — ACCESS TERMINAL
+   ============================================================================
+   The card is gone. This is a console: one wide input line with the REDEEM slab
+   on the end of it, three chips saying what a code is worth, and a slow stream
+   of code glyphs drifting behind the whole thing at 5-12% white. The glyph
+   layer is generated by Menu._buildCodesBackground() so the position, size and
+   speed of every string is random rather than a fixed decorative pattern that
+   starts repeating after one screen.
+   ========================================================================== */
+#menu-codes{
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.codes-fly{
+  position: absolute;
+  inset: -10%;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.codes-fly span{
+  position: absolute;
+  font-family: 'Fredoka', 'Nunito', system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: 2.5px;
+  white-space: nowrap;
+  color: #ffffff;
+  animation-name: codesDrift;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  will-change: transform;
+}
+.codes-fly span.hot{ color: #ffd24a; }
+@keyframes codesDrift{
+  0%   { transform: translate3d(0, 0, 0); }
+  50%  { transform: translate3d(-26px, -58px, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+.codes-floor{
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 46%;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(180deg, rgba(10,11,14,0) 0%, rgba(10,11,14,.55) 65%, rgba(10,11,14,.8) 100%);
+}
+
+.codes-screen{
+  position: relative;
+  z-index: 2;
+  width: min(780px, 92vw);
+  margin: auto;
+  padding: 34px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.codes-head{ display: flex; flex-direction: column; gap: 8px; }
+.codes-kicker{
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 5px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.42);
+}
+.codes-title{
+  margin: 0;
+  font-family: 'Lilita One', 'Fredoka', sans-serif;
+  font-size: clamp(34px, 5.4vw, 58px);
+  line-height: .95;
+  letter-spacing: 3px;
+  color: #fff;
+  -webkit-text-stroke: 3px #0b0c0e;
+  paint-order: stroke fill;
+  text-shadow: 0 7px 0 #0b0c0e, 0 16px 30px rgba(0,0,0,.55);
+}
+.codes-title span{ color: #ffd24a; }
+.codes-sub{
+  max-width: 58ch;
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(255,255,255,.52);
+}
+
+.codes-console{
+  background: #1d2027;
+  border: 3px solid #0b0c0e;
+  border-radius: 18px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: 0 8px 0 #0b0c0e, inset 0 1px 0 rgba(255,255,255,.06);
+}
+.codes-input-row{ display: flex; align-items: stretch; gap: 12px; }
+.codes-prompt{
+  display: flex;
+  align-items: center;
+  padding-left: 6px;
+  font-family: 'Lilita One', 'Fredoka', sans-serif;
+  font-size: 22px;
+  color: #ffd24a;
+  text-shadow: 0 2px 0 #0b0c0e;
+}
+.codes-input-row input{
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 16px 18px;
+  background: #12151a;
+  border: 3px solid #0b0c0e;
+  border-radius: 12px;
+  color: #ffd24a;
+  font-family: 'Fredoka', 'Nunito', system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: 4px;
+  text-transform: uppercase;
+  outline: none;
+  box-shadow: inset 0 3px 0 rgba(0,0,0,.55);
+  transition: border-color .15s, box-shadow .15s;
+}
+.codes-input-row input::placeholder{ color: rgba(255,255,255,.2); letter-spacing: 3px; }
+.codes-input-row input:focus{
+  border-color: #ffd24a;
+  box-shadow: 0 0 0 3px rgba(255,210,74,.18), inset 0 3px 0 rgba(0,0,0,.55);
+}
+.codes-redeem{
+  flex: 0 0 auto;
+  padding: 0 28px;
+  font-family: 'Fredoka', 'Nunito', system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 15px;
+  letter-spacing: 2px;
+  color: #101216;
+  background: linear-gradient(180deg, #ffe27a 0%, #ffc21e 100%);
+  border: 3px solid #0b0c0e;
+  border-radius: 12px;
+  box-shadow: 0 5px 0 #0b0c0e;
+  cursor: pointer;
+  transition: transform .08s, box-shadow .08s, filter .15s;
+}
+.codes-redeem:hover{ filter: brightness(1.06); transform: translateY(-1px); box-shadow: 0 6px 0 #0b0c0e; }
+.codes-redeem:active{ transform: translateY(4px); box-shadow: 0 1px 0 #0b0c0e; }
+.codes-help{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: rgba(255,255,255,.45);
+}
+.codes-help-ico{ color: #ffd24a; }
+
+.codes-tips{ display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 12px; }
+.codes-tip{
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 13px 15px;
+  background: rgba(255,255,255,.045);
+  border: 2px solid #0b0c0e;
+  border-radius: 13px;
+  box-shadow: 0 4px 0 rgba(0,0,0,.5);
+}
+.codes-tip b{
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 2.2px;
+  color: #ffd24a;
+}
+.codes-tip span{ font-size: 12px; line-height: 1.45; color: rgba(255,255,255,.55); }
+
+.codes-foot{ display: flex; justify-content: center; align-items: center; gap: 14px; }
+.codes-revert{
+  background: #2a2f38;
+  border: 3px solid #0b0c0e;
+  border-radius: 12px;
+  padding: 13px 22px;
+  color: #e7ebf2;
+  font-family: 'Fredoka', 'Nunito', system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  box-shadow: 0 5px 0 #0b0c0e;
+  cursor: pointer;
+  transition: transform .08s, box-shadow .08s, filter .15s;
+}
+.codes-revert:hover{ filter: brightness(1.12); transform: translateY(-1px); box-shadow: 0 6px 0 #0b0c0e; }
+.codes-revert:active{ transform: translateY(4px); box-shadow: 0 1px 0 #0b0c0e; }
+
+@media (max-width: 720px){
+  .codes-tips{ grid-template-columns: 1fr; }
+  .codes-input-row{ flex-wrap: wrap; }
+  .codes-redeem{ width: 100%; padding: 14px 20px; }
+  .codes-prompt{ display: none; }
+}
+@media (prefers-reduced-motion: reduce){
+  .codes-fly span{ animation: none !important; }
+}
+
+/* ============================================================================
+   CLANS — TWO PANELS, FULL WIDTH
+   ============================================================================
+   Same palette, same ink, same slab depth as the rest of the menus. The screen
+   is a grid: your clan (hero + stat chips + actions) on the left, what clans do
+   on the right. Below 900px it stacks. Everything that used to live in a 360px
+   card now has a column of its own, so the empty space is gone and a player can
+   read their clan's state without opening a second screen.
+   ========================================================================== */
+.clans-screen{
+  position: relative;
+  z-index: 2;
+  width: min(1120px, 94vw);
+  margin: auto;
+  padding: 30px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.clans-head{ display: flex; flex-direction: column; gap: 7px; }
+.clans-kicker{
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 5px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.42);
+}
+.clans-title{
+  margin: 0;
+  font-family: 'Lilita One', 'Fredoka', sans-serif;
+  font-size: clamp(32px, 5vw, 54px);
+  line-height: .95;
+  letter-spacing: 3px;
+  color: #fff;
+  -webkit-text-stroke: 3px #0b0c0e;
+  paint-order: stroke fill;
+  text-shadow: 0 7px 0 #0b0c0e, 0 16px 30px rgba(0,0,0,.55);
+}
+.clans-sub{ font-size: 13px; color: rgba(255,255,255,.5); }
+
+.clans-grid{
+  display: grid;
+  grid-template-columns: 1.15fr .85fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px){
+  .clans-grid{ grid-template-columns: 1fr; }
+}
+.clans-panel{
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  background: #1d2027;
+  border: 3px solid #0b0c0e;
+  border-radius: 18px;
+  box-shadow: 0 8px 0 rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.05);
+}
+.clans-panel-head{
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.5);
+}
+.clans-dot{
+  width: 9px; height: 9px;
+  background: #ffd24a;
+  transform: rotate(45deg);
+  box-shadow: 0 0 10px rgba(255,210,74,.45);
+}
+
+.clan-you-body{ display: flex; flex-direction: column; gap: 14px; }
+.clan-hero{ display: flex; align-items: center; gap: 14px; }
+.clan-badge{
+  width: 58px; height: 58px;
+  flex: 0 0 58px;
+  display: grid; place-items: center;
+  font-size: 26px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #3a4250 0%, #232831 100%);
+  border: 3px solid #0b0c0e;
+  box-shadow: 0 4px 0 #0b0c0e, inset 0 1px 0 rgba(255,255,255,.14);
+}
+.clan-hero-id{ min-width: 0; }
+.clan-hero-id h3{
+  margin: 0 0 4px;
+  font-family: 'Lilita One', 'Fredoka', sans-serif;
+  font-size: 27px;
+  line-height: 1;
+  letter-spacing: 1.5px;
+  color: #fff;
+  text-shadow: 0 2px 0 #0b0c0e;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.clan-hero-meta{
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: #ffd24a;
+}
+.clan-stats{ display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 8px; }
+@media (max-width: 620px){
+  .clan-stats{ grid-template-columns: repeat(2, minmax(0,1fr)); }
+}
+.clan-stat{
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 9px 11px;
+  background: #242a33;
+  border: 2px solid #0b0c0e;
+  border-radius: 10px;
+  min-width: 0;
+}
+.clan-stat b{
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 1.6px;
+  color: rgba(255,255,255,.45);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.clan-stat span{
+  font-family: 'Lilita One', 'Fredoka', sans-serif;
+  font-size: 18px;
+  line-height: 1;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+.clan-foot-meta{ font-size: 11px; color: rgba(255,255,255,.35); }
+
+.clan-empty{
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 26px 12px;
+  text-align: center;
+}
+.clan-empty-ico{
+  width: 64px; height: 64px;
+  display: grid; place-items: center;
+  font-size: 30px;
+  border-radius: 16px;
+  background: #242a33;
+  border: 3px dashed rgba(255,255,255,.18);
+}
+.clan-empty h3{
+  margin: 0;
+  font-family: 'Lilita One', 'Fredoka', sans-serif;
+  font-size: 22px;
+  letter-spacing: 1.2px;
+  color: #fff;
+}
+.clan-empty p{
+  margin: 0;
+  max-width: 44ch;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: rgba(255,255,255,.5);
+}
+.clan-menu-buttons{ display: flex; flex-wrap: wrap; gap: 10px; margin-top: auto; }
+.clan-menu-buttons .btn{ flex: 1 1 46%; min-width: 140px; }
+
+.clans-features{ list-style: none; display: flex; flex-direction: column; gap: 9px; margin: 0; padding: 0; }
+.clans-features li{
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,.04);
+  border: 2px solid #0b0c0e;
+  border-radius: 12px;
+  box-shadow: 0 3px 0 rgba(0,0,0,.45);
+}
+.clans-feat-ico{
+  width: 32px; height: 32px;
+  flex: 0 0 32px;
+  display: grid; place-items: center;
+  font-size: 15px;
+  border-radius: 9px;
+  background: #2a2f38;
+  border: 2px solid #0b0c0e;
+}
+.clans-features b{
+  display: block;
+  margin-bottom: 2px;
+  font-size: 12.5px;
+  letter-spacing: .6px;
+  color: #ffd24a;
+}
+.clans-features span{ font-size: 12px; line-height: 1.5; color: rgba(255,255,255,.55); }
+
+.clans-note{
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  margin-top: auto;
+  padding: 14px;
+  border-radius: 12px;
+  background: rgba(255,210,74,.07);
+  border: 2px dashed rgba(255,210,74,.45);
+}
+.clans-note b{ font-size: 12.5px; color: #ffd24a; letter-spacing: .4px; }
+.clans-note span{ font-size: 12px; line-height: 1.55; color: rgba(255,255,255,.58); }
+.clans-signup{
+  margin-top: 4px;
+  padding: 10px 16px;
+  font-family: 'Fredoka', 'Nunito', system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
+  color: #101216;
+  background: linear-gradient(180deg, #ffe27a 0%, #ffc21e 100%);
+  border: 3px solid #0b0c0e;
+  border-radius: 11px;
+  box-shadow: 0 4px 0 #0b0c0e;
+  cursor: pointer;
+  transition: transform .08s, box-shadow .08s, filter .15s;
+}
+.clans-signup:hover{ filter: brightness(1.06); transform: translateY(-1px); box-shadow: 0 5px 0 #0b0c0e; }
+.clans-signup:active{ transform: translateY(3px); box-shadow: 0 1px 0 #0b0c0e; }
+
+/* ============================================================================
+   "THIS NEEDS AN ACCOUNT" — the shop's real-money ask
+   ============================================================================
+   A guest opened the BUNDLES tab and got a grey card with one line of text. The
+   purchase needs an account (it is charged and delivered against one), so the
+   ask is now explicit and carries the button that fixes it. Same slab as every
+   other primary action.
+   ========================================================================== */
+.shop-account-ask{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  justify-content: center;
+  padding: 16px 18px;
+  border-radius: 14px;
+  background: rgba(255,210,74,.07);
+  border: 2px dashed rgba(255,210,74,.45);
+  color: rgba(255,255,255,.62);
+  font-size: 12.5px;
+  line-height: 1.55;
+  text-align: center;
+}
+.shop-account-btn{
+  padding: 10px 16px;
+  font-family: 'Fredoka', 'Nunito', system-ui, sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: #101216;
+  background: linear-gradient(180deg, #ffe27a 0%, #ffc21e 100%);
+  border: 3px solid #0b0c0e;
+  border-radius: 11px;
+  box-shadow: 0 4px 0 #0b0c0e;
+  cursor: pointer;
+  transition: transform .08s, box-shadow .08s, filter .15s;
+}
+.shop-account-btn:hover{ filter: brightness(1.06); transform: translateY(-1px); box-shadow: 0 5px 0 #0b0c0e; }
+.shop-account-btn:active{ transform: translateY(3px); box-shadow: 0 1px 0 #0b0c0e; }
+
+/* Clan actions a guest cannot complete: still visible, visibly locked. */
+.clan-menu-buttons .btn.is-locked{ opacity: .72; }
+
+/* ============================================================================
+   PLATOON — storage's workbench, game-style chrome
+   ============================================================================
+   Layout untouched on purpose: the room code, member tiles, voice panel, chat
+   and the ready/start row all stay exactly where they were. Only the surface
+   changes — the platoon used to paint its own pale photo-ish background, and it
+   now sits on the same dark diagonal workbench as Storage, with its panels
+   sharpened to the game's ink-and-slab look.
+   ========================================================================== */
+#menu-platoon{
+  background-color: #121212;
+  background-image:
+    linear-gradient(135deg, #121212 25%, #1a1a1a 25%, #1a1a1a 50%, #121212 50%, #121212 75%, #1a1a1a 75%, #1a1a1a);
+  background-size: 40px 40px;
+  animation: stripeMove 4s linear infinite;
+}
+#menu-platoon .pt-top{
+  background: transparent;
+}
+#menu-platoon .pt-title{
+  color: #ffd24a;
+  -webkit-text-stroke: 3px #0b0c0e;
+  paint-order: stroke fill;
+  text-shadow: 0 5px 0 #0b0c0e;
+}
+#menu-platoon .pt-code-box,
+#menu-platoon .pt-join,
+#menu-platoon .pt-voice,
+#menu-platoon .pt-chat,
+#menu-platoon .pt-card,
+#menu-platoon .pt-room > section{
+  border-color: #0b0c0e;
+}
+#menu-platoon .pt-top .pt-code-box{
+  background: #1d2027;
+  box-shadow: 0 4px 0 #0b0c0e, inset 0 1px 0 rgba(255,255,255,.06);
+}
+#menu-platoon .pt-top .pt-join{
+  background: #1d2027;
+  box-shadow: 0 4px 0 #0b0c0e, inset 0 1px 0 rgba(255,255,255,.06);
+}
+
+/* ============================================================
+   MAIN-MENU HEADER — THE DIVIDER UNDER THE NAME ROW
+
+   The name row (avatar, name, clan, trophy, gear) and the wallet used to sit
+   in one unbroken block: the coins were a second line of the same paragraph,
+   so the eye had to work out where the player ended and the money began.
+
+   One hairline fixes it. A flat 1px white line reads as a table rule on a
+   photographed battlefield, so the line fades out at both ends and carries a
+   touch of the game's yellow in the middle — enough to separate the rows,
+   not enough to become a border.
+   ============================================================ */
+#profile-wrap .profile-top{
+  padding-bottom: calc(var(--ui-scale, 1) * 7px);
+}
+#profile-wrap .profile-bottom{
+  position: relative;
+  padding-top: calc(var(--ui-scale, 1) * 7px);
+}
+#profile-wrap .profile-bottom::before{
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg,
+    rgba(255,255,255,0) 0%,
+    rgba(255,255,255,.42) 6%,
+    rgba(255,219,0,.80) 50%,
+    rgba(255,255,255,.42) 94%,
+    rgba(255,255,255,0) 100%);
+  /* The 1px of ink under it is what makes a 2px line read as a rule instead
+     of as a bright seam — measured on the live menu, a 1px 55%-alpha line was
+     there but invisible against the dark backdrop. */
+  box-shadow: 0 1px 0 rgba(0,0,0,.55);
+  pointer-events: none;
+}
+
+/* ============================================================
+   RESPAWN CINEMATIC OVERLAY  (#respawn-cine)
+   Built by Game._respawnCineDom. Game style: near-black, white
+   caps, one yellow accent, heavy black outlines, letterbox bars.
+
+   The whole layer is pointer-events:none — it is a filter over the
+   battle, never a dialog. The player can still drive the moment the
+   tank is back, which is why the bars retract and the number goes
+   away while the darkening fades.
+   ============================================================ */
+.rc{
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .28s ease;
+}
+.rc-show{ opacity: 1; }
+
+.rc-shade{
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(circle at 50% 46%,
+      rgba(4,6,10,0.10) 0%,
+      rgba(4,6,10,0.42) 58%,
+      rgba(4,6,10,0.80) 100%),
+    rgba(4,6,10,0.22);
+}
+
+.rc-bar{
+  position: absolute;
+  left: 0; right: 0;
+  height: 9vh;
+  background: #06080c;
+  transition: transform .45s cubic-bezier(.22,1,.36,1);
+  box-shadow: 0 0 0 2px #000, 0 0 24px rgba(0,0,0,.6);
+}
+.rc-bar-top{ top: 0; transform: translateY(-110%); }
+.rc-bar-bottom{ bottom: 0; transform: translateY(110%); }
+.rc-show .rc-bar-top,
+.rc-show .rc-bar-bottom{ transform: translateY(0); }
+
+.rc-center{
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  transform: translate(-50%, -50%) scale(.86);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  opacity: 0;
+  transition: opacity .3s ease .12s, transform .34s cubic-bezier(.22,1,.36,1) .12s;
+  text-align: center;
+}
+.rc-show .rc-center{
+  opacity: 1;
+  transform: translate(-50%, -50%) scale(1);
+}
+
+.rc-kicker{
+  font-size: clamp(14px, 2.1vw, 26px);
+  font-weight: 900;
+  letter-spacing: .34em;
+  color: #fff;
+  text-transform: uppercase;
+  -webkit-text-stroke: 4px #06080c;
+  paint-order: stroke fill;
+  text-shadow: 0 4px 0 #06080c;
+}
+
+.rc-count{
+  font-size: clamp(64px, 11vw, 150px);
+  line-height: .92;
+  font-weight: 900;
+  color: #ffdb00;
+  -webkit-text-stroke: 7px #06080c;
+  paint-order: stroke fill;
+  text-shadow: 0 7px 0 #06080c, 0 0 42px rgba(255,219,0,.35);
+  font-variant-numeric: tabular-nums;
+}
+
+.rc-hint{
+  margin-top: 2px;
+  font-size: clamp(11px, 1.25vw, 15px);
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,.82);
+  -webkit-text-stroke: 3px #06080c;
+  paint-order: stroke fill;
+}
+
+/* Reduced motion: no bars travelling, no pop — a plain wash and the words. */
+.rc-reduced .rc-bar{ display: none; }
+.rc-reduced .rc-center{ transition: opacity .2s ease; transform: translate(-50%, -50%); }
+.rc-reduced.rc-show .rc-center{ transform: translate(-50%, -50%); }
+
+/* ============================================================
+   STEAL THE FLAG — HUD POSITION
+
+   The objective strip was placed at the same 14px offset as the team
+   roster chips, so the mode's entire scoreboard sat underneath eight
+   tank portraits and the word "STEAL THE FLAG" was never legible.
+   It drops below the roster instead, and gains the game's ink edge
+   so it reads as part of the HUD rather than as a web panel.
+   ============================================================ */
+#flag-hud{
+  /* Below the whole leaderboard strip (#tdm-lb: top 10, height ~79), not just
+     below the chips row inside it. */
+  top: calc(var(--ui-scale, 1) * 96px);
+  border: 2px solid #0b0e13;
+  box-shadow: 0 5px 0 #0b0e13, 0 8px 28px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.08);
+}
+#flag-hud .base-hud-title{
+  color: #ffdb00;
+  letter-spacing: .22em;
+  font-weight: 900;
+}
+@media (max-width: 700px){
+  #flag-hud{ top: 84px; }
+}
+
+/* ============================================================
+   MAIN-MENU HEADER — ONE GRID, TWO ROWS
+
+   The header was five items laid out by three different rules: the avatar and
+   the name were baseline-aligned flex items, the trophy and the gear were
+   fixed-size boxes with their own margins, and the wallet row was a separate
+   block indented by 2px. Nothing shared an edge, so the whole corner read as
+   items that happened to land near each other.
+
+   Now it is one column of two rows with shared edges:
+
+       row 1   [trophy avatar] [nickname] [clan] ......... [rank] [gear]
+       row 2   [cash] [gold] [coins]
+
+   - one control size (44) for avatar, rank and gear, vertically centred on the
+     name's own centre, so the three buttons are a row of equal things;
+   - the rank button absorbs the free space (`margin-left:auto`), which pins it
+     and the gear to the right edge;
+   - the wallet row is stretched to the SAME width and loses its 2px indent, so
+     it starts under the avatar and ends under the gear;
+   - the name ellipsises instead of pushing the buttons off the header.
+
+   The entrance animation is Y + opacity only. It used to translate X from
+   -20px, and with animations disabled (prefers-reduced-motion) that start pose
+   is where the element STAYS — 20px left of its own layout box, which is the
+   other half of why this corner looked misaligned.
+   ============================================================ */
+#profile-wrap{
+  top: calc(var(--ui-scale, 1) * 16px);
+  left: calc(var(--ui-scale, 1) * 20px);
+}
+/* NO ENTRANCE ANIMATION ON THE HEADER — deliberately.
+
+   The old one animated `transform: translateX(-20px)` to none with
+   `fill-mode: backwards`. Wherever animations do not run to completion —
+   prefers-reduced-motion, a frozen frame, a paused tab — the element sits
+   permanently at its FROM pose, 20px left of its own layout box. That is
+   exactly the "things are close but placed at random" look, and it cannot be
+   fixed from the animation while the header's whole job is to be a grid. So
+   the header is simply laid out, always, at every frame. */
+#profile-wrap .profile{
+  animation: none;
+  gap: calc(var(--ui-scale, 1) * 6px);
+  min-width: calc(var(--ui-scale, 1) * 320px);
+}
+
+#profile-wrap .profile-top{
+  align-items: center;
+  gap: calc(var(--ui-scale, 1) * 10px);
+}
+#profile-wrap .profile-name{
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: calc(var(--ui-scale, 1) * 230px);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+#profile-wrap .profile-clan{
+  flex: 0 0 auto;
+  line-height: 1;
+}
+#profile-wrap .profile-strip-avatar{
+  width: calc(var(--ui-scale, 1) * 44px);
+  height: calc(var(--ui-scale, 1) * 44px);
+  flex: none;
+}
+#profile-wrap .profile-top .trophy-menu-btn{
+  margin: 0 0 0 auto;
+  width: calc(var(--ui-scale, 1) * 44px);
+  height: calc(var(--ui-scale, 1) * 44px);
+  flex: none;
+}
+#profile-wrap .profile-top #btn-settings-gear{
+  width: calc(var(--ui-scale, 1) * 44px);
+  height: calc(var(--ui-scale, 1) * 44px);
+  flex: none;
+}
+#profile-wrap .profile-top .trophy-menu-btn .trophy-progress-icon{
+  width: calc(var(--ui-scale, 1) * 26px);
+  height: calc(var(--ui-scale, 1) * 26px);
+}
+#profile-wrap .profile-bottom{
+  margin-left: 0;
+  align-items: center;
+  gap: calc(var(--ui-scale, 1) * 18px);
+  min-height: calc(var(--ui-scale, 1) * 22px);
+}
+#profile-wrap .profile-coin,
+#profile-wrap .profile-crystal{
+  gap: calc(var(--ui-scale, 1) * 5px);
+}
+
+/* ============================================================================
+   MAIN-MENU HEADER — ONE RAIL, ONE COLUMN
+
+   The complaint was "the things in the top left look placed randomly, they only
+   happen to be near each other", and that was fair: the avatar was a member of
+   the name row, so a 44px emblem sat on the text baseline and pushed the name
+   down; the trophy and gear were floated to the far right of that row while the
+   rule below them stopped at the width of the WALLET, which is a different
+   width — so the header had two right edges and no shared left edge below the
+   avatar.
+
+   Now the header is one rail and one column:
+
+     [emblem]  [ name            clan    trophy  gear ]
+               ──────────────── rule ────────────────
+               [ cash   gold   coins ]
+
+   The emblem is the rail both rows start beside, the stack is a single column
+   so the two rows are exactly as wide as each other (which is what lets the
+   rule reach the far right), and the name's controls are pinned to that right
+   edge instead of drifting after the text.
+   ============================================================================ */
+#profile-wrap .profile{
+  display: flex;
+  /* row, explicitly: an earlier rule already turned .profile into a COLUMN, and
+     a plain `display:flex` here inherited that direction rather than resetting
+     it — which is why the emblem stacked above the name on the first try. */
+  flex-direction: row;
+  align-items: center;
+  gap: calc(var(--ui-scale, 1) * 12px);
+}
+/* The emblem belongs to the NAME line, not to the middle of the block: at 61px
+   it is barely taller than the row itself, so centring it against both rows read
+   as "slightly too low" rather than as a rail. Flush to the top puts its centre
+   within half a pixel of the name's. */
+#profile-wrap .profile-strip-avatar{
+  align-self: center;
+  margin-top: calc(var(--ui-scale) * 8px);
+}
+#profile-wrap .profile-stack{
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  /* A floor, not a width: with nothing equipped and a short name the header
+     would otherwise shrink until the trophy sat on top of the gear. */
+  min-width: calc(var(--ui-scale, 1) * 250px);
+}
+#profile-wrap .profile-top{
+  margin-bottom: 0;
+  align-items: center;
+}
+/* An empty clan is not a gap — without this the row carries a phantom 10px
+   before the trophy whenever the player has no clan. */
+#profile-wrap .profile-clan:empty{ display: none; }
+#profile-wrap .profile-name{
+  min-width: 0;
+  max-width: calc(var(--ui-scale, 1) * 180px);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+#profile-wrap .profile-bottom{
+  justify-content: flex-start;
+}
+#profile-wrap .profile-account{
+  text-align: left;
+}
+
+/* ============================================================
+   COSMETICS BAR — GAME STYLE PASS
+
+   The Sprays tab had the right information and the wrong surface: flat
+   translucent blocks, a red gradient button with no ink, and tab labels
+   underlined like a web page. In this game a control you press is a SLAB —
+   ink outline, hard bottom shadow, press sinks into it — and a panel is a
+   dark card with the same ink. Nothing here adds a new hue; it is the
+   palette from GAME_STYLE.md applied to the last screen that skipped it.
+   ============================================================ */
+#menu-tank .tm-cosmetics-bar{
+  background: linear-gradient(180deg, rgba(29,32,39,0.94), rgba(16,18,22,0.97));
+  border-top: 3px solid #0b0c0e;
+  box-shadow: 0 -10px 28px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
+  backdrop-filter: blur(10px);
+}
+/* The undo/status strip above the tabs is part of the same slab row. */
+#menu-tank .tm-spray-actions{
+  background: rgba(0,0,0,0.22);
+  border-bottom: 2px solid #0b0c0e;
+  padding: 9px 14px;
+  gap: 10px;
+}
+#menu-tank .tm-spray-actions-label{
+  font-weight: 800;
+  color: #ffd24a;
+  letter-spacing: 0.8px;
+}
+#menu-tank .tm-spray-actions-hint{ color: rgba(255,255,255,0.5); font-weight: 700; }
+
+/* Tabs: three chunky slabs, the active one is the yellow one. */
+#menu-tank .tm-cosmo-tabs{
+  display: flex;
+  gap: 8px;
+  padding: 9px 14px 0;
+}
+#menu-tank .tm-cosmo-tab{
+  flex: 1;
+  margin-bottom: 8px;
+  padding: 10px 0 11px;
+  font: 800 12px/1 'Fredoka', 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: #fff;
+  background: #2a2f38;
+  border: 3px solid #0b0c0e;
+  border-radius: 10px;
+  box-shadow: 0 4px 0 #0b0c0e, inset 0 1px 0 rgba(255,255,255,0.08);
+  transition: transform .08s, box-shadow .08s, filter .15s;
+}
+#menu-tank .tm-cosmo-tab:hover{
+  filter: brightness(1.14);
+  transform: translateY(-1px);
+  box-shadow: 0 5px 0 #0b0c0e, inset 0 1px 0 rgba(255,255,255,0.1);
+}
+#menu-tank .tm-cosmo-tab.active{
+  color: #101216;
+  background: #ffd24a;
+  box-shadow: 0 4px 0 #0b0c0e, inset 0 1px 0 rgba(255,255,255,0.5);
+}
+#menu-tank .tm-cosmo-tab:active{
+  transform: translateY(3px);
+  box-shadow: 0 1px 0 #0b0c0e;
+}
+/* The old underline marker would sit on top of the slab's ink. */
+#menu-tank .tm-cosmo-tab.active::after{ display: none; }
+
+#menu-tank .tm-cosmo-body{ padding: 0 14px 12px; }
+
+#menu-tank .tm-sprays-section{
+  flex: 1 1 240px;
+  background: #1d2027;
+  border: 3px solid #0b0c0e;
+  border-radius: 12px;
+  box-shadow: 0 4px 0 rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.06);
+  padding: 9px 12px 11px;
+}
+#menu-tank .tm-sprays-section-title{
+  font: 800 11px/1.2 'Fredoka', 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: 1.2px;
+  color: #9aa3b2;
+  margin-bottom: 8px;
+  padding-bottom: 7px;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+#menu-tank .tm-spray-hintbar{
+  background: rgba(0,0,0,0.34);
+  border-left: 4px solid #ffd24a;
+  color: rgba(255,255,255,0.62);
+  font-weight: 600;
+  padding: 6px 9px;
+  margin-bottom: 8px;
+}
+/* Every pressable spray control is a slab with ink under it. */
+#menu-tank .tm-spray-btn{
+  font: 800 11px/1 'Fredoka', 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: 0.9px;
+  padding: 9px 15px;
+  border: 3px solid #0b0c0e;
+  border-radius: 9px;
+  box-shadow: 0 3px 0 #0b0c0e, inset 0 1px 0 rgba(255,255,255,0.18);
+  transition: transform .08s, box-shadow .08s, filter .15s;
+}
+#menu-tank .tm-spray-btn:hover{
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 0 #0b0c0e, inset 0 1px 0 rgba(255,255,255,0.2);
+}
+#menu-tank .tm-spray-btn:active{
+  transform: translateY(2px) !important;
+  box-shadow: 0 1px 0 #0b0c0e !important;
+}
+#menu-tank .tm-spray-clear{ background: #ff3b3b; color: #fff; }
+#menu-tank .tm-spray-store{ background: #ffd24a; color: #101216; }
+/* The ✕ on a worn card: same slab, smaller. */
+#menu-tank .tm-spray-x{
+  border-width: 2px;
+  box-shadow: 0 2px 0 #0b0c0e;
+}
+
+/* ------------------------------------------------------------
+   The size slider is a control in the strip now, not a panel.
+   Compact on purpose: S — slider — L — value, all on one line,
+   so the sprays get the whole width of the bar.
+   ------------------------------------------------------------ */
+#menu-tank .tm-spray-actions{
+  flex-wrap: wrap;
+}
+#menu-tank .tm-spray-actions-hint{
+  flex: 1 1 auto;
+  min-width: 120px;
+}
+#menu-tank .tm-spray-actions .tm-spray-size{
+  flex: 0 0 auto;
+  gap: 7px;
+  padding: 0;
+  margin-left: auto;
+  background: rgba(0,0,0,0.3);
+  border: 2px solid #0b0c0e;
+  border-radius: 999px;
+  padding: 3px 10px 3px 8px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06);
+}
+#menu-tank .tm-spray-actions .tm-spray-size input[type="range"]{
+  width: 108px;
+  flex: 0 0 108px;
+  height: 10px;
+}
+#menu-tank .tm-spray-actions .tm-spray-size input[type="range"]::-webkit-slider-thumb{
+  width: 15px; height: 15px;
+}
+#menu-tank .tm-spray-actions .tm-spray-size-val{
+  margin-left: 0;
+  min-width: 40px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+#menu-tank .tm-spray-actions .tm-spray-size-end{ font-size: 10px; }
+
+/* ------------------------------------------------------------
+   UPGRADE / SELECT TANK — the last two controls on the screen that
+   were still flat web buttons. Same slab recipe as everything else:
+   ink outline, hard shadow underneath, a press that sinks into it.
+   ------------------------------------------------------------ */
+#menu-tank .tm-btn{
+  font: 800 13px/1 'Fredoka', 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: 1.2px;
+  padding: 13px 26px;
+  border: 3px solid #0b0c0e;
+  border-radius: 12px;
+  backdrop-filter: none;
+  box-shadow: 0 5px 0 #0b0c0e, inset 0 1px 0 rgba(255,255,255,0.12);
+  transition: transform .08s, box-shadow .08s, filter .15s;
+}
+#menu-tank .tm-btn:hover{
+  transform: translateY(-1px);
+  filter: brightness(1.07);
+  box-shadow: 0 6px 0 #0b0c0e, inset 0 1px 0 rgba(255,255,255,0.14);
+}
+#menu-tank .tm-btn:active{
+  transform: translateY(3px) !important;
+  box-shadow: 0 1px 0 #0b0c0e !important;
+}
+#menu-tank .tm-btn-upgrade{
+  background: #2a2f38;
+  color: #fff;
+  border-color: #0b0c0e;
+}
+#menu-tank .tm-btn-upgrade:hover{
+  background: #333942;
+  color: #fff;
+}
+#menu-tank .tm-btn-select{
+  background: #ffd24a;
+  color: #101216;
+  margin-bottom: 0;
+  padding: 16px 36px;
+  font-size: 15px;
+  box-shadow: 0 6px 0 #0b0c0e, inset 0 1px 0 rgba(255,255,255,0.5);
+}
+#menu-tank .tm-btn-select:hover{
+  box-shadow: 0 7px 0 #0b0c0e, inset 0 1px 0 rgba(255,255,255,0.5);
+}
+/* The XP block sits in the same row; give it the same ink so the bottom
+   row reads as one built strip rather than a slab next to a glass card. */
+#menu-tank .tm-xp-block{
+  border: 3px solid #0b0c0e;
+  box-shadow: 0 5px 0 rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.06);
+}
+
+/* The sprays grid now owns the whole width, so the tiles can be wider: at
+   minmax(158px) four narrow cards fit and "First Spray" was clipped to
+   "First Sp…". Fewer, wider tiles show the same list with the names whole. */
+#menu-tank .tm-sprays-grid{
+  grid-template-columns: repeat(auto-fill, minmax(228px, 1fr));
+}
+
+/* ------------------------------------------------------------
+   Two overlays were sharing the same pixels.
+
+   The right-hand stat column is fixed at the top; the bottom block is fixed at
+   the bottom and grows with the cosmetics panel. On a short window the stat
+   column ran underneath it, so the last rows of MOBILITY were behind the XP
+   strip — visible only as a sliver through the blur. The column now stops
+   exactly where the bottom block starts (measured into --tm-bottom-h by
+   tank-menu.js) and scrolls if a tank has more rows than fit. The fade at the
+   bottom says "there is more" without a scrollbar taking a chunk of a 250px
+   card.
+   ------------------------------------------------------------ */
+#menu-tank .tm-overlay-right{
+  bottom: calc(var(--tm-bottom-h, 320px) + 14px);
+  max-height: calc(100vh - var(--tm-bottom-h, 320px) - 30px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+#menu-tank .tm-overlay-right::-webkit-scrollbar{ width: 0; height: 0; }
+#menu-tank .tm-overlay-right::after{
+  content: '';
+  position: sticky;
+  bottom: 0;
+  display: block;
+  height: 18px;
+  margin-top: -18px;
+  background: linear-gradient(180deg, rgba(10,12,16,0), rgba(10,12,16,0.85));
+  pointer-events: none;
+}
+
+/* The global back chip is lifted into a fixed slot at the very top-left, and
+   the tank name was starting underneath it ("…l Buddy"). The block starts to
+   the right of the chip instead of behind it. */
+body:not(.is-mobile) #menu-tank .tm-overlay-top-left{
+  left: 70px;
+  max-width: 300px;
+}
+
+/* Flex children shrink by default, so capping the column SQUASHED the panels
+   instead of scrolling them: the super description lost its second line and
+   the stats panel began somewhere in the middle of its own list. Panels keep
+   their natural height; the column is what scrolls. */
+#menu-tank .tm-overlay-right > *{
+  flex: 0 0 auto;
+  min-height: 0;
+}
+
+/* ============================================================
+   BATTLE TOP BAR (see #top-hud in index.html)
+
+   NO FRAMES. The old strip was three bordered panels stacked on the same
+   pixels; this is one row of icons and numbers sitting straight on the
+   world, readable because of the ink shadow under every glyph rather than
+   because of a box behind it. Everything is 40px tall so a 5v5 roster and a
+   clock cost the player the least screen that still answers "who is alive
+   and how long have I got".
+   ============================================================ */
+#top-hud{
+  position: fixed;
+  top: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  z-index: 60;
+  pointer-events: none;
+  font-family: 'Fredoka', 'Segoe UI', system-ui, sans-serif;
+  color: #fff;
+  white-space: nowrap;
+  user-select: none;
+}
+#top-hud.hidden{ display: none; }
+
+/* ── rosters ─────────────────────────────────────────────── */
+.th-side{
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+.th-tank{
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  filter: drop-shadow(0 2px 0 rgba(0,0,0,0.55));
+  transition: opacity .12s, filter .12s;
+}
+.th-tank img{
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  filter: brightness(0) invert(1);
+}
+.th-tank.dead{
+  opacity: 0.22;
+  filter: none;
+}
+.th-tank.dead img{ filter: brightness(0) invert(1); }
+.th-tank.local{
+  filter: drop-shadow(0 0 3px #ffd24a) drop-shadow(0 2px 0 rgba(0,0,0,0.55));
+}
+/* Enemy icons are mirrored so the two rosters face into the middle. */
+.th-side-right .th-tank img{ transform: scaleX(-1); }
+
+/* ── scores ──────────────────────────────────────────────── */
+.th-score{
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 21px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.5px;
+  text-shadow: 0 2px 0 #0b0c0e, 0 0 8px rgba(0,0,0,0.6);
+  font-variant-numeric: tabular-nums;
+}
+.th-score.hidden{ display: none; }
+.th-mine{ color: #5cc4ff; }
+.th-theirs{ color: #ff6b5e; }
+.th-ico{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: #ffd24a;
+}
+.th-ico svg{ width: 16px; height: 16px; display: block; }
+
+/* ── clock ───────────────────────────────────────────────── */
+.th-clock{
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 21px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: 0.5px;
+  text-shadow: 0 2px 0 #0b0c0e, 0 0 8px rgba(0,0,0,0.6);
+  font-variant-numeric: tabular-nums;
+  min-width: 62px;
+  justify-content: center;
+}
+.th-clock-ico{
+  display: inline-flex;
+  width: 15px;
+  height: 15px;
+  color: rgba(255,255,255,0.75);
+}
+.th-clock-ico svg{ width: 15px; height: 15px; display: block; }
+.th-round{
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  color: #101216;
+  background: #ffd24a;
+  border-radius: 999px;
+  padding: 2px 6px;
+  text-shadow: none;
+}
+.th-round.hidden{ display: none; }
+.th-clock.warn{ color: #ff5b4a; }
+.th-clock.warn .th-clock-ico{ color: #ff5b4a; }
+
+/* ── the old panels this bar replaces ─────────────────────
+   Hidden ONLY while the bar is live, so every menu, the spectator screen
+   and a mode that has not started yet still behave exactly as before. */
+#hud.top-hud-on #leaderboard,
+#hud.top-hud-on #tdm-lb,
+#hud.top-hud-on #flag-hud,
+#hud.top-hud-on #base-hud,
+#hud.top-hud-on #glad-hud{
+  display: none !important;
+}
+
+/* Gladiator's zone/airdrop line is the one bit of #glad-hud that is survival
+   information rather than a counter, so it stays — moved below the bar. */
+#hud.top-hud-on #glad-banner{
+  top: 44px;
+}
+
+/* Cartoon numbers need an ink line, not a soft shadow: the bar sits straight
+   on the world, and a 1px soft glow disappears the moment the map behind it is
+   pale sand. Hard 1px ink on four sides plus the slab shadow below reads the
+   same over sand, snow or a dark ruin. */
+#top-hud .th-score,
+#top-hud .th-clock{
+  text-shadow:
+    -1px -1px 0 #0b0c0e, 1px -1px 0 #0b0c0e,
+    -1px  1px 0 #0b0c0e, 1px  1px 0 #0b0c0e,
+     0    3px 0 #0b0c0e;
+}
+#top-hud .th-tank{ width: 24px; height: 24px; }
+#top-hud .th-tank img{ width: 24px; height: 24px; }
+/* Free-for-all puts ten icons on the bar; tighten them so the row still fits
+   without a second line on a 1280-wide screen. */
+#top-hud .th-side{ gap: 2px; }
+
+/* ============================================================
+   GAMEMODE PICKER — FIVE CARDS HAVE TO BE REACHABLE
+
+   Team Deathmatch is live, so there are five cards where there were four.
+   The picker was a centred grid that never wrapped: on a wide screen all five
+   cards tried to sit in one row and the outer two were clipped by
+   `overflow:hidden`; on a narrow one they stacked into a column taller than
+   the panel and `place-content:center` pushed the first card OFF THE TOP,
+   where it could not even be scrolled to. Either way the new mode was
+   unreachable, which is the same as not having it.
+
+   It is now a wrapping grid that starts at the top and scrolls: three columns
+   on a desktop, one on a phone, every card visible.
+   ============================================================ */
+#menu-gamemode-select .gm-cards{
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 430px));
+  grid-auto-flow: row;
+  justify-content: center;
+  justify-items: center;
+  align-content: start;
+  gap: 24px;
+  padding: 12px 24px 40px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+@media (max-width: 900px){
+  #menu-gamemode-select .gm-cards{
+    grid-template-columns: minmax(0, 380px);
+  }
+}
+
+/* ============================================================================
+   MAIN-MENU HEADER, REBUILT (pass 13) — the top-left block, on purpose this time.
+
+   WHAT WAS WRONG. Three things, all visible at a glance:
+
+     1. The Foundry badge's XP art had no size rule, so a 190x197 image was
+        rendered inside a menu row: that one row grew to 261px tall and the
+        whole nav column (vertically centred at 54%) was pushed UP into the
+        player header, so "STORE" sat on top of the wallet.
+     2. .profile still carried the old card — dark fill, 8px blur, rounded
+        border and 12/22px padding — under markup that is deliberately NOT a
+        card. The header read as a box with text loose inside it.
+     3. The wallet was a row of bare icon+number pairs with no chip, sitting
+        on the artwork and fighting it for contrast.
+
+   THE SHAPE NOW. One left rail, three lines: avatar | name + trophies + gear,
+   a hairline, then the wallet as three chips. Everything shares one 40px
+   rhythm, so the buttons line up with the name instead of floating beside it.
+   The nav starts below the block and keeps its own vertical centring.
+   ========================================================================== */
+/* PASS 15 — TOON, NOT GLASS.
+
+   The game draws in comic ink: 2-4px black outlines, FLAT fills, hard offset
+   shadows, no blur and no gradients. Pass 14 was built like a desktop app — a
+   translucent glass bar, a 1px hairline, a soft 39px shadow — which is why it
+   still did not belong next to the PLAY plate. This is the same two-row layout
+   (avatar + name + rank + gear, then the wallet) redrawn in the game's language:
+   one flat slab, black border, black drop, and every round thing is a rounded
+   square. */#profile-wrap{
+   top: calc(var(--ui-scale) * 12px);
+   left: calc(var(--ui-scale) * 12px);
+   width: calc(var(--ui-scale) * 252px);
+   box-sizing: border-box;
+   align-items: center;
+   gap: calc(var(--ui-scale) * 10px);
+   padding: 0;
+   background: none;
+   border: none;
+   box-shadow: none;
+   border-radius: 0;
+   backdrop-filter: none;
+   -webkit-backdrop-filter: none;
+}
+#profile-wrap .profile,
+#profile-wrap .profile-stack{
+  background: none;
+  border: none;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  pointer-events: auto;
+}
+#profile-wrap .profile-stack{
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--ui-scale) * 8px);
+  flex: 1 1 auto;
+  padding: 0;
+  border: none;
+}
+/* the avatar: a rounded square plate with an ink edge, like every other slot in
+   the game. The trophy art sits inside it with its own black drop. */
+#profile-wrap .profile-strip-avatar{
+  flex: 0 0 auto;
+  width: calc(var(--ui-scale) * 37px);
+  height: calc(var(--ui-scale) * 37px);
+  margin-top: calc(var(--ui-scale) * 4px);
+  padding: calc(var(--ui-scale) * 2px);
+  display: grid; place-items: center;
+  border-radius: calc(var(--ui-scale) * 6px);
+  border: 2px solid #0b0c0e;
+  background: #39414d;
+  overflow: hidden;
+}
+#profile-wrap .profile-strip-avatar img{
+  width: 100%; height: 100%; object-fit: contain;
+  filter: drop-shadow(0 2px 0 #0b0c0e);
+}
+#profile-wrap .profile-top{
+  display: flex;
+  align-items: center;
+  gap: calc(var(--ui-scale) * 8px);
+  margin: 0;
+  padding: 0;
+  border: none;
+  min-width: 0;
+}
+/* lettering in the game's voice: Lilita One with an ink stroke behind the fill
+   (paint-order keeps the stroke from eating the letters) and one hard shadow.
+   This is the same treatment the PLAY plate and the profile screen use. */
+#profile-wrap .profile-name{
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: 'Lilita One', 'Fredoka', sans-serif;
+  font-size: calc(var(--ui-scale) * 18px);
+  line-height: 1.1;
+  letter-spacing: .6px;
+  color: #ffffff;
+  -webkit-text-stroke: calc(var(--ui-scale) * 1.6px) #0b0c0e;
+  paint-order: stroke fill;
+  text-shadow: 0 calc(var(--ui-scale) * 2px) 0 #0b0c0e;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+#profile-wrap .profile-clan{ font-size: calc(var(--ui-scale) * 10px); }
+/* the two icon buttons: pressed plates, not floating glyphs. Same geometry, same
+   ink, and a 3px press travel like the rest of the menu's controls. */
+#profile-wrap .profile-top #btn-settings-gear,
+#profile-wrap .profile-top .trophy-menu-btn{
+  flex: 0 0 auto;
+  width: calc(var(--ui-scale) * 44px);
+  height: calc(var(--ui-scale) * 44px);
+  margin: 0;
+  padding: 0;
+  display: grid; place-items: center;
+  border-radius: calc(var(--ui-scale) * 10px);
+  background: #2a303a;
+  border: 2px solid #0b0c0e;
+  outline: none;
+  box-shadow: 0 calc(var(--ui-scale) * 3px) 0 #0b0c0e;
+  opacity: 1;
+  transition: transform .08s ease, box-shadow .08s ease, background .12s ease;
+}
+#profile-wrap .profile-top #btn-settings-gear img{
+  width: calc(var(--ui-scale) * 26px);
+  height: calc(var(--ui-scale) * 26px);
+  opacity: 1;
+  /* gold/amber to match the menu accent instead of stark white */
+  filter: brightness(0) saturate(100%) invert(62%) sepia(90%) saturate(380%) hue-rotate(8deg) brightness(1.15);
+}
+#profile-wrap .profile-top .trophy-progress-icon,
+#profile-wrap .profile-top .trophy-menu-btn .trophy-progress-icon{
+  width: calc(var(--ui-scale) * 28px);
+  height: calc(var(--ui-scale) * 28px);
+  filter: brightness(1.15) saturate(1.15);
+}
+/* the rank fill was a left-to-right bar behind a small icon; in a button this
+   size all it showed was a gold sliver of noise */
+#profile-wrap .profile-top .trophy-menu-btn .trophy-progress-fill{
+  display: none;
+}
+#profile-wrap .profile-top #btn-settings-gear:hover,
+#profile-wrap .profile-top .trophy-menu-btn:hover{
+  background: #3a4350;
+  border: 2px solid #0b0c0e;
+  transform: translateY(calc(var(--ui-scale) * -1px));
+  box-shadow: 0 calc(var(--ui-scale) * 4px) 0 #0b0c0e;
+}
+#profile-wrap .profile-top #btn-settings-gear:active,
+#profile-wrap .profile-top .trophy-menu-btn:active{
+  transform: translateY(calc(var(--ui-scale) * 2px));
+  box-shadow: 0 calc(var(--ui-scale) * 1px) 0 #0b0c0e;
+}
+/* TWO ROWS: avatar + name on top, the wallet across the whole bar underneath.
+   display:contents promotes the stack's children into .profile's grid, so the
+   wallet reaches both edges without touching the markup. */
+#profile-wrap .profile{
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: calc(var(--ui-scale) * 10px);
+  row-gap: calc(var(--ui-scale) * 9px);
+  align-items: center;
+}
+#profile-wrap .profile-stack{ display: contents; }
+#profile-wrap .profile-top{ grid-column: 2; grid-row: 1; }
+/* the wallet: three equal slots, divided from the identity row by an ink rule */
+#profile-wrap .profile-bottom{
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: calc(var(--ui-scale) * 6px);
+  font-size: calc(var(--ui-scale) * 12px);
+  color: #ffffff;
+  width: 100%;
+  padding-top: calc(var(--ui-scale) * 9px);
+  border-top: 3px solid #0b0c0e;
+  box-sizing: border-box;
+}
+/* the pass-13 gold hairline is gone with the glass */
+#profile-wrap .profile-bottom::before{ content: none; }
+#profile-wrap .profile-bottom .profile-coin,
+#profile-wrap .profile-bottom .profile-crystal{
+  display: flex; align-items: center; justify-content: center;
+  gap: calc(var(--ui-scale) * 5px);
+  padding: calc(var(--ui-scale) * 5px) calc(var(--ui-scale) * 4px);
+  border-radius: calc(var(--ui-scale) * 8px);
+  background: #11151b;
+  border: 2px solid #0b0c0e;
+  font-family: 'Nunito', 'Segoe UI', sans-serif;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-shadow: 0 calc(var(--ui-scale) * 1px) 0 #0b0c0e;
+}
+#profile-wrap .profile-bottom .cur-img{
+  flex: 0 0 auto;
+  width: calc(var(--ui-scale) * 18px);
+  height: calc(var(--ui-scale) * 18px);
+  object-fit: contain;
+  filter: drop-shadow(0 1px 0 rgba(0,0,0,.7));
+}
+
+/* Portrait phone: the bar is fixed at the nav's width, and on a 390px screen
+   that runs into the crates card. Below this width it shrinks back to content. */
+@media (max-width: 700px){
+  #profile-wrap{ width: auto; max-width: calc(100vw - var(--ui-scale) * 24px); }
+}
+
+/* THE NAV IN THE SAME INK. Rows are transparent plates with a reserved 2px ink
+   edge, so hovering fills and drops them without nudging the column. */
+.main-menu-side{
+  left: calc(var(--ui-scale) * 12px);
+  width: calc(var(--ui-scale) * 252px);
+  gap: calc(var(--ui-scale) * 2px);
+}
+/* nav shifted slightly down from centre */
+.main-menu-side{
+  top: 48%;
+  transform: translateY(-50%);
+}
+.main-menu-side .menu-side-btn,
+.main-menu-side .menu-side-btn:nth-child(even),
+.main-menu-side .menu-side-btn:nth-child(even):hover,
+.main-menu-side .menu-side-btn:nth-child(even):active{
+  position: relative;
+  transform: none;
+}
+.main-menu-side .menu-side-btn{
+  font-family: 'Lilita One', 'Fredoka', sans-serif;
+  font-size: calc(var(--ui-scale) * 16px);
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: #ffffff;
+  padding: calc(var(--ui-scale) * 5px) calc(var(--ui-scale) * 10px);
+  border: 2px solid transparent;
+  border-radius: calc(var(--ui-scale) * 11px);
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  -webkit-text-stroke: calc(var(--ui-scale) * 1.2px) #0b0c0e;
+  paint-order: stroke fill;
+  text-shadow: 0 calc(var(--ui-scale) * 2px) 0 #0b0c0e;
+  transition: background .1s ease, border-color .1s ease, box-shadow .1s ease, transform .18s ease, text-shadow .18s ease;
+}
+.main-menu-side .menu-side-btn:hover{
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  transform: translateX(calc(var(--ui-scale) * 6px));
+  filter: none;
+  text-shadow: 0 0 calc(var(--ui-scale) * 10px) #ffffff, 0 calc(var(--ui-scale) * 2px) 0 #0b0c0e;
+}
+.main-menu-side .menu-side-btn:active{
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  transform: translateX(calc(var(--ui-scale) * 6px)) translateY(calc(var(--ui-scale) * 2px));
+  filter: none;
+}
+/* a chunky gold tick on the row you are on: the one warm thing down the column */
+.main-menu-side .menu-side-btn::before{
+  content: '';
+  position: absolute;
+  left: calc(var(--ui-scale) * -2px); top: 50%;
+  width: calc(var(--ui-scale) * 4px);
+  height: calc(var(--ui-scale) * 18px);
+  margin-top: calc(var(--ui-scale) * -9px);
+  border-radius: calc(var(--ui-scale) * 2px);
+  background: #ffd24a;
+  border: 2px solid #0b0c0e;
+  opacity: 0;
+  transform: scaleY(.5);
+  transition: opacity .12s ease, transform .12s ease;
+  pointer-events: none;
+  box-sizing: border-box;
+}
+.main-menu-side .menu-side-btn:hover::before{
+  opacity: 1;
+  transform: scaleY(1);
+}
+/* gold underline that slides in on hover - pretty text-link feel */
+.main-menu-side .menu-side-btn::after{
+  content: '';
+  position: absolute;
+  left: 0; bottom: calc(var(--ui-scale) * -4px);
+  width: 0;
+  height: calc(var(--ui-scale) * 3px);
+  background: #ffffff;
+  border-radius: calc(var(--ui-scale) * 2px);
+  box-shadow: 0 calc(var(--ui-scale) * 2px) 0 #0b0c0e;
+  transition: width .28s cubic-bezier(.2,.8,.2,1);
+  pointer-events: none;
+}
+.main-menu-side .menu-side-btn:hover::after{
+  width: 100%;
+}
+.main-menu-side .menu-side-btn .menu-side-chip{
+  width: calc(var(--ui-scale) * 26px);
+  height: calc(var(--ui-scale) * 26px);
+  padding: calc(var(--ui-scale) * 5px);
+  border-radius: calc(var(--ui-scale) * 8px);
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  box-sizing: border-box;
+}
+.main-menu-side .menu-side-btn .menu-side-chip{
+  transition: transform .18s ease, background .12s ease;
+}
+.main-menu-side .menu-side-btn:hover .menu-side-chip{
+  background: transparent;
+  transform: scale(1.18) rotate(-10deg);
+}
+.main-menu-side .menu-side-btn span{
+  line-height: 1.1;
+}
+
+/* THE FOUNDRY BADGE, SIZED. Without this rule the art tile paints at its own
+   intrinsic size and takes the whole menu with it. */
+.main-menu-side .menu-side-btn{
+  position: relative;
+  padding-right: calc(var(--ui-scale) * 10px);
+}
+.main-menu-side .menu-side-badge{
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: calc(var(--ui-scale) * 5px);
+  padding: calc(var(--ui-scale) * 4px) calc(var(--ui-scale) * 8px);
+  border-radius: calc(var(--ui-scale) * 8px);
+  background: #11151b;
+  border: 2px solid #0b0c0e;
+  color: #ffd24a;
+  font-family: 'Nunito', 'Segoe UI', sans-serif;
+  font-size: calc(var(--ui-scale) * 12px);
+  font-weight: 900;
+  letter-spacing: .4px;
+  text-transform: none;
+  text-shadow: none;
+  line-height: 1;
+  white-space: nowrap;
+  -webkit-text-stroke: 0;
+  box-shadow: 0 calc(var(--ui-scale) * 2px) 0 #0b0c0e;
+}
+.main-menu-side .menu-side-badge img{
+  display: block;
+  width: calc(var(--ui-scale) * 14px);
+  height: calc(var(--ui-scale) * 14px);
+  object-fit: contain;
+}
+.main-menu-side .menu-side-btn.rs-ready .menu-side-badge{
+  background: #ffd24a;
+  border-color: #0b0c0e;
+  color: #17130a;
+}
+.main-menu-side .menu-side-btn.rs-ready .menu-side-badge img{
+  filter: brightness(0);
+}
+/* A short viewport cannot centre a seven-row column AND clear the header;
+   below this height the column drops to the bottom of the screen instead. */
+@media (max-height: 780px){
+  .main-menu-side{ top: auto; bottom: calc(var(--ui-scale) * 84px); transform: none; }
+}
+/* TWO-ROW BAR = TALLER HEADER.
+
+   The phone layouts centre (or bottom-anchor) the nav column on the window,
+   which was fine against a one-row profile strip but now puts the STORE row
+   underneath the wallet strip on a short landscape screen. Must stay after the
+   780 rule: same specificity, later wins. */
+@media (orientation: landscape) and (max-height: 520px){
+  .main-menu-side{
+    top: calc(var(--ui-scale) * 138px);
+    bottom: auto;
+    transform: none;
+  }
+  /* The toon rows are 58px at full scale, which pushes CODES off a 390px-tall
+     screen once the column sits under the bar. Same ink, smaller plate. */
+  .main-menu-side .menu-side-btn{
+    font-size: calc(var(--ui-scale) * 13px);
+    padding: calc(var(--ui-scale) * 3px) calc(var(--ui-scale) * 8px);
+    border-radius: calc(var(--ui-scale) * 9px);
+    letter-spacing: 1px;
+  }
+  .main-menu-side .menu-side-btn .menu-side-chip{
+    width: calc(var(--ui-scale) * 21px);
+    height: calc(var(--ui-scale) * 21px);
+    padding: calc(var(--ui-scale) * 3px);
+    border-radius: calc(var(--ui-scale) * 7px);
+  }
+}
+
+/* ============================================================
+   TANK PICKER — TOURNAMENT + CARTOON RESTYLE (appended)
+   Bright, chunky, bouncy: a tournament lobby that reads like a
+   Saturday-morning cartoon. Overrides the dark gray selector above.
+   ============================================================ */
+.tank-switch-panel{
+  background: linear-gradient(180deg, #2b6bff 0%, #5a2fd6 55%, #1a1033 100%) !important;
+  border: 4px solid #000 !important;
+  border-radius: 22px !important;
+  clip-path: none !important;
+  box-shadow: 0 12px 0 #000, 0 24px 60px rgba(0,0,0,.6), inset 0 2px 0 rgba(255,255,255,.35) !important;
+  padding: 16px 20px 18px !important;
+}
+.tank-switch-header{
+  border-bottom: 3px solid #000 !important;
+  padding-bottom: 10px !important;
+  margin-bottom: 12px !important;
+  background: linear-gradient(90deg, rgba(255,215,0,.25), rgba(255,255,255,.05)) !important;
+  border-radius: 12px 12px 0 0 !important;
+  padding: 6px 10px 10px !important;
+}
+.tank-switch-header .ts-label{
+  font-size: 18px !important;
+  letter-spacing: 2px !important;
+  color: #fff !important;
+  text-shadow: 0 3px 0 #000, 0 0 12px rgba(255,215,0,.6) !important;
+  font-weight: 900 !important;
+}
+.tank-switch-header .ts-count{
+  background: #ffd23f !important;
+  color: #1a1a1a !important;
+  border: 3px solid #000 !important;
+  border-radius: 12px !important;
+  clip-path: none !important;
+  box-shadow: 0 4px 0 #000 !important;
+  padding: 4px 12px !important;
+  font-size: 12px !important;
+}
+.ts-btn{
+  border: 3px solid #000 !important;
+  border-radius: 16px !important;
+  clip-path: none !important;
+  background: linear-gradient(180deg, #ff7a59 0%, #e04020 100%) !important;
+  box-shadow: 0 6px 0 #000, inset 0 2px 0 rgba(255,255,255,.4) !important;
+  color: #fff !important;
+  transition: transform .18s cubic-bezier(.3,1.6,.4,1), box-shadow .18s, filter .18s !important;
+}
+.ts-btn::before{ display: none !important; }
+.ts-btn:hover{
+  transform: translateY(-6px) scale(1.08) rotate(-1deg) !important;
+  background: linear-gradient(180deg, #ff9a7a 0%, #ff5a30 100%) !important;
+  box-shadow: 0 10px 0 #000, 0 0 24px rgba(255,120,60,.6), inset 0 2px 0 rgba(255,255,255,.5) !important;
+  filter: brightness(1.15) !important;
+}
+.ts-btn.active{
+  background: linear-gradient(180deg, #ffd23f 0%, #ff9f1a 100%) !important;
+  color: #1a1a1a !important;
+  border-color: #000 !important;
+  box-shadow: 0 6px 0 #000, 0 0 30px rgba(255,210,63,.8), inset 0 2px 0 rgba(255,255,255,.6) !important;
+  transform: translateY(-4px) scale(1.1) !important;
+}
+.ts-btn.active::after{
+  border-color: #000 !important;
+  border-width: 3px !important;
+  border-style: solid !important;
+  clip-path: none !important;
+  border-radius: 16px !important;
+  inset: -4px !important;
+}
+.ts-btn.active .ts-name{ color: #1a1a1a !important; text-shadow: none !important; font-weight: 900 !important; }
+.ts-btn img{ filter: drop-shadow(0 4px 6px rgba(0,0,0,.6)) !important; }
+.ts-btn:hover img{ transform: scale(1.18) translateY(-3px) !important; }
+.ts-btn .ts-name{
+  color: #fff !important;
+  text-shadow: 0 2px 0 #000 !important;
+  font-weight: 800 !important;
+  font-size: 11px !important;
+}
+.ts-star{ color: rgba(255,255,255,.5) !important; }
+.ts-star.on{ color: #ffd23f !important; text-shadow: 0 0 10px rgba(255,210,63,.9), 0 2px 0 #000 !important; }
+.ts-nav-btn{
+  background: linear-gradient(180deg, #4dd0e1 0%, #0097a7 100%) !important;
+  border: 3px solid #000 !important;
+  border-radius: 50% !important;
+  clip-path: none !important;
+  color: #fff !important;
+  box-shadow: 0 5px 0 #000, inset 0 2px 0 rgba(255,255,255,.4) !important;
+  font-size: 18px !important;
+  width: 44px !important; height: 44px !important;
+}
+.ts-nav-btn:hover{ filter: brightness(1.2) !important; transform: scale(1.1) !important; }
+@keyframes tsActivePulse{ 0%,100%{ opacity:.5 } 50%{ opacity:1 } }
+.tank-switch-panel:not(.hidden){ animation: tsPanelIn .4s cubic-bezier(.2,1.6,.4,1) both !important; }
+@keyframes tsPanelIn{ from{ opacity:0; transform: translateX(-50%) translateY(60px) scale(.85) rotate(-2deg) } to{ opacity:1; transform: translateX(-50%) translateY(0) scale(1) rotate(0) } }

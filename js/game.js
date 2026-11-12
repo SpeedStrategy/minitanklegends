@@ -94,6 +94,10 @@ function _webgpuUsable(){
    across the phases so the saving is spread evenly rather than arriving as one
    spike every fourth frame. */
 const BOT_THINK_EVERY = 4;
+
+/* Team Deathmatch: one life per round, 2 minutes a round, first to 2 of 3.
+   Seconds, not a timestamp, because the round clock pauses with the round. */
+const TDM_ROUND_TIME = 120;
 /* Per-frame HUD code goes through these: writing a class or text that is already
    there still dirties the element for the browser's style pass. */
 const _ASSET_MAPS = ['map','alphaMap','normalMap','emissiveMap','roughnessMap','metalnessMap','aoMap'];
@@ -300,7 +304,6 @@ class Game {
     this._physBodies = [];
     this.casings = [];
     this._eventQueue = null;
-    this._helixVideos = new Map();
     this.glad = null;
     this._gladBoxes = [];
     this._gladPickups = [];
@@ -1559,7 +1562,7 @@ class Game {
     try {
       Xray.setStyle(s.xrayStyle);
       Xray.setColor(s.xrayColor || '#ffffff');
-      Xray.setOpacity(s.xrayOpacity != null ? s.xrayOpacity : 0.92);
+      Xray.setOpacity(s.xrayOpacity != null ? s.xrayOpacity : 0.22);
       /* gl_FragCoord is in device pixels, and the renderer already knows the
          ratio it is actually drawing at — read it from there rather than from
          devicePixelRatio, which lies whenever the renderer has capped it. */
@@ -2405,9 +2408,23 @@ class Game {
     this.world.size = 1000;
     this.world.half = 500;
     this._resetArena();
+    /* The round clock, the timeout rule and the top bar's "R1/3" all need to
+       know this is Team Deathmatch rather than one of the other modes that
+       keep a _tdmState for the void kill. Set AFTER _resetArena, which clears
+       every mode flag, or it would be wiped one line later. */
+    this._tdmMode = true;
     this._noParticles = true;
     this._applyParticlePolicy();
-    this._tdmState = { blueScore:0, redScore:0, totalKills:0, round:1, blueRoundWins:0, redRoundWins:0, maxRounds:5, roundActive:true };
+    /* THREE ROUNDS, ONE LIFE EACH, TWO MINUTES A ROUND.
+
+       Knockout, not a kill race: a round ends when a side is wiped or the
+       clock runs out, every tank comes back at the start of the next round,
+       and two round wins take the match. `timeLeft` is the clock the top bar
+       draws; `roundKills` is the tie-break when the clock expires with both
+       sides holding the same number of tanks. */
+    this._tdmState = { blueScore:0, redScore:0, totalKills:0, round:1, blueRoundWins:0, redRoundWins:0,
+      maxRounds:3, roundActive:true, timeLeft:TDM_ROUND_TIME, roundTime:TDM_ROUND_TIME,
+      roundKills:{ blue:0, red:0 }, timeUpHandled:false };
     try{ this._tankFavorites = JSON.parse(localStorage.getItem('tankFavorites') || '[]'); }catch(e){ this._tankFavorites = []; }
 
     this._physBodies.forEach(b => {
@@ -2650,7 +2667,16 @@ class Game {
     this._noParticles = true;
     this._applyParticlePolicy();
     this._captureCircleMode = true;
-    this._tdmState = { blueScore:0, redScore:0, totalKills:0, round:1, blueRoundWins:0, redRoundWins:0, maxRounds:5, roundActive:true };
+    /* THREE ROUNDS, ONE LIFE EACH, TWO MINUTES A ROUND.
+
+       Knockout, not a kill race: a round ends when a side is wiped or the
+       clock runs out, every tank comes back at the start of the next round,
+       and two round wins take the match. `timeLeft` is the clock the top bar
+       draws; `roundKills` is the tie-break when the clock expires with both
+       sides holding the same number of tanks. */
+    this._tdmState = { blueScore:0, redScore:0, totalKills:0, round:1, blueRoundWins:0, redRoundWins:0,
+      maxRounds:3, roundActive:true, timeLeft:TDM_ROUND_TIME, roundTime:TDM_ROUND_TIME,
+      roundKills:{ blue:0, red:0 }, timeUpHandled:false };
     try{ this._tankFavorites = JSON.parse(localStorage.getItem('tankFavorites') || '[]'); }catch(e){ this._tankFavorites = []; }
 
     this._physBodies.forEach(b => {
@@ -2796,16 +2822,36 @@ class Game {
       const playerSpawnX = mySpawn.pos.x;
       const playerSpawnZ = mySpawn.pos.z;
 
+      /* DROP EVERY TANK IN AT ITS OWN MARKER'S HEIGHT.
+
+         `spawnY` above is a guess derived from the WHOLE model's bounding box
+         (bottom + 65% of its height) — one number for the entire map. On Kaukaz
+         that lands at 10.6 while the terrain under the spawn markers is at
+         12.27, so tanks materialised about 1.7 units INSIDE the ground. The
+         solver then pushed the hull out of whichever face it was nearest and
+         the tank ended up under the map, driving on the underside of the
+         terrain — the "I pass through the ground on Kaukaz" report. Measured
+         here: dropped from y = 60 over the same spot, a tank lands correctly at
+         13.83 (surface 12.27 + collider half-height), so collision was never
+         wrong, only the spawn height was.
+
+         The marker's own y already carries the clearance added by
+         _parseGLBSpawns. The box guess stays as the fallback for a map whose
+         markers carry no height. */
+      const spawnYFor = (sp) => (sp && sp.pos && typeof sp.pos.y === 'number' && isFinite(sp.pos.y))
+        ? sp.pos.y : spawnY;
+      const myStartY = spawnYFor(mySpawn);
+
       this.camAngle = (mySide === 'red' ? 0 : Math.PI) + (this.settings.camRotation || 0);
       const def = TANKS[this.settings.selectedTank] || TANKS.coolbuddy;
       const t = new Tank(def, {
         id:'local', name:this.settings.playerName, isLocal:true,
         x: playerSpawnX, z: playerSpawnZ, heading: mySpawn.ry || 0,
-        physicsWorld:this.physicsWorld, allowFall:true, startY:spawnY
+        physicsWorld:this.physicsWorld, allowFall:true, startY: myStartY
       });
       this._finalizeTank(t); this.tanks.push(t); this.localTank = t;
       this.localTank.team = mySide;
-      this.localTank._spawnPos = {x: playerSpawnX, y: spawnY, z: playerSpawnZ};
+      this.localTank._spawnPos = {x: playerSpawnX, y: myStartY, z: playerSpawnZ};
       // Capture the Circle sends you back to THIS heading on respawn too
       this.localTank._spawnHeading = mySpawn.ry || 0;
       this.localTank._drawHp();
@@ -2905,7 +2951,16 @@ class Game {
        anybody left" bookkeeping both read it, and a Base Defend match has no
        rounds to deactivate. The round COUNTERS stay at zero and are never shown
        — _onTDMKill returns early for this mode, so nothing increments them. */
-    this._tdmState = { blueScore:0, redScore:0, totalKills:0, round:1, blueRoundWins:0, redRoundWins:0, maxRounds:5, roundActive:true };
+    /* THREE ROUNDS, ONE LIFE EACH, TWO MINUTES A ROUND.
+
+       Knockout, not a kill race: a round ends when a side is wiped or the
+       clock runs out, every tank comes back at the start of the next round,
+       and two round wins take the match. `timeLeft` is the clock the top bar
+       draws; `roundKills` is the tie-break when the clock expires with both
+       sides holding the same number of tanks. */
+    this._tdmState = { blueScore:0, redScore:0, totalKills:0, round:1, blueRoundWins:0, redRoundWins:0,
+      maxRounds:3, roundActive:true, timeLeft:TDM_ROUND_TIME, roundTime:TDM_ROUND_TIME,
+      roundKills:{ blue:0, red:0 }, timeUpHandled:false };
     try{ this._tankFavorites = JSON.parse(localStorage.getItem('tankFavorites') || '[]'); }catch(e){ this._tankFavorites = []; }
 
     this._physBodies.forEach(b => {
@@ -3052,16 +3107,36 @@ class Game {
       const playerSpawnX = mySpawn.pos.x;
       const playerSpawnZ = mySpawn.pos.z;
 
+      /* DROP EVERY TANK IN AT ITS OWN MARKER'S HEIGHT.
+
+         `spawnY` above is a guess derived from the WHOLE model's bounding box
+         (bottom + 65% of its height) — one number for the entire map. On Kaukaz
+         that lands at 10.6 while the terrain under the spawn markers is at
+         12.27, so tanks materialised about 1.7 units INSIDE the ground. The
+         solver then pushed the hull out of whichever face it was nearest and
+         the tank ended up under the map, driving on the underside of the
+         terrain — the "I pass through the ground on Kaukaz" report. Measured
+         here: dropped from y = 60 over the same spot, a tank lands correctly at
+         13.83 (surface 12.27 + collider half-height), so collision was never
+         wrong, only the spawn height was.
+
+         The marker's own y already carries the clearance added by
+         _parseGLBSpawns. The box guess stays as the fallback for a map whose
+         markers carry no height. */
+      const spawnYFor = (sp) => (sp && sp.pos && typeof sp.pos.y === 'number' && isFinite(sp.pos.y))
+        ? sp.pos.y : spawnY;
+      const myStartY = spawnYFor(mySpawn);
+
       this.camAngle = (mySide === 'red' ? 0 : Math.PI) + (this.settings.camRotation || 0);
       const def = TANKS[this.settings.selectedTank] || TANKS.coolbuddy;
       const t = new Tank(def, {
         id:'local', name:this.settings.playerName, isLocal:true,
         x: playerSpawnX, z: playerSpawnZ, heading: mySpawn.ry || 0,
-        physicsWorld:this.physicsWorld, allowFall:true, startY:spawnY
+        physicsWorld:this.physicsWorld, allowFall:true, startY: myStartY
       });
       this._finalizeTank(t); this.tanks.push(t); this.localTank = t;
       this.localTank.team = mySide;
-      this.localTank._spawnPos = {x: playerSpawnX, y: spawnY, z: playerSpawnZ};
+      this.localTank._spawnPos = {x: playerSpawnX, y: myStartY, z: playerSpawnZ};
       this.localTank._spawnHeading = mySpawn.ry || 0;
       this.localTank._drawHp();
 
@@ -3132,6 +3207,255 @@ class Game {
     });
   }
 
+  /* ============================================================================
+     STEAL THE FLAG
+     ---------------------------------------------------------------------------
+     A clone of startCaptureTheCircle / startBaseDefend, deliberately — the
+     third team mode in this family, and the reasons below are theirs.
+
+     WHAT IS DIFFERENT: this mode pins its own MAP the way Base Defend does.
+     The two `flag` entities the objectives need are authored into kaukaz.glb
+     specifically — every other roster map ships at most one flag, and on a
+     one-flag map this mode would have no enemy flag to steal at all (the
+     fallback in steal-flag.js._resolveFlags would auto-place one behind each
+     spawn cluster, but that is a rescue, not a design). So a vote for this
+     mode is a vote for an ARENA; the flags belong to the map built to have
+     them, exactly like Base Defend's bases. The voted map is still passed to
+     _fitWorldToMap, in case a future vote should be able to resize kaukaz.
+
+     Like Base Defend this mode has UNLIMITED respawns (the shared branch in
+     update()), does NOT end rounds on a wipe (the _onTDMKill early return
+     below), and sets _tdmState so the out-of-bounds void kill runs.
+
+     NET: on a client the mode instance is marked _client at init; take/score
+     rules only run on the host, and all state arrives in the snapshots
+     published alongside `bases` below — the same 2-tone discipline
+     base-defend.js documents in its own file.
+     ========================================================================= */
+  startStealFlag(){
+    /* THE SHARED RE-ENTRY GUARD — see the long note in startCaptureTheCircle. */
+    if(this._tdmLoading) return;
+    this._tdmLoading = true;
+    if(this.running || (this.tanks && this.tanks.length)) this._resetArena();
+
+    this.mode='sp';
+    this._resetArena();
+    this._noParticles = true;
+    this._applyParticlePolicy();
+    this._stealFlagMode = true;
+    /* THREE ROUNDS, ONE LIFE EACH, TWO MINUTES A ROUND.
+
+       Knockout, not a kill race: a round ends when a side is wiped or the
+       clock runs out, every tank comes back at the start of the next round,
+       and two round wins take the match. `timeLeft` is the clock the top bar
+       draws; `roundKills` is the tie-break when the clock expires with both
+       sides holding the same number of tanks. */
+    this._tdmState = { blueScore:0, redScore:0, totalKills:0, round:1, blueRoundWins:0, redRoundWins:0,
+      maxRounds:3, roundActive:true, timeLeft:TDM_ROUND_TIME, roundTime:TDM_ROUND_TIME,
+      roundKills:{ blue:0, red:0 }, timeUpHandled:false };
+    try{ this._tankFavorites = JSON.parse(localStorage.getItem('tankFavorites') || '[]'); }catch(e){ this._tankFavorites = []; }
+
+    this._physBodies.forEach(b => {
+      try { this.physicsWorld.removeRigidBody(b); } catch(e){}
+    });
+    this._physBodies = [];
+    this.physicsWorld.gravity = {x:0, y:-12, z:0};
+
+    const loadingEl = document.getElementById('loading-overlay');
+    if(loadingEl) loadingEl.classList.remove('hidden');
+
+    /* Same 12s safety net every mode starter arms — see the Circle version. */
+    this._battleStartToken = (this._battleStartToken || 0) + 1;
+    const guardToken = this._battleStartToken;
+    clearTimeout(this._guardSafetyTimer);
+    this._guardSafetyTimer = setTimeout(() => {
+      if(this._battleStartToken === guardToken) this._tdmLoading = false;
+    }, 12000);
+    this._releaseGuard = () => {
+      clearTimeout(this._guardSafetyTimer);
+      this._tdmLoading = false;
+    };
+
+    const voted = this._votedMap;
+    this._votedMap = null;
+
+    const cfg = GAMEMODES.stealFlag;
+    /* THE MODE'S OWN MAP, ALWAYS — and the boundary declared in the MODE cfg
+       when no vote named kaukaz itself (solo play never opens a vote).
+       Without this, _fitWorldToMap would derive 640 from kaukaz's full
+       terrain span and hand the boundary a good 100 units past the last
+       spawn marker. */
+    const mapArg = (voted && voted.glb) ? voted : cfg;
+    const mapForFit = (voted && voted.worldHalf) ? voted : cfg;
+    const glbUrl = (voted && voted.glb) ? voted.glb : (cfg.glbUrl || 'assets/maps/kaukaz.glb');
+    const modelScale = (voted && voted.glb) ? (voted.scale || cfg.glbScale || 120) : (cfg.glbScale || 120);
+    /* Same pre-declared floor two other modes set; _fitWorldToMap below
+       refines it once the real box is measured. */
+    this.world.size = 1000;
+    this.world.half = 500;
+
+    try { if(window.__mtlMark) window.__mtlMark('battle:load-map'); } catch(e){}
+    try {
+      if(typeof BootLoading !== 'undefined'){
+        BootLoading.set('Downloading Steal the Flag battlefield', 35);
+      }
+    } catch(e){}
+
+    this.world.loadGLBModel(glbUrl, modelScale).then(grp => {
+      /* EVERY exit releases the guard — see the Circle note. */
+      if(!grp){
+        if(loadingEl) loadingEl.classList.add('hidden');
+        this._tdmLoading = false;
+        try { if(typeof BootLoading !== 'undefined') BootLoading.hide(0); } catch(e){}
+        Menu.toast('Failed to load steal flag map');
+        return;
+      }
+
+      this._sandboxBuildTrimesh(grp);
+      grp.updateMatrixWorld(true);
+
+      const box = new THREE.Box3().setFromObject(grp);
+      const center = box.getCenter(new THREE.Vector3());
+      const modelBottom = box.min.y;
+      const spawnY = modelBottom + (box.max.y - modelBottom) * 0.65;
+      this.world._tdmBox = box;
+      this._fitWorldToMap(box, mapForFit);
+
+      try { if(typeof BootLoading !== 'undefined') BootLoading.set('Placing spawns', 70); } catch(e){}
+
+      const spawns = this._parseGLBSpawns(grp, modelScale);
+      this._tdmSpawns = spawns;
+
+      let blueSpawns = spawns.filter(s => s.team === 'blue');
+      let redSpawns = spawns.filter(s => s.team === 'red');
+
+      if(!blueSpawns.length && !redSpawns.length){
+        const teamSpawns = spawns.filter(s => s.team === null || s.team === undefined);
+        if(teamSpawns.length >= 2){
+          const half = Math.ceil(teamSpawns.length / 2);
+          blueSpawns = teamSpawns.slice(0, half);
+          redSpawns = teamSpawns.slice(half);
+          blueSpawns.forEach(s => s.team = 'blue');
+          redSpawns.forEach(s => s.team = 'red');
+        }
+      }
+
+      if(!blueSpawns.length || !redSpawns.length){
+        /* Same geometry fallback the Circle does — the flag auto-placement in
+           steal-flag.js handles a missing marker on its side too. */
+        const hx = (box.max.x - box.min.x) / 2;
+        const hz = (box.max.z - box.min.z) / 2;
+        blueSpawns = [];
+        redSpawns = [];
+        for(let i = 0; i < (cfg.teamSize || 5); i++){
+          blueSpawns.push({pos:{x:center.x + hx*0.6, y:spawnY, z:center.z - hz*0.15 + (i/(cfg.teamSize||5))*hz*0.3}, ry:0, team:'blue'});
+          redSpawns.push({pos:{x:center.x - hx*0.6, y:spawnY, z:center.z - hz*0.15 + (i/(cfg.teamSize||5))*hz*0.3}, ry:Math.PI, team:'red'});
+        }
+      }
+
+      this._tdmBlueSpawns = this._clampSpawnsToMap(blueSpawns, box, 14);
+      this._tdmRedSpawns  = this._clampSpawnsToMap(redSpawns, box, 14);
+
+      const spawnBlue = this._shuffledSpawns(this._tdmBlueSpawns, 0);
+      const spawnRed  = this._shuffledSpawns(this._tdmRedSpawns, 1);
+
+      const humans = this._rosterHumans();
+      const assign = this._planTeamAssignments(spawnBlue, spawnRed, humans.length);
+      const mySide = assign.plan[0] || 'blue';
+      const myPool = mySide === 'blue' ? spawnBlue : spawnRed;
+      const mySpawn = (myPool && myPool[0]) || spawnBlue[0] || this._tdmBlueSpawns[0];
+
+      const playerSpawnX = mySpawn.pos.x;
+      const playerSpawnZ = mySpawn.pos.z;
+
+      /* DROP EVERY TANK IN AT ITS OWN MARKER'S HEIGHT.
+
+         `spawnY` above is a guess derived from the WHOLE model's bounding box
+         (bottom + 65% of its height) — one number for the entire map. On Kaukaz
+         that lands at 10.6 while the terrain under the spawn markers is at
+         12.27, so tanks materialised about 1.7 units INSIDE the ground. The
+         solver then pushed the hull out of whichever face it was nearest and
+         the tank ended up under the map, driving on the underside of the
+         terrain — the "I pass through the ground on Kaukaz" report. Measured
+         here: dropped from y = 60 over the same spot, a tank lands correctly at
+         13.83 (surface 12.27 + collider half-height), so collision was never
+         wrong, only the spawn height was.
+
+         The marker's own y already carries the clearance added by
+         _parseGLBSpawns. The box guess stays as the fallback for a map whose
+         markers carry no height. */
+      const spawnYFor = (sp) => (sp && sp.pos && typeof sp.pos.y === 'number' && isFinite(sp.pos.y))
+        ? sp.pos.y : spawnY;
+      const myStartY = spawnYFor(mySpawn);
+
+      this.camAngle = (mySide === 'red' ? 0 : Math.PI) + (this.settings.camRotation || 0);
+      const def = TANKS[this.settings.selectedTank] || TANKS.coolbuddy;
+      const t = new Tank(def, {
+        id:'local', name:this.settings.playerName, isLocal:true,
+        x: playerSpawnX, z: playerSpawnZ, heading: mySpawn.ry || 0,
+        physicsWorld:this.physicsWorld, allowFall:true, startY: myStartY
+      });
+      this._finalizeTank(t); this.tanks.push(t); this.localTank = t;
+      this.localTank.team = mySide;
+      this.localTank._spawnPos = {x: playerSpawnX, y: myStartY, z: playerSpawnZ};
+      /* Steal the Flag respawns you at THIS exact point too */
+      this.localTank._spawnHeading = mySpawn.ry || 0;
+      this.localTank._drawHp();
+
+      const mapTeamSize = Math.min(blueSpawns.length, redSpawns.length);
+      const teamSize = (cfg.teamSize && mapTeamSize >= cfg.teamSize) ? cfg.teamSize
+                     : (mapTeamSize > 0 ? mapTeamSize : (cfg.teamSize || 5));
+
+      let usedBlue = (mySide === 'blue') ? 1 : 0, usedRed = (mySide === 'red') ? 1 : 0;
+      for(let i = 0; i < humans.length; i++){
+        const side = assign.plan[i + 1] || 'blue';
+        const pool = side === 'blue' ? spawnBlue : spawnRed;
+        const sp = pool[(side === 'blue' ? usedBlue : usedRed) % pool.length] || spawnBlue[0];
+        this._spawnRemoteHuman(humans[i], sp, spawnYFor(sp), side);
+        if(side === 'blue') usedBlue++; else usedRed++;
+      }
+      for(let i = usedBlue; i < teamSize; i++){
+        const sp = spawnBlue[i % spawnBlue.length];
+        this._spawnTDMBot(sp.pos.x, sp.pos.z, spawnYFor(sp), 'blue');
+      }
+      for(let i = usedRed; i < Math.min(teamSize, redSpawns.length); i++){
+        const sp = spawnRed[i % spawnRed.length];
+        this._spawnTDMBot(sp.pos.x, sp.pos.z, spawnYFor(sp), 'red');
+      }
+      this._spawnGlowRects(blueSpawns, redSpawns);
+
+      /* THE FLAGS. Marks come from the loader's traversal of the same GLB —
+         kaukaz ships `flag.002` and `flag.003`, one per base; the mode
+         assigns each to the spawn cluster it sits in and falls back to an
+         auto-placed flag behind a side with no marker. */
+      StealFlag.init(this, {
+        blueSpawns: this._tdmBlueSpawns,
+        redSpawns:  this._tdmRedSpawns,
+        box, spawnY,
+        client: this._netRole === 'client',
+      });
+
+      setTimeout(() => {
+        if(this.mode === null){
+          if(loadingEl) loadingEl.classList.add('hidden');
+          this._tdmLoading = false;
+          return;
+        }
+        if(loadingEl) loadingEl.classList.add('hidden');
+        this._tdmLoading = false;
+        this._begin(true);
+        Menu.toast('Steal the Flag — ' + teamSize + 'v' + teamSize +
+          ' — Steal their flag, bring it home (' + (cfg.pointsToWin || 5) + ' points to win)');
+      }, 300);
+    }).catch(err => {
+      console.error('Steal Flag GLB load error:', err);
+      if(loadingEl) loadingEl.classList.add('hidden');
+      this._tdmLoading = false;
+      try { if(typeof BootLoading !== 'undefined') BootLoading.hide(0); } catch(e){}
+      Menu.toast('Error loading steal flag map');
+    });
+  }
+
   _parseGLBSpawns(grp, scale){
     const spawns = [];
     grp.traverse(obj => {
@@ -3158,7 +3482,20 @@ class Game {
         const e = new THREE.Euler().setFromQuaternion(q, 'YXZ');
         ry = e.y;
       }
-      spawns.push({ name:obj.name, team, pos:{x:worldPos.x, y:worldPos.y, z:worldPos.z}, ry });
+      /* SPAWN A LITTLE ABOVE THE MARKER, NOT ON IT.
+
+         The markers are authored sitting exactly ON the terrain surface, so a
+         tank placed at that y starts life INTERSECTING the ground trimesh. The
+         solver then resolves that penetration by pushing the hull out of the
+         wrong face and the tank ends up underneath the map — measured on
+         Kaukaz: spawn marker at y = 12.30 on ground at y = 12.27, tank settled
+         at y = 0.22, i.e. 12 units below the surface the player is looking at.
+
+         Six units of clearance turns that into an ordinary short drop onto the
+         surface. It is applied to every map because every map authored its
+         markers the same way, and a six-unit fall at spawn is imperceptible. */
+      const SPAWN_LIFT = 6;
+      spawns.push({ name:obj.name, team, pos:{x:worldPos.x, y:worldPos.y + SPAWN_LIFT, z:worldPos.z}, ry });
     });
     return spawns;
   }
@@ -3277,6 +3614,13 @@ class Game {
   _onTDMKill(killer, victim){
     if(!this._tdmState || !this._tdmState.roundActive) return;
     this._tdmState.totalKills++;
+    /* Per-round kills, for the one case a knockout round cannot decide on its
+       own: the clock expires with the same number of tanks still standing.
+       Without this the round would have to be called a draw even though one
+       side had clearly been winning the fight. */
+    if(this._tdmMode && this._tdmState.roundKills && killer && killer.team){
+      this._tdmState.roundKills[killer.team] = (this._tdmState.roundKills[killer.team] || 0) + 1;
+    }
     // Capture the Circle has mid-match respawns — a wipe here is temporary,
     // never a round end. The zone's 100% capture stays the only win condition.
     if(this._captureCircleMode) return;
@@ -3286,7 +3630,9 @@ class Game {
        one side was briefly empty, which in a mode decided entirely by base
        health is a loss decided by a respawn timer. Only the bases end it. */
     if(this._baseDefendMode) return;
-    // Check if a team is eliminated
+    /* Same for Steal the Flag: unlimited respawns mean a wipe ends nothing;
+       only points and the clock end it (see steal-flag.js). */
+    if(this._stealFlagMode) return;
     const blueAlive = this.tanks.filter(t => t.team === 'blue' && t.alive && !t.dying && !t.isDummy && !t.isPanzer).length;
     const redAlive = this.tanks.filter(t => t.team === 'red' && t.alive && !t.dying && !t.isDummy && !t.isPanzer).length;
     if(blueAlive === 0){
@@ -3298,12 +3644,18 @@ class Game {
     }
   }
 
+  /* END OF A ROUND.
+
+     `winningTeam` is 'blue', 'red' or null for a draw — a knockout round that
+     ran out of clock with both sides holding the same number of tanks AND the
+     same kills. A draw still ends the round (the next one starts, the tanks
+     come back), it just awards nobody a point. */
   _tdmEndRound(winningTeam){
     if(!this._tdmState || !this._tdmState.roundActive) return;
     this._tdmState.roundActive = false;
-    if(winningTeam === 'blue') this._tdmState.blueRoundWins++;
-    else this._tdmState.redRoundWins++;
     const s = this._tdmState;
+    if(winningTeam === 'blue') s.blueRoundWins++;
+    else if(winningTeam === 'red') s.redRoundWins++;
     const roundLabel = 'Round ' + s.round + ' of ' + s.maxRounds;
     /* EVERY TEAM NAME IN THIS LINE IS RELATIVE. The counters stay keyed on the real
        blue/red ids (that is the state), but what the player is told is always
@@ -3313,11 +3665,31 @@ class Game {
     const winName = this._displaySide(winningTeam) === 'blue' ? 'Blue' : 'Red';
     const myRounds = this._displaySide('blue') === 'blue' ? s.blueRoundWins : s.redRoundWins;
     const theirRounds = this._displaySide('blue') === 'blue' ? s.redRoundWins : s.blueRoundWins;
-    Menu.toast(roundLabel + ' — ' + winName + ' wins! Score: Blue ' + myRounds + ' - ' + theirRounds + ' Red');
-    // Check if match is over
+    Menu.toast(roundLabel + (winningTeam
+      ? ' — ' + winName + ' wins! Score: Blue ' + myRounds + ' - ' + theirRounds + ' Red'
+      : ' — Draw. Score: Blue ' + myRounds + ' - ' + theirRounds + ' Red'));
+    /* Check if match is over. Two ways to be over: one side reached the wins
+       it needs, or the rounds ran out (3 rounds, 2 to win, a draw can leave
+       it 1-1 with nothing left to play). */
     const winsNeeded = Math.ceil(s.maxRounds / 2);
-    if(s.blueRoundWins >= winsNeeded || s.redRoundWins >= winsNeeded){
-      const matchWinner = s.blueRoundWins >= winsNeeded ? 'blue' : 'red';
+    const exhausted = s.round >= s.maxRounds;
+    if(s.blueRoundWins >= winsNeeded || s.redRoundWins >= winsNeeded || exhausted){
+      const matchWinner = s.blueRoundWins > s.redRoundWins ? 'blue'
+        : s.redRoundWins > s.blueRoundWins ? 'red' : null;
+      if(!matchWinner){
+        setTimeout(() => {
+          if(!this.running) return;
+          Menu.toast('Match over! Draw ' + myRounds + '-' + theirRounds + '!');
+          this._awardBattleCash({
+            damage: this.localTank ? (this.localTank.damageDealt || 0) : 0,
+            assists: this.localTank ? (this.localTank.assists || 0) : 0,
+            kills:  this.localTank ? (this.localTank.kills || 0) : 0,
+            won: false,
+          });
+          this._showResults({ outcome: 'draw', headline: 'DRAW' });
+        }, 2000);
+        return;
+      }
       /* THE MATCH IS OVER — GO TO THE RESULTS SCREEN, NOT THE MENU.
 
          This used to toast the winner and drop the player straight back to the
@@ -3359,9 +3731,13 @@ class Game {
 
   _tdmStartRound(){
     if(!this._tdmState) return;
-    this._tdmState.round++;
-    this._tdmState.roundActive = true;
     const s = this._tdmState;
+    s.round++;
+    s.roundActive = true;
+    /* New round, new 2-minute clock and a fresh kill tally for the tie-break. */
+    s.timeLeft = s.roundTime || TDM_ROUND_TIME;
+    s.roundKills = { blue:0, red:0 };
+    s.timeUpHandled = false;
     Menu.toast('Round ' + s.round + ' of ' + s.maxRounds + ' — Blue ' + s.blueRoundWins + ' - ' + s.redRoundWins + ' Red');
     // Respawn all tanks at their spawn positions
     const blueSpawns = this._tdmBlueSpawns || [];
@@ -3737,50 +4113,35 @@ class Game {
     // Fixed spawn point = easy to camp, so hand out the same shield the
     // initial spawn gets (countdown / _spawnInvuln).
     tank._spawnInvuln = cfg.spawnShield || 3;
+
+    /* THE FIRST FIVE SECONDS OF A NEW LIFE.
+
+       A fixed spawn point is campable, and the shield only stops the damage —
+       it does not stop a teammate parking on the pad, or the player hosing the
+       trigger the instant they appear. So, for people (bots keep their old
+       timings, because their whole loop is timed around them):
+
+         * the gun and the super are locked for 5s (Tank._spawnLockT);
+         * the hull is a GHOST for 5s — it passes through other tanks but not
+           through the world (Tank.setGhostMode);
+         * and if the 5s ends while somebody is still inside the hull, the
+           ghost stays on until they are clear (Tank._ghostPhase 2), so
+           becoming solid again can never eject a tank across the map.
+
+       The shield is stretched to match: being shot while unable to shoot back
+       for five seconds would be the worst possible version of this rule. */
+    if(!tank.brain){
+      tank._spawnLockT = 5;
+      tank._ghostPhase = 1;
+      tank._ghostT = 5;
+      tank.setGhostMode(true);
+      tank._spawnInvuln = Math.max(tank._spawnInvuln, 5.0);
+    }
+
     if(tank === this.localTank){
       this._stopSpectate();
       if(this.input && this.input.setJoysticksVisible) this.input.setJoysticksVisible(true);
-      Menu.toast('Respawned at your spawn point!');
-    }
-  }
-
-  _checkTDMBushes(tank){
-    if(!tank.alive || tank.dying) return;
-    const bushes = (this.world && this.world.bushes) || [];
-    if(!bushes.length) return;
-    let inBush = false;
-    const r = CONFIG.BUSH_HIDE_RADIUS || 3.2;
-    for(const b of bushes){
-      const dx = tank.x - b.x, dz = tank.z - b.z;
-      const dist = Math.sqrt(dx*dx + dz*dz);
-      if(dist < (b.radius || r) + 3){
-        inBush = true;
-        break;
-      }
-    }
-    if(tank._inTDMBush !== inBush){
-      tank._inTDMBush = inBush;
-      if(tank.root){
-        tank.root.traverse(o => {
-          if(o.isMesh && o.material){
-            if(inBush){
-              if(o.material._savedOpacity === undefined){
-                o.material._savedOpacity = o.material.opacity;
-                o.material._savedTransparent = o.material.transparent;
-              }
-              o.material.transparent = true;
-              o.material.opacity = (o.material._savedOpacity || 1) * 0.5;
-            } else {
-              if(o.material._savedOpacity !== undefined){
-                o.material.opacity = o.material._savedOpacity;
-                o.material.transparent = o.material._savedTransparent;
-                delete o.material._savedOpacity;
-                delete o.material._savedTransparent;
-              }
-            }
-          }
-        });
-      }
+      Menu.toast('Respawned — ghost mode: you pass through tanks for 5s, no firing');
     }
   }
 
@@ -3845,8 +4206,29 @@ class Game {
        it can also be applied BEFORE the map has loaded -- which gladiator has
        to do, because _initGladiator reads world.half to size its zone. Maps
        that do not declare one are completely unaffected. */
+    /* A DECLARED BOUNDARY MAY ONLY EVER WIDEN THE ARENA, NEVER CUT IT SHORT.
+
+       The declaration exists so a map can be bounded by where its FIGHT is
+       rather than by where its scenery ends — but several maps shipped numbers
+       that no longer match their own terrain, and the result is an invisible
+       wall standing in the middle of visible ground:
+
+           map            declared   terrain    wall sat this far inside
+           dreamland        329        505         ~180 units
+           kaukaz           470        593         ~126 units
+           shootingrange    351        381          ~33 units
+
+       A player who drives into that has been stopped by nothing, which is the
+       single most "the game is broken" thing a boundary can do. Taking the
+       larger of the two keeps every declaration that genuinely fits inside its
+       terrain (The Hill at 187 against a 176-unit terrain still wins over its
+       own derived 190 only by a whisker) while making it impossible for a
+       boundary to fall inside the ground the player can see.
+
+       The 500 floor still applies to maps that declare nothing, so a small or
+       degenerate model cannot squeeze the arena shut. */
     const declared = this._declaredWorldHalf(map);
-    this.world.half = declared || Math.max(500, derived);
+    this.world.half = declared ? Math.max(declared, derived) : Math.max(500, derived);
     this.world.size = this.world.half * 2;
   }
 
@@ -4059,6 +4441,10 @@ _clearGladState(){
         textures and its HUD panel into the next mode — and into the one after
         that, one set at a time. */
      if(typeof BaseDefend !== 'undefined') BaseDefend.dispose();
+     /* Steal the Flag joins the same teardown: the flags' pole, cloth,
+        panels and HUD strip would leak into the next match exactly the way
+        the bases did. */
+     if(typeof StealFlag !== 'undefined') StealFlag.dispose();
      if(this._gladZoneMesh){ this.scene.remove(this._gladZoneMesh); this._gladZoneMesh.geometry.dispose(); this._gladZoneMesh.material.dispose(); this._gladZoneMesh = null; }
      if(this._gladZoneTex) this._gladZoneTex.dispose();
      if(this._gladMarker){ this.scene.remove(this._gladMarker); if(this._gladMarkerTex) this._gladMarkerTex.dispose(); this._gladMarker = null; this._gladMarkerCanvas = null; this._gladMarkerTex = null; this._gladMarkerKey = null; }
@@ -5618,7 +6004,10 @@ _gladZoneNotice(text){
       /* A client that joins mid-match gets the bases at their current health
          from here, so it does not open the arena showing two undamaged bases in
          a match that is half over. */
+      /* Steal the Flag joins the same full-state payload: a client joining
+         mid-match gets scores, clock and every flag position at once. */
       bases: this._baseDefendMode ? BaseDefend.snapshot() : null,
+      flags: this._stealFlagMode ? StealFlag.snapshot() : null,
       tanks: this.tanks.map(tk => tk.snapshot()),
       projs: this.projectiles.filter(p=>!p.dead).map(p=>({id:p.id,x:p.x,y:p.y,z:p.z,dx:p.dir.x,dz:p.dir.z,type:p.type,life:p.life,mt:p._isMortar?1:0}))
     });
@@ -6135,6 +6524,7 @@ Net.sendJoinInfo(
     if(snap.time) this.time = snap.time;
     if(snap.glad) this._gladApplyHostSnapshot(snap.glad);
     if(snap.bases) BaseDefend.applyHostSnapshot(snap.bases);
+    if(snap.flags) StealFlag.applyHostSnapshot(snap.flags);
 
     /* A queued client opens its arena from the HOST'S MAP ANNOUNCEMENT, not
        from the first snapshot.
@@ -6578,6 +6968,10 @@ Net.sendJoinInfo(
   }
 
   _resetArenaInner(){
+    /* A respawn shot belongs to the battle it was filmed in. Left running it
+       would keep the camera and a full-screen letterbox over the main menu,
+       and keep ticking a corpse that the reset is about to delete. */
+    try { this._respawnCineEnd(); } catch(e){}
     this._clearGladState();
     /* Team radio is per-battle. Carrying it across matches would let a fresh
        round's bots "remember" contacts that belonged to the previous map, and
@@ -6604,6 +6998,7 @@ Net.sendJoinInfo(
        match only, and so a second result screen cannot stack on the first. */
     this._resultsShown = false;
     this._trophyAwardedThisMatch = false;
+    this._researchXPAwarded = false;
     this._skipPending = false;
     /* No closing shot left over from the last battle. The one that matters is
        in leaveToMenu, which is where a shot actually gets interrupted; this is
@@ -6700,6 +7095,7 @@ Net.sendJoinInfo(
       this.world.clearCustomMapData();
       this.world._glbBushes = [];
       this.world._glbPines = [];
+      this.world._defaultsLockedHidden = false;
       this.world.showDefaults();
     }
     // A fresh match must never inherit spectator state from a previous one
@@ -6715,16 +7111,6 @@ Net.sendJoinInfo(
       const _sbar = document.getElementById('spectate-bar');
       if(_sbar) _sbar.classList.add('hidden');
     } catch(e){}
-    if(this._helixVideos){
-      for(const [, hv] of this._helixVideos){
-        hv.el.pause(); hv.el.currentTime = 0;
-        if(hv.parent) hv.parent.remove(hv.mesh);
-        hv.mesh.geometry.dispose();
-        hv.mesh.material.dispose();
-        this._disposeVideoTex(hv.tex, hv.el);
-      }
-      this._helixVideos.clear();
-    }
     if(this._videoExplosions){
       for(const v of this._videoExplosions){
         this.scene.remove(v.mesh);
@@ -6784,6 +7170,14 @@ Net.sendJoinInfo(
        means the respawn loop and _onTDMKill's early return keep firing in the
        NEXT mode. */
     this._baseDefendMode = false;
+    /* Steal the Flag is the third mode with a live module instance to drop:
+       same reason as _baseDefendMode above — a flag left set keeps the
+       respawn loop, the kill-run return and the speed hook firing in the
+       NEXT mode. */
+    this._stealFlagMode = false;
+    /* Team Deathmatch's own flag: the round clock and the timeout rule hang
+       off it, and a stale one would tick in the next mode. */
+    this._tdmMode = false;
     this._spWinDone = false;
     this._shake = 0;
     this._dynTurretTarget = undefined;
@@ -8262,8 +8656,10 @@ Net.sendJoinInfo(
     }
     // -- Shadow budget -------------------------------------------------
     // A shadow map means rendering the whole scene a second time from the
-    // light's point of view. Rebuilding it every other frame halves that
-    // GPU cost; a one-frame-old shadow is invisible at tank speeds.
+    // light's point of view. Rebuilding it every THIRD frame cuts that GPU
+    // cost to a third of a full-rebuild renderer; a shadow two frames old is
+    // still invisible at tank speeds under the top-down camera (the pass
+    // also snaps forward the moment something teleports, via _shadowDirty).
     const _rsm = this.renderer.shadowMap;
     if(_rsm.enabled){
       _rsm.autoUpdate = false;
@@ -8275,7 +8671,7 @@ Net.sendJoinInfo(
         for(const c of this.tanks) if(c && c.alive && Math.hypot(c.x - this.localTank.x, c.z - this.localTank.z) < 70) near++;
         this._tanksNear = near;
       }
-      const shadowEvery = (document.body.classList.contains('is-mobile') ? 3 : 2) + ((this._tanksNear || 0) >= 5 ? 1 : 0);
+      const shadowEvery = 3 + ((this._tanksNear || 0) >= 5 ? 1 : 0);
       if(this._shadowDirty || this._shadowFrame <= 2 || (this._shadowFrame % shadowEvery) === 0){
         _rsm.needsUpdate = true;
         this._shadowDirty = false;
@@ -8342,7 +8738,20 @@ Net.sendJoinInfo(
      but never more than CONFIG.SHOT_PITCH_DEG from level. A target outside that
      wedge cannot be hit from here: the shell flies the wedge's edge and you have
      to back up until the target is inside it. */
-  _shotOrigin(t){ return (t.root ? t.root.position.y : 0) + (t.colOffY || 0); }
+  /* The height a shot leaves from, and the height the aim line / pitch solve
+     is measured from. It MUST be the muzzle: the shell, the flash and the
+     drawn ribbon now all start at the barrel tip, so a pitch computed from the
+     hull centre would draw a line that starts at the gun and bends away from
+     the round it is predicting. Falls back to the hitbox centre only when a
+     rig has no sane muzzle to offer. */
+  _shotOrigin(t){
+    try {
+      const m = t.muzzle();
+      const y = m && m.pos ? m.pos.y : null;
+      if(isFinite(y) && y > (t.root ? t.root.position.y : 0) + 0.1) return y;
+    } catch(e){}
+    return (t.root ? t.root.position.y : 0) + (t.colOffY || 0);
+  }
 
   /* Upper part of the hull: a shot at the centre of a low tank on a ledge clips the
      ledge's corner on the way up. */
@@ -8410,11 +8819,24 @@ Net.sendJoinInfo(
     /* Start below the sky: maps carry domes in their collision mesh. */
     const startY = Math.min(o.y, t.root.position.y + 45);
     const k = (startY - o.y) / d.y;
+    /* NO AUTO AIM: THE RAY LOOKS THROUGH TANKS.
+
+       This predicate used to ACCEPT enemy tanks, which made the aim a snap-to
+       target: sweep the cursor past an enemy and the moment the ray grazed its
+       hull, `hitTank` below overwrote the yaw with the direction to that tank's
+       CENTRE and the gun jumped off the cursor onto it. Point at the ground a
+       hull's width to its left and you were aiming at the hull.
+
+       The player asked for the gun to go where they point, so the ray now stops
+       only on the world -- terrain, walls, props -- and tanks are see-through
+       as far as AIMING is concerned. They still stop the SHELL (and still stop
+       the impact reticle, which is a different cast), so nothing about what a
+       shot hits has changed; only where the barrel is told to point. */
     const pred = (c) => {
       const u = c && c.userData;
       if(!u) return true;
       if(u.type === 'shell') return false;
-      if(u.type === 'tank') return this._isVisibleEnemy(t, u.tank);
+      if(u.type === 'tank') return false;
       return true;
     };
     let hit = null;
@@ -8656,7 +9078,7 @@ Net.sendJoinInfo(
     overlay.classList.add('bi-in');
     overlay.setAttribute('aria-hidden', 'false');
     clearTimeout(this._battleIntroTimer);
-    this._battleIntroTimer = setTimeout(() => { try { this._hideBattleIntro(); } catch(e){} }, 2500);
+    this._battleIntroTimer = setTimeout(() => { try { this._hideBattleIntro(); } catch(e){} }, 1200);
   }
   _hideBattleIntro(){
     const overlay = document.getElementById('battle-intro');
@@ -8669,7 +9091,7 @@ Net.sendJoinInfo(
       overlay.classList.add('hidden');
       overlay.classList.remove('bi-out');
       overlay.setAttribute('aria-hidden', 'true');
-    }, 420);
+    }, 250);
   }
   _populateTankSwitchList(){
     /* TankPick (friend's pre-battle menus) disabled - the user's tank selector (ts-grid) and the battle-intro (two-rectangle animation) are used instead. */
@@ -9027,6 +9449,11 @@ Net.sendJoinInfo(
     if(this.glad && !this.glad._client) this._gladUpdate(dt);
     if(this.glad && this.glad.airdrop) this._gladUpdateAirdropVis(dt);
     if(typeof CaptureCircle !== 'undefined' && CaptureCircle.getState()) CaptureCircle.update(dt);
+    /* Steal the Flag sits in the same row: module-live between init and
+       dispose, and on a client it lives on from the host's first snapshot —
+       its update() then only rides carriers and repaints panels; all
+       decisions come from the snapshots. */
+    if(typeof StealFlag !== 'undefined' && this._stealFlagMode && StealFlag.getState()) StealFlag.update(dt);
     /* getState() rather than a flag, for the same reason the Circle uses it:
        the module is only "live" between init and dispose, and on a client it
        lives on from the host's first snapshot. Calling update on a disposed
@@ -9052,6 +9479,27 @@ Net.sendJoinInfo(
          2→3 (or 3→2) border flips the LAYOUT, not just the distance — third
          person below the border, high strategic view above it. */
       if(zoom !== 0 && !(this._cinematicPhase || this._matchStartDelay > 0)){
+        /* WHAT THE WHEEL CHANGES.
+
+           'distance' (default): step the six CAMERA_STOPS, i.e. pull the
+           camera back and in.
+
+           'angle': keep the camera at ONE distance and scroll the pitch
+           through CONFIG.CAM_PITCH_OPTIONS instead. Steeper is the "closer"
+           direction, because a view from more directly overhead frames less of
+           the field — so the same wheel direction that zooms in on distance
+           tilts further over the tank here. */
+        if(this.settings && this.settings.zoomMode === 'angle'){
+          const opts = CONFIG.CAM_PITCH_OPTIONS || [];
+          const cur = (typeof this.settings.camPitchIdx === 'number') ? this.settings.camPitchIdx : 0;
+          const next = Math.max(0, Math.min(opts.length - 1, Math.round(cur + zoom)));
+          if(next !== cur){
+            this.settings.camPitchIdx = next;
+            try { if(typeof saveSettings === 'function') saveSettings(this.settings); } catch(e){}
+            /* No camera snap: this is a continuous tilt of the same perch, so
+               the usual lerp reads as a zoom rather than a cut. */
+          }
+        } else {
         const oldStage = this._camStage;
         this._camStage = Math.max(0, Math.min(CONFIG.CAMERA_STOPS.length - 1,
           this._camStage - zoom));
@@ -9065,6 +9513,7 @@ Net.sendJoinInfo(
           this.settings.cameraStage = this._camStage;
           try { if(typeof saveSettings === 'function') saveSettings(this.settings); } catch(e){}
           this._onStageChange(wasStrat, nowStrat);
+        }
         }
       }
     } else if(zoom !== 0){
@@ -9255,6 +9704,22 @@ Net.sendJoinInfo(
           this._aimPitch = 0;
         } else {
           turretAngle = this._mouseWorldAngle();
+          /* ARTILLERY TURNS TO THE POINT THE CURSOR IS ON.
+
+             _mortarCursorAim is the same solve the arc and the shell use, so the
+             barrel and the impact ring cannot point at different places. It used
+             to fold the lower half of the screen forward, which is why aiming at
+             the bottom of the view swung the gun the opposite way; the fold is
+             gone, so this is now simply the cursor's own bearing, snapped onto
+             the ground the pick is actually over. */
+          if(this.localTank && this.localTank.def &&
+             this.localTank.def.shellType === 'mortar' &&
+             this.localTank.isLocal){
+            const fc = this._mortarCursorAim(this.localTank,
+                                             this.localTank.x, this.localTank.z);
+            if(fc) turretAngle = Math.atan2(fc.x - this.localTank.x,
+                                            fc.z - this.localTank.z);
+          }
           /* The other camera modes aim the turret from the pointer itself, so
              the mortar's range comes from the same cursor instead of the mouse.
              Consume the axis anyway so it cannot arrive late as a jump. */
@@ -9426,6 +9891,32 @@ Net.sendJoinInfo(
     });
     if(!this._botDebugLogged && this._matchStartDelay <= 0) this._botDebugLogged = true;
 
+    /* TDM ROUND CLOCK.
+
+       Knockout with a deadline: two minutes a round, and when it expires the
+       side with more tanks still standing takes it. If both sides are level on
+       tanks, the round kills decide; if those are level too, the round is a
+       draw and nobody scores. Ticked here, in the simulation update, so the
+       clock stops with the round and during the countdown instead of running
+       behind a paused arena. */
+    if(this._tdmMode && this._tdmState && this._tdmState.roundActive
+        && (this._matchStartDelay || 0) <= 0 && !this._cinematicPhase){
+      const s = this._tdmState;
+      if(s.timeLeft == null) s.timeLeft = s.roundTime || TDM_ROUND_TIME;
+      s.timeLeft = Math.max(0, s.timeLeft - dt);
+      if(s.timeLeft <= 0 && !s.timeUpHandled){
+        s.timeUpHandled = true;
+        const aliveOf = (team) => this.tanks.filter(t =>
+          t.team === team && t.alive && !t.dying && !t.isDummy && !t.isPanzer).length;
+        const bAlive = aliveOf('blue'), rAlive = aliveOf('red');
+        const rk = s.roundKills || { blue:0, red:0 };
+        let winner = null;
+        if(bAlive !== rAlive) winner = bAlive > rAlive ? 'blue' : 'red';
+        else if((rk.blue || 0) !== (rk.red || 0)) winner = (rk.blue || 0) > (rk.red || 0) ? 'blue' : 'red';
+        this._tdmEndRound(winner);
+      }
+    }
+
     // Void / boundary damage: kill tanks that go outside the map
     if(this._tdmState && this._tdmState.roundActive){
       const half = (this.world && this.world.half || 500) - 10;
@@ -9465,8 +9956,12 @@ Net.sendJoinInfo(
     // UNLIMITED respawns, which is what makes it a mode about bases rather than
     // about who can hold the field. A tank that stayed dead would mean a team
     // eventually ran out of tanks to lose.
-    if(this._captureCircleMode || this._baseDefendMode){
-      const cfg = this._baseDefendMode ? GAMEMODES.baseDefend : GAMEMODES.captureTheCircle;
+    if(this._captureCircleMode || this._baseDefendMode || this._stealFlagMode){
+      /* WHICH MODE'S RESPAWN NUMBERS — each is configured separately and
+         drifting one of them onto another mode is silently wrong. */
+      const cfg = this._baseDefendMode ? GAMEMODES.baseDefend
+                : this._stealFlagMode ? GAMEMODES.stealFlag
+                : GAMEMODES.captureTheCircle;
       const delay = cfg.respawnTime || 5;
       for(const t of this.tanks){
         if(t.isDummy || t.isPanzer || !t.dying || t.deathT < delay) continue;
@@ -9603,41 +10098,6 @@ Net.sendJoinInfo(
         if(k <= 0) l.active = false;
       }
     }
-    // Helix video overlay
-    if(this._helixVideos.size){
-      for(const [tankId, hv] of this._helixVideos){
-        const tank = this.tanks.find(t => t.id === tankId);
-        if(!tank){ hv.fadeTimer = 0.30; continue; }
-        const hasFlame = this.projectiles.some(p => p.type === 'flame' && p.owner && p.owner.id === tankId);
-        if(hasFlame){
-          hv.firing = true;
-          hv.fadeTimer = 0;
-          hv.growTimer = Math.min(1, (hv.growTimer || 0) + dt * 2.5);
-          const sc = 0.1 + 0.9 * hv.growTimer;
-          hv.mesh.scale.set(sc, sc, sc);
-          hv.mesh.material.opacity = 0.75 * hv.growTimer;
-          if(hv.el.paused) hv.el.play().catch(() => {});
-        } else if(hv.firing){
-          hv.firing = false;
-          hv.fadeTimer = 0.40;
-        }
-        if(!hv.firing){
-          hv.fadeTimer -= dt;
-          hv.growTimer = Math.max(0, (hv.growTimer || 0) - dt * 2);
-          const sc = Math.max(0.1, hv.growTimer);
-          hv.mesh.scale.set(sc, sc, sc);
-          hv.mesh.material.opacity = Math.max(0, hv.fadeTimer / 0.40) * hv.growTimer;
-          if(hv.fadeTimer <= 0){
-            hv.el.pause(); hv.el.currentTime = 0;
-            hv.parent.remove(hv.mesh);
-            hv.mesh.geometry.dispose();
-            hv.mesh.material.dispose();
-            this._disposeVideoTex(hv.tex, hv.el);
-            this._helixVideos.delete(tankId);
-          }
-        }
-      }
-    }
     // Molotov fire zones update
     if(this._molotovFires && this._molotovFires.length){
       for(let i = this._molotovFires.length - 1; i >= 0; i--){
@@ -9703,10 +10163,15 @@ Net.sendJoinInfo(
         l.sprite.position.x += l.vx * dt;
         l.sprite.position.y += l.vy * dt;
         l.sprite.position.z += l.vz * dt;
-        // Punch-in scale, then a slow settle so it reads as a slap, not a fade.
-        const settle = age < 0.10 ? 1 + 0.65 * (1 - age / 0.10) : 1;
-        l.sprite.scale.set(2.8 * settle, 1.4 * settle, 1);
-        l.sprite.material.rotation = -0.16 * l.side * Math.min(1, age / 0.18);
+        /* Scaling effect: pops in small, overshoots, then settles. Ease-out
+           cubic on the grow, because a linear grow reads as a balloon
+           inflating rather than a hit landing. */
+        const growT = Math.min(1, age / 0.16);
+        const easeOut = 1 - Math.pow(1 - growT, 3);
+        const settleT = Math.min(1, Math.max(0, (age - 0.16) / 0.12));
+        const pump = 0.45 + 0.70 * easeOut - 0.15 * settleT;   // 0.45 -> 1.15 -> 1.0
+        l.sprite.scale.set(5.6 * pump, 2.8 * pump, 1);
+        l.sprite.material.rotation = -0.10 * l.side * Math.min(1, age / 0.18);
         // Hold crisp for most of the life, then fade only at the very end.
         l.sprite.material.opacity = k > 0.5 ? 1 : Math.max(0, k / 0.5);
       }
@@ -9756,7 +10221,7 @@ Net.sendJoinInfo(
         p.sprite.scale.x = p.sprite.scale.y = p.baseScale * grow;
         p.sprite.material.opacity = Math.max(0, (p.life / p.maxLife) * 0.4);
       }
-      { let w=0; for(let i=0;i<this._exhaustParts.length;i++){const p=this._exhaustParts[i]; if(p.life<=0){ this.scene.remove(p.sprite); p.sprite.material.dispose(); } else { this._exhaustParts[w++]=p; }} this._exhaustParts.length=w; }
+      { let w=0; for(let i=0;i<this._exhaustParts.length;i++){const p=this._exhaustParts[i]; if(p.life<=0){ this._vfxRelease(p.sprite); } else { this._exhaustParts[w++]=p; }} this._exhaustParts.length=w; }
     }
     // Flamethrower damage accumulators — live stacking counter
     if(this._flameAccums){
@@ -9778,7 +10243,7 @@ Net.sendJoinInfo(
           // Follow tank position
           entry.sprite.position.x = tank.x + (Math.random() - 0.5) * 0.2;
           entry.sprite.position.z = tank.z + (Math.random() - 0.5) * 0.2;
-          entry.sprite.position.y = tank.def.turret.h + tank.def.body.h + 3.6;
+          entry.sprite.position.y = tank.def.body.h * 0.55 + 1.1;
         }
       }
     }
@@ -9819,6 +10284,12 @@ Net.sendJoinInfo(
        "hull" and "dynamic" modes which write the camera unconditionally. */
     if(this._endCine){
       // Camera is held by the cinematic. Deliberately empty.
+    } else if(this._respawnCine){
+      /* The death-to-spawn shot owns the camera for its duration. Same reason
+         as _endCine above: every branch below writes camera.position, so the
+         check has to be ahead of all of them rather than inside one. */
+      try { this._respawnCineTick(dt); }
+      catch(e){ console.warn('[respawn-cine]', e); this._respawnCineEnd(); }
     } else if(this.isSpectator){
       this._updateSpectatorCamera(dt);
     } else {
@@ -9925,7 +10396,10 @@ Net.sendJoinInfo(
            make lookAt's up-vector degenerate) -- with the tank centred. */
         const topDown = true;
         const viewDist = D / Math.cos(stratPitchDeg * Math.PI / 180);
-        const pitchRad = (CONFIG.CAM_PITCH_OPTIONS && CONFIG.CAM_PITCH_OPTIONS[this.settings && this.settings.camPitchIdx != null ? this.settings.camPitchIdx : 4] || CONFIG.TOPDOWN_PITCH_DEG || 85) * Math.PI / 180;
+        /* Index 0 is the default in config.js CAM_PITCH_OPTIONS (40°). The
+           fallback has to agree with it, or a settings object without the key
+           would silently open at the top-down end of the list. */
+        const pitchRad = (CONFIG.CAM_PITCH_OPTIONS && CONFIG.CAM_PITCH_OPTIONS[this.settings && this.settings.camPitchIdx != null ? this.settings.camPitchIdx : 0] || CONFIG.TOPDOWN_PITCH_DEG || 85) * Math.PI / 180;
         const horiz = viewDist * Math.cos(pitchRad);
         const stratH = viewDist * Math.sin(pitchRad);
         // Use the FIXED strategic camera angle for both position and look-at
@@ -10047,12 +10521,48 @@ Net.sendJoinInfo(
     // Visibility
     this._updateVisibility();
 
-    // Bush transparency check (all modes with bushes)
-    if(this.world && this.world.bushes && this.world.bushes.length){
-      for(const t of this.tanks){
-        if(t.alive && !t.dying) this._checkTDMBushes(t);
+    /* BUSH TRANSPARENCY NOW LIVES IN THE TANK.
+
+       Game._checkTDMBushes used to fade a tank to 50% by writing directly onto
+       its materials, purely on distance to a bush. It fought the cover system
+       two ways: it had its own idea of when a tank is in a bush (distance, not
+       overlap), and it wrote onto the material INSTANCES, which models.js
+       shares between every tank of the same type — so one tank slipping into a
+       bush made its whole team disappear. The two-phase cover in
+       Tank._updateCover is the single owner of how visible a tank is. */
+
+    /* THE WIND, SHARED BY EVERY PIECE OF FOLIAGE THIS FRAME.
+
+       Trees and upright shrubs read it in the foliage loop far below; the flat
+       cutout bushes read it in the billboard pass just here. Two effects that
+       are supposed to be the same weather must not be allowed to drift apart,
+       so the amplitude and frequency are resolved once, here, and both passes
+       use these numbers.
+
+       `default` is 0.034 rather than the old 0.022: the sway is a rigid
+       rotation about the base, so what reaches the screen is height * sin(angle)
+       — at 0.022 rad an 18-unit pine's crown moved about 0.4 units, which is
+       under two pixels from a tank's camera. The values below move it a hand's
+       width, which is the smallest amount that reads as moving air. */
+    const _windAmp  = this.isUltra ? 0.086 : (this.isFancy ? 0.052 : 0.034);
+    const _windFreq = this.isUltra ? 0.85 : (this.isFancy ? 0.70 : 0.55);
+    const _windNow  = this.time;
+    /* ONLY ROLLING TANKS RATTLE FOLIAGE. Collected once per frame instead of
+       once per bush: a map can carry a hundred cutout bushes, and scanning the
+       whole tank list inside that loop is the kind of O(bushes x tanks) that
+       nobody notices until a bot match fills the field. */
+    let _foliageMovers = null;
+    const movers = () => {
+      if(_foliageMovers) return _foliageMovers;
+      _foliageMovers = [];
+      const list = this.tanks || [];
+      for(let i = 0; i < list.length; i++){
+        const t = list[i];
+        if(!t || !t.alive || t.dying) continue;
+        if(Math.abs(t.speed || 0) > 0.3 || Math.hypot(t.vx || 0, t.vz || 0) > 0.3) _foliageMovers.push(t);
       }
-    }
+      return _foliageMovers;
+    };
 
     // Bush billboard: stand vertical, rotate like turret to face camera
     if(this.camera){
@@ -10097,6 +10607,61 @@ Net.sendJoinInfo(
           target.rotation.set(0, 0, 0);
           target.rotation.y = hAngle + flip;
           target.rotation.x = -Math.PI / 2 + tiltUp;
+
+          /* FLAT CUTOUTS SWAY AND RATTLE TOO.
+
+             These planes are re-orientated to the camera every frame, so the
+             foliage loop below cannot own their rotation — it would be wiped a
+             few lines later. The extra terms go on the Z axis, which this pass
+             otherwise leaves at zero, so the billboard still faces the camera
+             and the bush leans instead.
+
+             A cutout has no trunk to bend, so the sway is smaller than a
+             tree's (a flat quad that tilts far enough lifts its own bottom edge
+             off the ground) and it is paired with a tiny lift so the whole
+             plant nods rather than pivots about one corner. */
+          const ph = (bx * 0.11) + (bz * 0.07);
+          const a  = _windNow * _windFreq + ph;
+          let roll = (Math.cos(a * 1.37 + ph) + Math.sin(a * 3.1) * 0.22) * _windAmp * 0.5;
+
+          /* Contact shake. Radius is the bush's own cover radius, wide enough
+             that a tank brushes the leaves before it reaches the middle. */
+          const mv = movers();
+          let hit = false;
+          const reach = (b.radius || 6) + 4;
+          for(let m = 0; m < mv.length; m++){
+            const t = mv[m];
+            const ddx = t.x - bx, ddz = t.z - bz;
+            if(ddx * ddx + ddz * ddz <= reach * reach){ hit = true; break; }
+          }
+          if(hit){
+            if(!b._shakeOn){ b._shakeOn = true; b._shakeT = 0; }
+            b._shakeT += dt;
+            const s = b._shakeT;
+            if(s < 0.85){
+              /* A longer, softer cycle than a pine's: leaves keep moving after
+                 the hull has gone past, so this fades out instead of stopping
+                 dead. */
+              const decay = 1 - (s / 0.85);
+              roll += Math.sin(s * 15) * 0.16 * decay;
+              target.rotation.x += Math.sin(s * 19 + 1.7) * 0.10 * decay;
+              target.position.y = (target.userData.baseY != null) ? target.userData.baseY : target.position.y;
+            } else {
+              b._shakeT = 0;
+            }
+          } else if(b._shakeOn){
+            /* Release only once the rattle has run its course. */
+            b._shakeT += dt;
+            const decay = Math.max(0, 1 - (b._shakeT / 0.85));
+            if(decay <= 0){
+              b._shakeOn = false;
+              b._shakeT = 0;
+            } else {
+              roll += Math.sin(b._shakeT * 15) * 0.16 * decay;
+              target.rotation.x += Math.sin(b._shakeT * 19 + 1.7) * 0.10 * decay;
+            }
+          }
+          target.rotation.z = roll;
         }
       }
     }
@@ -10169,8 +10734,11 @@ Net.sendJoinInfo(
          an 18-unit tree's crown about 1.8 units. Enough to read as moving air;
          far short of the 0.35 rad at which a tree looks like it is falling
          over. */
-      const windAmp  = this.isUltra ? 0.075 : (this.isFancy ? 0.045 : 0.028);
-      const windFreq = this.isUltra ? 0.85 : (this.isFancy ? 0.70 : 0.55);
+      /* Resolved once at the top of the frame and shared with the billboard
+         pass — see the note there. A tree and the bush beside it must not be
+         blown by two different breezes. */
+      const windAmp  = _windAmp;
+      const windFreq = _windFreq;
 
       /* `default` GETS WIND NOW.
 
@@ -10186,7 +10754,7 @@ Net.sendJoinInfo(
          The only tier that genuinely cannot afford per-tree work is the one that
          skips the contact test too, and there is no such tier here. */
       const tanks = this.tanks;
-      const now = this.time;
+      const now = _windNow;
 
       for(let i = 0; i < foliage.length; i++){
         const p = foliage[i];
@@ -10202,8 +10770,10 @@ Net.sendJoinInfo(
           if(!t || !t.alive || t.dying) continue;
           const dx = t.x - p.x, dz = t.z - p.z;
           if(dx * dx + dz * dz > reach * reach) continue;
-          /* Only a tank that is actually rolling rattles the tree. */
-          if(Math.abs(t.speed || 0) > 0.5 || Math.hypot(t.vx || 0, t.vz || 0) > 0.5){
+          /* Only a tank that is actually rolling rattles the tree. 0.3 rather
+             than 0.5: hull-turning on the spot, or creeping out of a bush,
+             produces a speed the old threshold read as "parked". */
+          if(Math.abs(t.speed || 0) > 0.3 || Math.hypot(t.vx || 0, t.vz || 0) > 0.3){
             shaking = true;
             break;
           }
@@ -10213,10 +10783,15 @@ Net.sendJoinInfo(
           if(!p._shakeActive){ p._shakeActive = true; p._shakeTime = 0; }
           p._shakeTime += dt;
           const s = p._shakeTime;
-          if(s < 0.6){
-            const decay = 1.0 - (s / 0.6);
-            p.obj.rotation.x = p._origRotX + Math.sin(s * 18) * (0.08 * decay);
-            p.obj.rotation.z = p._origRotZ + Math.cos(s * 23.4) * (0.05 * decay);
+          if(s < 0.7){
+            /* TWO DIFFERENT RATES on the two axes, so the crown whips rather
+               than swinging on one hinge; the scale term is a half-percent
+               squash that makes the foliage feel elastic instead of rigid. */
+            const decay = 1.0 - (s / 0.7);
+            p.obj.rotation.x = p._origRotX + Math.sin(s * 18) * (0.13 * decay);
+            p.obj.rotation.z = p._origRotZ + Math.cos(s * 23.4) * (0.09 * decay);
+            const k = 1 + Math.sin(s * 26) * 0.02 * decay;
+            p.obj.scale.set(p._baseScaleX * k, p._baseScaleY * (2 - k), p._baseScaleZ * k);
           } else {
             p._shakeTime = 0;   /* keep rattling while still pushing it */
           }
@@ -10229,6 +10804,7 @@ Net.sendJoinInfo(
           p._shakeActive = false;
           p.obj.rotation.x = p._origRotX;
           p.obj.rotation.z = p._origRotZ;
+          if(p._baseScaleX != null) p.obj.scale.set(p._baseScaleX, p._baseScaleY, p._baseScaleZ);
           continue;
         }
 
@@ -10321,7 +10897,10 @@ Net.sendJoinInfo(
         Net.broadcast({
           time: this.time,
           glad: this.glad ? this._gladSnapshot() : null,
+          /* Same rule as `bases` one line up: only included when THIS mode is
+             live, so the payload stays small in every other mode. */
           bases: this._baseDefendMode ? BaseDefend.snapshot() : null,
+          flags: this._stealFlagMode ? StealFlag.snapshot() : null,
           tanks: this.tanks.map(t => t.snapshot()),
           projs: this._projectileSnapshot(),
           cd: this._netSnapshotCountdown(),
@@ -10645,10 +11224,30 @@ Net.sendJoinInfo(
       /* Dynamic mode already advanced this from mouse-Y in the input block. In
          the pointer-aimed modes the cursor is visible and picking its own spot
          reads as the same gesture every other tank uses, so the distance to
-         that spot is the range. */
+         that spot is the range.
+
+         THE HEADING COMES FROM THE SAME RAY AS THE RANGE -- this is the fix
+         for the aim bug where the impact ring sat metres away from the cursor.
+         It used to keep the turret's heading here while taking only the
+         distance from the cursor, and the turret's heading is a bearing from
+         the HULL to a plane at body.h+0.5 while `want` is measured from the
+         MUZZLE to a ground plane at the tank's root. Two origins, two plane
+         heights, one shot: the drawn point landed muzzle + turretBearing *
+         cursorDistance, which drifts off the cursor by the parallax between
+         those two solves -- several metres at typical ranges, growing towards
+         the screen edges. With the heading taken from the muzzle->folded
+         cursor ray instead, `point` below reproduces `_mortarCursorAim`'s
+         answer exactly, so the ring, the arc and the fired shell all land on
+         the spot the player is pointing at (the fold that keeps a
+         lower-half-screen cursor from firing backwards still applies -- see
+         _mortarCursorAim). The turret keeps easing toward the cursor for the
+         barrel animation; the ARC is no longer chained to it. */
       if(this.cameraMode !== 'dynamic'){
         const p = this._mortarCursorAim(t, ox, oz);
-        if(p) want = Math.hypot(p.x - ox, p.z - oz);
+        if(p){
+          want = Math.hypot(p.x - ox, p.z - oz);
+          heading = Math.atan2(p.x - ox, p.z - oz);
+        }
       } else if(this._mortarRange != null){
         want = this._mortarRange;
       }
@@ -10692,9 +11291,23 @@ Net.sendJoinInfo(
 
     const flight = d.artilleryFlight || 1.9;
     const gravity = d.artilleryGravity || MORTAR_GRAVITY;
-    /* dropY is how far the shell must FALL to reach the ground plane. */
     const my = pos ? pos.y : (CONFIG.TANK_Y + (d.body.h || 1) + (d.turret.h || 1));
-    const vel = artilleryVelocity(nfx, nfz, dist, flight, gravity, -my);
+    /* dropY is how far the shell must FALL to reach the ground plane — and the
+       ground plane is the TERRAIN under the impact point, not world y=0. The
+       old solve assumed a hard floor at 0: on any map where the ground sits
+       higher or lower (hills, plateaus, trench maps — the default ground) the
+       drawn arc, the impact marker and the shell's real detonation point each
+       lived in a different place. The probe below is one cheap ray per solve,
+       cached per impact XZ. */
+    const cache = this._mortarGroundCache || (this._mortarGroundCache = { px: NaN, pz: NaN, my: NaN, y: 0 });
+    let gy;
+    if(cache.px === px && cache.pz === pz && cache.my === my){
+      gy = cache.y;
+    } else {
+      cache.px = px; cache.pz = pz; cache.my = my;
+      gy = cache.y = this._impactGroundY(px, pz, my - 2);
+    }
+    const vel = artilleryVelocity(nfx, nfz, dist, flight, gravity, gy - my);
 
     /* THE BARREL RAISES WITH THE SHOT.
 
@@ -10732,7 +11345,7 @@ Net.sendJoinInfo(
     return {
       vel,
       dir: new THREE.Vector3(nfx, 0, nfz),
-      dist, point: {x:px, z:pz}, flight, gravity, blocked,
+      dist, point: {x:px, z:pz}, pointY: gy, flight, gravity, blocked,
       minRange: minR, splashRadius: d.splashRadius || 12,
     };
   }
@@ -10773,11 +11386,9 @@ Net.sendJoinInfo(
 
   /* WHERE THE POINTER IS POINTING.
 
-     Called by _mortarAim for the RANGE, and only in the pointer-aimed camera
-     modes. The HEADING is deliberately not taken from here: the turret owns the
-     direction now, which is what lets the mortar behave like every other tank
-     (mouse-X turns it, right mouse freezes it, the camera follows it) and what
-     let pointer lock go back to normal.
+     Called by _mortarAim for BOTH the range and the heading, in the
+     pointer-aimed camera modes, and by the turret's target as well -- one solve
+     feeding the barrel, the arc and the shell, so the three cannot disagree.
 
      Returns the aim point in world space, or null when there is no cursor.
 
@@ -10791,57 +11402,70 @@ Net.sendJoinInfo(
     if(!gp) return null;
     if(ox === undefined || ox === null){ ox = t.x; oz = t.z; }
 
-    /* THE BOTTOM OF THE SCREEN IS BEHIND THE TANK.
+    /* THE CURSOR IS THE TARGET, WHEREVER IT IS ON SCREEN.
 
-       The chase camera sits behind and above, looking forward and down, so the
-       ground a pick lands on below the tank is ground the tank has its back to.
-       Taking that bearing literally spins the mortar around and fires off the
-       bottom of the screen, behind the camera where the shell can never be
-       seen. Measured: the entire lower half of the screen picks up ground at
-       exactly 180 degrees to the barrel.
+       This used to FOLD the lower half of the screen forward over the camera
+       axis: a pick below the tank came back as ground the tank had its back to,
+       so the bearing was reflected through the view direction. The intent was to
+       keep the shell inside the playfield, but the effect the player sees is the
+       gun turning the wrong way -- point at the ground at the bottom of the
+       screen and the barrel swings to the mirrored spot on the far side. "It
+       aims the other way" is exactly the honest description of a reflection.
 
-       TWO CORRECTIONS, BECAUSE THE TWO NUMBERS WANT OPPOSITE THINGS.
+       Nothing needs folding. The pick is a real point on the ground and it is on
+       screen, so it is a legitimate target: the barrel turns to it, the arc ends
+       on it, and the shell lands on it. Range is the plain distance to that
+       point -- no along-axis decomposition -- so dragging the cursor away from
+       the tank always lengthens the shot and dragging it in always shortens it,
+       in every direction.
 
-       HEADING folds that half forward over the camera's axis — a reflection,
-       not a clamp. The shot keeps facing the playfield, the sideways component
-       of the cursor survives so left and right still steer, and because a
-       reflection's own terms vanish at the fold the heading is continuous as
-       the cursor crosses the tank instead of snapping 180 degrees.
-
-       RANGE deliberately does NOT fold. Distance from the tank is V-shaped: it
-       bottoms out where the pick passes over the tank and then grows again on
-       the far side, so folding the distance too would make dragging DOWN push
-       the shot further away — the aim visibly moving against the hand. Taking
-       the along-axis part only from the forward side keeps range monotone.
-       Drag up from the tank and the shot lengthens; drag down and it stops at
-       minimum range, which is the honest answer for ground the tank cannot
-       shoot at anyway. That clamp is continuous as well, so nothing jumps. */
-    let rx = gp.x - ox, rz = gp.z - oz;
-
-    /* camAngle points from the tank TO the camera, so the direction into the
-       screen — the axis worth folding about — is camAngle + PI. Worth being
-       explicit about: camAngle comes from mouse movement only, never from the
-       aim being computed here, so feeding its result back into the turret
-       cannot start a feedback loop. */
-    const axis = (this.camAngle || 0) + Math.PI;
-    const ax = Math.sin(axis), az = Math.cos(axis);
-    const along = rx * ax + rz * az;
-
-    let hx = rx, hz = rz;
-    if(along < 0){ hx -= 2 * along * ax; hz -= 2 * along * az; }
-
-    /* lateral is everything that is NOT along the axis, and it counts either
-       way — a low cursor off to one side should still steer the aim sideways. */
-    const lx = rx - along * ax, lz = rz - along * az;
-    const range = Math.hypot(Math.max(along, 0), Math.hypot(lx, lz));
+       The only clamp left is the gun's own: artilleryMinRange is a dead zone it
+       physically cannot lob into, applied in _mortarAim. */
+    const rx = gp.x - ox, rz = gp.z - oz;
+    const range = Math.hypot(rx, rz);
 
     /* Exact zero happens only when the pick sits on the tank itself, where
        atan2 would answer a meaningless 0 — aim along the view instead. */
-    const hl = Math.hypot(hx, hz);
-    const ux = hl > 1e-4 ? hx / hl : ax;
-    const uz = hl > 1e-4 ? hz / hl : az;
+    const hl = Math.hypot(rx, rz);
+    const fwdAxis = (this.camAngle || 0) + Math.PI;
+    const ux = hl > 1e-4 ? rx / hl : Math.sin(fwdAxis);
+    const uz = hl > 1e-4 ? rz / hl : Math.cos(fwdAxis);
 
-    return { x: ox + ux * range, z: oz + uz * range };
+    /* WALK THE POINT ONTO THE TERRAIN, NOT THE TANK'S OWN PLANE.
+
+       The point above is where the cursor ray meets the horizontal plane at
+       the tank's own height. The ground under the cursor is rarely exactly at
+       that height — on slopes, hills and plateaus it is not even close — so
+       the ring and the X marker (which sit ON the terrain surface) drew some
+       distance off the cursor's pixel while the little screen-space reticle
+       sat exactly on it: two aim marks, never in one place, worst on hilly
+       maps. Iterating the same camera ray against the real surface twice pins
+       the point to the ground the cursor is actually over, which is where the
+       shell lands too — the solve and the marker finally agree. */
+    let px = ox + ux * range;
+    let pz = oz + uz * range;
+    const refRoot = t.root ? t.root.position.y : 0;
+    if(this.camera){
+      const dx = gp.x - this.camera.position.x;
+      const dy = gp.y - this.camera.position.y;
+      const dz = gp.z - this.camera.position.z;
+      const dl = Math.hypot(dx, dy, dz);
+      if(dl > 1e-4 && dy / dl < -1e-3){          /* the ray must descend */
+        const ddx = dx / dl, ddy = dy / dl, ddz = dz / dl;
+        for(let i = 0; i < 2; i++){
+          const h = this._impactGroundY(px, pz, refRoot);
+          if(h === 0) break;                     /* no surface answer — keep flat */
+          const tt = (h - this.camera.position.y) / ddy;
+          if(!isFinite(tt) || tt <= 0) break;
+          px = this.camera.position.x + ddx * tt;
+          pz = this.camera.position.z + ddz * tt;
+        }
+      }
+    }
+    /* the surface height AT the final point — the marker and the arc land here */
+    const py = this._impactGroundY(px, pz, refRoot);
+
+    return { x: px, z: pz, y: py };
   }
 
   /* The impact marker: a ground ring at the BLAST radius drawn on the exact
@@ -11128,7 +11752,11 @@ _initMortarMarker(){
       return;
     }
     g.visible = true;
-    g.position.set(aim.point.x, 0.06, aim.point.z);
+    /* The ring sits ON the terrain at the impact point, not at a hardcoded
+       world y=0.06 — on every map whose ground is not at the origin the old
+       height buried the ring or left it hanging in mid-air off the cursor. */
+    const gy = aim.pointY != null ? aim.pointY : 0;
+    g.position.set(aim.point.x, gy + 0.06, aim.point.z);
     g.scale.setScalar(aim.splashRadius);
     const col = aim.blocked ? 0xff3020 : 0xffb040;
     this._mortarRingEdge.material.color.setHex(col);
@@ -11145,7 +11773,7 @@ _initMortarMarker(){
        when the circle is small. */
     const c = this._mortarCross;
     c.visible = true;
-    c.position.set(aim.point.x, 0.10, aim.point.z);
+    c.position.set(aim.point.x, gy + 0.10, aim.point.z);
     const arm = Math.max(1.9, aim.splashRadius * 0.52);       // half-length of each arm
     const thick = Math.max(0.30, aim.splashRadius * 0.075);   // stroke width
     if(this._mortarCrossBars){
@@ -11256,39 +11884,44 @@ _initMortarMarker(){
       this._updateImpactReticle({ x: hit.x, y: hit.y, z: hit.z }, hit.blocked);
     }
     /* MODE 1: the centre crosshair rides the pitch on screen, so "mouse up" is
-       visibly the crosshair moving up, not the camera tilting. */
-    const chEl = document.getElementById('crosshair');
-     if(chEl){
-       if(this.cameraMode === 'dynamic'){
-         const maxUp = CONFIG.AIM_PITCH_UP_DEG * Math.PI / 180;
-         const py = -(this._aimPitch / maxUp) * (CONFIG.AIM_PITCH_CURSOR_PX || 120);
-         chEl.style.transform = 'translate(-50%,-50%) translateY(' + Math.round(py) + 'px)';
-       } else {
-         chEl.style.transform = 'translate(-50%,-50%)';
-       }
-       var _glow = (typeof this._aimLineGlow === 'number') ? this._aimLineGlow : 0;
-       var _inner = chEl.querySelector('div');
-       if(_inner){
-         if(_glow < 0.15){
-           _inner.style.boxShadow = '0 0 8px #f84, 0 0 16px rgba(255,136,68,0.8), 0 0 28px rgba(255,136,68,0.5)';
-           _inner.style.transform = 'scale(1.3)';
-         } else {
-           _inner.style.boxShadow = '0 0 4px #f84, 0 0 8px rgba(255,136,68,0.4)';
-           _inner.style.transform = 'scale(1)';
-         }
-       }
-     }
-       var _glow = (typeof this._aimLineGlow === 'number') ? this._aimLineGlow : 0;
-       var _inner = chEl.querySelector('div');
-       if(_inner){
-         if(_glow < 0.15){
-           _inner.style.boxShadow = '0 0 8px #f84, 0 0 16px rgba(255,136,68,0.8), 0 0 28px rgba(255,136,68,0.5)';
-           _inner.style.transform = 'scale(1.3)';
-         } else {
-           _inner.style.boxShadow = '0 0 4px #f84, 0 0 8px rgba(255,136,68,0.4)';
-           _inner.style.transform = 'scale(1)';
-         }
-       }
+       visibly the crosshair moving up, not the camera tilting.
+
+       WRITTEN ONLY WHEN IT CHANGES. Every write to style.transform or
+       style.boxShadow dirties the element's style and shows up in the next
+       style recalculation, and this ran twice a frame (the second block was a
+       copy-paste of the first that also ran when the element did not exist) for
+       a value that only changes when the player moves the mouse. The element
+       and its inner dot are looked up once and cached, and each property is
+       compared against what was last written before it is touched. */
+    if(this.cameraMode === 'dynamic'){
+      const maxUp = CONFIG.AIM_PITCH_UP_DEG * Math.PI / 180;
+      const py = Math.round(-(this._aimPitch / maxUp) * (CONFIG.AIM_PITCH_CURSOR_PX || 120));
+      if(py !== this._crosshairY){
+        this._crosshairY = py;
+        const chEl = this._crosshair || (this._crosshair = document.getElementById('crosshair'));
+        if(chEl) chEl.style.transform = 'translate(-50%,-50%) translateY(' + py + 'px)';
+      }
+    } else if(this._crosshairY !== 0){
+      this._crosshairY = 0;
+      const chEl = this._crosshair || (this._crosshair = document.getElementById('crosshair'));
+      if(chEl) chEl.style.transform = 'translate(-50%,-50%)';
+    }
+    const _glow = (typeof this._aimLineGlow === 'number') ? this._aimLineGlow : 0;
+    const _hot = _glow < 0.15;
+    if(_hot !== this._crosshairHot){
+      this._crosshairHot = _hot;
+      const chEl = this._crosshair || (this._crosshair = document.getElementById('crosshair'));
+      const inner = chEl && (this._crosshairDot || (this._crosshairDot = chEl.querySelector('div')));
+      if(inner){
+        if(_hot){
+          inner.style.boxShadow = '0 0 8px #f84, 0 0 16px rgba(255,136,68,0.8), 0 0 28px rgba(255,136,68,0.5)';
+          inner.style.transform = 'scale(1.3)';
+        } else {
+          inner.style.boxShadow = '0 0 4px #f84, 0 0 8px rgba(255,136,68,0.4)';
+          inner.style.transform = 'scale(1)';
+        }
+      }
+    }
 
     /* ARTILLERY: an arc and an impact ring, not a raycast — solved by
        _mortarAim, which is also what the shell is fired with.
@@ -11304,13 +11937,17 @@ _initMortarMarker(){
          on screen and the curve in the air cannot disagree. */
       const aim = this._mortarAim(t, pos);
       const p = aim ? aim.point : null;
-      this._updateImpactReticle(p ? { x: p.x, y: t.root.position.y + 1, z: p.z } : null, !!(aim && aim.blocked));
+      /* The small screen-space reticle rides the SOLVED point, at the terrain
+         height the ring will be drawn at — it and the ring have to project to
+         the same place, or the player sees two aiming marks again. */
+      this._updateImpactReticle(p ? { x: p.x, y: (aim.pointY != null ? aim.pointY : 0) + 0.35, z: p.z } : null, !!(aim && aim.blocked));
       const prev = this._mortarAimLast;
-      if(prev && p && prev.px === p.x && prev.pz === p.z && prev.d === aim.dist){
+      if(prev && p && prev.px === p.x && prev.pz === p.z &&
+         prev.gy === aim.pointY && prev.d === aim.dist){
         this._aimStale = false;
         return;
       }
-      this._mortarAimLast = p ? {px:p.x, pz:p.z, d:aim.dist} : null;
+      this._mortarAimLast = p ? {px:p.x, pz:p.z, d:aim.dist, gy: aim.pointY} : null;
       this._aimLastRebuild = { dx: dir.x, dz: dir.z, px: pos.x, py: pos.y, pz: pos.z,
                                cam: this.camera.position.clone() };
       this._aimStale = true;
@@ -11708,7 +12345,7 @@ _initMortarMarker(){
   _getDmgCanvas(){
     if(!this._dmgCanvasPool) this._dmgCanvasPool = [];
     let c = this._dmgCanvasPool.pop();
-    if(!c){ c = document.createElement('canvas'); c.width = 128; c.height = 64; }
+    if(!c){ c = document.createElement('canvas'); c.width = 256; c.height = 128; }
     return c;
   }
   _putDmgCanvas(c){
@@ -11716,22 +12353,43 @@ _initMortarMarker(){
     if(this._dmgCanvasPool.length < 20) this._dmgCanvasPool.push(c);
   }
 
+  /* Paint a damage number: white glyphs inside a heavy black outline.
+
+     White alone vanishes against a bright sky or the pale sand maps, and a
+     single coloured fill cannot survive both a night map and a snow map. The
+     outline is what makes one colour readable everywhere, and it keeps the
+     number legible while it is passing in front of a tank.
+
+     The font shrinks for 4-digit hits so the text never clips at the canvas
+     edge -- a clipped "-1042" reads as "-10", which is worse than no number. */
+  _paintDmgNumber(canvas, amount){
+    const g = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, w, h);
+    const txt = '-' + Math.round(amount);
+    const cx = w / 2, cy = h / 2;
+    let fs = 76;
+    const setFont = () => { g.font = '900 ' + fs + 'px "Segoe UI", "Arial Black", Arial, sans-serif'; };
+    setFont();
+    while(fs > 40 && g.measureText(txt).width > w - 16){ fs -= 4; setFont(); }
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.lineJoin = 'round'; g.miterLimit = 2;
+    g.strokeStyle = '#000';
+    g.lineWidth = Math.max(8, fs * 0.19);
+    g.strokeText(txt, cx, cy);
+    g.fillStyle = '#fff';
+    g.fillText(txt, cx, cy);
+  }
+
   spawnDamageLabel(x, y, z, amount){
     const c = this._getDmgCanvas();
-    const g = c.getContext('2d');
-    g.clearRect(0, 0, 128, 64);
-    g.shadowColor = 'rgba(0,0,0,0.9)'; g.shadowBlur = 6;
-    g.font = 'bold 38px "Segoe UI", "Arial Black", Arial, sans-serif';
-    g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.strokeStyle = '#000'; g.lineWidth = 5; g.lineJoin = 'round';
-    g.strokeText('-' + Math.round(amount), 64, 32);
-    g.fillStyle = '#ff4444';
-    g.fillText('-' + Math.round(amount), 64, 32);
+    this._paintDmgNumber(c, amount);
     const tex = new THREE.CanvasTexture(c);
     const s = new THREE.Sprite(new THREE.SpriteMaterial({map:tex, transparent:true, depthTest:false, depthWrite:false}));
     s.renderOrder = 999;
     s.position.set(x, y, z);
-    s.scale.set(2.8, 1.4, 1);
+    s.scale.set(5.6, 2.8, 1);
     this.scene.add(s);
 
     // Fire it sideways across the screen instead of letting it pop in place.
@@ -11746,14 +12404,19 @@ _initMortarMarker(){
     rightX /= rLen; rightZ /= rLen;
     this._dmgSide = -(this._dmgSide || 1);      // alternate so hits fan out
     const side = this._dmgSide;
-    const speed = 10 + Math.random() * 3;       // hard launch, then coasts
+    /* Start a hull-width to the side of the tank. It is spawned at hull height
+       (see tank.takeDamage), well below the nameplate, and this offset means
+       the number is already clear of the tank silhouette on its first frame
+       instead of growing out of the roof. */
+    s.position.set(x + rightX * side * 2.4, y, z + rightZ * side * 2.4);
+    const speed = 13 + Math.random() * 3;       // hard launch, then coasts
 
     if(!this._dmgLabels) this._dmgLabels = [];
     this._dmgLabels.push({
-      sprite:s, canvas:c, life:1.15, maxLife:1.15,
+      sprite:s, canvas:c, life:1.05, maxLife:1.05,
       vx: rightX * speed * side,
       vz: rightZ * speed * side,
-      vy: 4.6 + Math.random() * 1.4,            // upward kick
+      vy: 3.2 + Math.random() * 0.8,            // a hop, not a climb
       side,
     });
   }
@@ -11762,45 +12425,50 @@ _initMortarMarker(){
     if(!this._flameAccums) this._flameAccums = new Map();
     let entry = this._flameAccums.get(tank.id);
     if(!entry){
-      const c = document.createElement('canvas'); c.width = 128; c.height = 64;
+      const c = document.createElement('canvas'); c.width = 256; c.height = 128;
       const g = c.getContext('2d');
       const tex = new THREE.CanvasTexture(c);
       const s = new THREE.Sprite(new THREE.SpriteMaterial({map:tex, transparent:true, depthTest:false, depthWrite:false}));
       s.renderOrder = 999;
-      s.position.set(tank.x, tank.def.turret.h + tank.def.body.h + 3.6, tank.z);
-      s.scale.set(2.8, 1.4, 1);
+      /* Hull height, same as the shell-hit numbers: below the nameplate */
+      s.position.set(tank.x, tank.def.body.h * 0.55 + 1.1, tank.z);
+      s.scale.set(5.6, 2.8, 1);
       this.scene.add(s);
       entry = {sprite:s, canvas:c, ctx:g, tex, damage:0, timer:0.3};
       this._flameAccums.set(tank.id, entry);
     }
     entry.damage += amount;
     entry.timer = 0.3;
-    // Redraw canvas with climbing number
-    const g = entry.ctx;
-    const c = entry.canvas;
-    g.clearRect(0, 0, c.width, c.height);
-    g.font = 'bold 38px "Segoe UI", "Arial Black", Arial, sans-serif';
-    g.textAlign = 'center'; g.textBaseline = 'middle';
-    g.shadowColor = 'rgba(0,0,0,0.9)'; g.shadowBlur = 6;
-    g.strokeStyle = '#000'; g.lineWidth = 5; g.lineJoin = 'round';
-    g.strokeText('-' + Math.round(entry.damage), 64, 32);
-    g.fillStyle = '#ff6644';
-    g.fillText('-' + Math.round(entry.damage), 64, 32);
+    // Repaint with the climbing total, same white-on-black styling as a hit
+    this._paintDmgNumber(entry.canvas, entry.damage);
     entry.tex.needsUpdate = true;
+  }
+
+  /* Foam particle materials: small free-list, reset on acquire. */
+  _foamMat(){
+    if(!this._foamMatPool) this._foamMatPool = [];
+    const m = this._foamMatPool.pop();
+    if(m){ m.opacity = 1; return m; }
+    return new THREE.MeshBasicMaterial({color:0xffffff, transparent:true, opacity:1, depthWrite:false, side:THREE.DoubleSide});
+  }
+  _releaseFoamMat(m){
+    if(!m) return;
+    if(!this._foamMatPool) this._foamMatPool = [];
+    if(this._foamMatPool.length < 64) this._foamMatPool.push(m); else m.dispose();
   }
 
   spawnExhaust(x, y, z, dirAngle, kmh){
     if(!this.isFancy) return;
     if(!this._exhaustParts) this._exhaustParts = [];
     if(this._exhaustParts.length > 30) return;
-    const tex = VFX.getTex('smoke');
-    const mat = new THREE.SpriteMaterial({map:tex, transparent:true, depthTest:false, depthWrite:false, opacity:0.5});
-    const s = new THREE.Sprite(mat);
+    /* Pooled like every other smoke sprite: a new SpriteMaterial per puff on
+       every moving tank used to be a steady allocation/dispose churn even
+       when nothing was being shot. */
+    const s = this._vfxSprite(VFX.getTex('smoke'), {depthTest:false, blending:THREE.NormalBlending, opacity:0.5});
     const baseScale = 0.3 + Math.random() * 0.25;
     const sc = baseScale * (0.7 + kmh / 200);
     s.position.set(x, y, z);
     s.scale.set(sc, sc, 1);
-    this.scene.add(s);
     const spd = 0.8 + kmh / 60;
     this._exhaustParts.push({
       sprite:s, life:0.6 + Math.random() * 0.4, maxLife:1.0,
@@ -11837,11 +12505,42 @@ _initMortarMarker(){
   /* White outline line around tank at water level — only edges in water visible */
   _updateWaterFoam(dt){
     if(!this.world) return;
+    /* NO LAKES, NO WORK. Every tank was paying five lake queries here plus five
+       more for the immersion test, every frame, on maps where the answer could
+       only ever be "dry" — and most maps have no water at all. */
+    const lakes = this.world.lakes;
+    if(!lakes || !lakes.length){
+      if(this._foamAny){
+        for(const t of this.tanks) this._cleanupFoam(t);
+        this._foamAny = false;
+      }
+      return;
+    }
+    /* AND NO WORK FOR A TANK NOWHERE NEAR WATER EITHER. The gate is one squared
+       distance per lake against (lake radius + a hull's worth of margin); only a
+       tank that can physically touch a shore gets the ten point queries. */
     for(const t of this.tanks){
       if(!t.alive || t.dying){
         this._cleanupFoam(t);
         continue;
       }
+      let nearWater = false;
+      for(let i = 0; i < lakes.length; i++){
+        const l = lakes[i];
+        const dx = t.x - l.x, dz = t.z - l.z;
+        const reach = l.r + 16;
+        if(dx*dx + dz*dz < reach*reach){ nearWater = true; break; }
+      }
+      if(!nearWater){
+        this._cleanupFoam(t);
+        if(t._drowning){
+          t._drowning = false;
+          t._drownTimer = 0;
+          if(t._drownBar) t._drownBar.visible = false;
+        }
+        continue;
+      }
+      this._foamAny = true;
       const inWater = this._tankInWater(t);
       const fullyIn = inWater && this._tankFullyInWater(t);
       if(fullyIn && !t._drowning){
@@ -11934,9 +12633,10 @@ _initMortarMarker(){
             }
             if(!tooClose){
               if(!this._partGeo) this._partGeo = new THREE.PlaneGeometry(0.9, 0.30);
-              const pm = new THREE.Mesh(this._partGeo, new THREE.MeshBasicMaterial({
-                color: 0xffffff, transparent: true, opacity: 1, depthWrite: false, side: THREE.DoubleSide,
-              }));
+              /* The MATERIAL is pooled; the geometry was already shared. A new
+                 MeshBasicMaterial per foam puff kept the churn alive even
+                 away from combat. */
+              const pm = new THREE.Mesh(this._partGeo, this._foamMat());
               pm.renderOrder = 5;
               pm.position.set(mx, 0.27, mz);
               pm.rotation.x = -Math.PI/2;
@@ -11962,7 +12662,7 @@ _initMortarMarker(){
           p.life -= dt;
           if(p.life <= 0){
             this.scene.remove(p.mesh);
-            p.mesh.material.dispose();
+            this._releaseFoamMat(p.mesh.material);
             t._foamParticles.splice(i,1);
           } else {
             p.mesh.position.set(p.x, 0.27, p.z);
@@ -12245,6 +12945,34 @@ _initMortarMarker(){
       } catch(e){}
     }
     return ref;
+  }
+
+  /* GROUND HEIGHT AT A POINT — the artillery probe.
+
+     One downward Rapier ray from a little above `refY` (60 up, reaching far
+     below the tank, so hills above the tank's level and valleys beneath it
+     both get an answer). Tanks and shells are filtered out so a hull parked
+     on the impact point cannot eat the probe and drag the aim down onto
+     itself. Returns 0 when there is no physics answer at all — the flat
+     world floor the old flat-plane solve assumed, which keeps the arc from
+     ever snapping to a made-up height.
+
+     This is what makes the impact ring, the X marker, the drawn arc and the
+     shell itself all agree on WHERE THE GROUND IS: before it existed every
+     one of them was solved against a different plane (marker hardcoded at
+     y=0.06, arc solved to land at y=0, reticle at tank root), and no two of
+     them ever lined up off dead-flat maps. */
+  _impactGroundY(x, z, refY){
+    const pw = this.physicsWorld;
+    if(pw && typeof RAPIER !== 'undefined' && RAPIER.Ray){
+      try {
+        const top = refY + 60;
+        const notActor = (c) => { const u = c && c.userData; return !(u && (u.type === 'tank' || u.type === 'shell')); };
+        const hit = pw.castRay(new RAPIER.Ray({ x, y: top, z }, { x: 0, y: -1, z: 0 }), top + 250, true, undefined, undefined, undefined, undefined, notActor);
+        if(hit){ const t = hit.timeOfImpact != null ? hit.timeOfImpact : hit.toi; if(t != null) return top - t; }
+      } catch(e){}
+    }
+    return 0;
   }
 
   _makeGroundRing(x, z, r, color, opacity){
@@ -12643,8 +13371,9 @@ _initMortarMarker(){
             const pr = p.cur * 1.15;
             const ddx = o.x - p.x, ddz = o.z - p.z;
             if(ddx*ddx + ddz*ddz < pr*pr){
+              /* takeDamage already raises the number when the local player is
+                 the owner -- spawning a second one here doubled it. */
               o.takeDamage(d.oilDamage || 4, t, this);
-              this.spawnDamageLabel(o.x, o.def.turret.h + o.def.body.h + 3.6, o.z, d.oilDamage || 4);
               break;
             }
           }
@@ -14115,6 +14844,25 @@ _initMortarMarker(){
   _showResults(opts){
     opts = opts || {};
     this._recordBattle(opts.outcome === 'win');
+    /* TANK RESEARCH XP — one payout per battle, through this same chokepoint
+       as the trophy and the battle record. Not in _awardBattleCash, because
+       that also pays out per kill mid-match; here the numbers are final.
+       The guard is the same shape as _battleRecorded: _showResults can be
+       reached by more than one end-of-match path (TDM rounds, elimination,
+       skip, watchdog), and a battle must never pay its XP twice. */
+    if(!this._researchXPAwarded && typeof Research !== 'undefined' && Research.addXP && Research.xpForBattle){
+      this._researchXPAwarded = true;
+      try {
+        const lt = this.localTank;
+        const rx = Research.xpForBattle({
+          damage:  lt ? (lt.damageDealt || 0) : 0,
+          kills:   lt ? (lt.kills || 0) : 0,
+          assists: lt ? (lt.assists || 0) : 0,
+          won:     opts.outcome === 'win',
+        });
+        if(rx > 0) Research.addXP(rx, 'battle');
+      } catch(e){ console.warn('research xp:', e); }
+    }
     /* TROPHY AWARDING. One trophy per win, awarded exactly once per battle.
        The catalogue (config.js TROPHIES) carries a `threshold` per trophy; the
        player's running win count decides which ones they have earned. This is
@@ -14426,17 +15174,25 @@ _initMortarMarker(){
     }
     // Eject backwards/off-axis of the barrel, upward, plus a little of the
     // tank's own ground speed so it trails naturally.
+    //
+    // THE THROW IS DELIBERATELY BIG NOW. At 5-8 units a second and a 0.18-unit
+    // case, the casing travelled about a tank-length and a half before it hit
+    // the ground: from the player's camera it read as "no casings at all",
+    // which is exactly the report that brought us here. A fired case leaves a
+    // real gun fast and high, so it is thrown at 1.6x the old speed and 1.6x
+    // the old lift, which is enough for it to clear the hull and arc into view
+    // beside the tank instead of vanishing under the tracks.
     const a = tank.turretAngle + Math.PI + (Math.random() < 0.5 ? 1 : -1) * (Math.PI/2 + (Math.random()*0.4 - 0.2));
     const gv = tank.getWorldVelocity() || {x:0, z:0};
-    const spd = 5 + Math.random() * 3;
+    const spd = 8 + Math.random() * 4.5;
     const vel = {
-      x: Math.sin(a) * spd * 0.6 + gv.x * 0.35,
-      y: 5 + Math.random() * 2.5,
-      z: Math.cos(a) * spd * 0.6 + gv.z * 0.35,
+      x: Math.sin(a) * spd * 0.62 + gv.x * 0.35,
+      y: 8 + Math.random() * 3.5,
+      z: Math.cos(a) * spd * 0.62 + gv.z * 0.35,
     };
-    if(fallbackPos) vel.y += 0.5;
+    if(fallbackPos) vel.y += 0.8;
     // Cap concurrent casings: keep the scene and physics cheap under rapid fire.
-    if(this.casings.length >= 18){
+    if(this.casings.length >= 26){
       const oldest = this.casings.shift();
       if(oldest) oldest.detach();
     }
@@ -14446,10 +15202,18 @@ _initMortarMarker(){
   }
 
   spawnShot(tank){
-    // Cosmetic: the model's gun node snaps back on the shot and eases home.
-    if(tank && tank.onFired) tank.onFired();
+    /* THE SHOT LEAVES THE BARREL TIP, NOT THE RECOILED GUN.
+
+       The muzzle is read FIRST, so the shell, the flash and the flame cone all
+       start where the tube ended before it kicked. Arming the recoil before this
+       read put every shot 0.4-9 model units back down a barrel that was already
+       sliding, which is why the flash grew out of the middle of the gun on the
+       models with a large authored scale. The kick below is cosmetic and eases
+       home on its own. */
     const muz = tank.muzzle();
     const pos = muz.pos;
+    // Cosmetic: the model's gun node snaps back on the shot and eases home.
+    if(tank && tank.onFired) tank.onFired();
     /* MODE 1 PITCH: fire where you aim. The crosshair's vertical offset IS a
        real gun elevation here — the shell's direction is pitched by the same
        angle the aim line drew. Mortar solves its own trajectory; flame is a
@@ -14470,19 +15234,28 @@ _initMortarMarker(){
          dir = new THREE.Vector3(0, 0, 1);
        }
      }
-    /* SHELL HEIGHT = THE MIDDLE OF THE HITBOX, not the barrel tip.
+    /* SHELL HEIGHT = THE MUZZLE THE MODEL DRAWS.
 
-       The barrel tip hangs off animated gun nodes and editor offsets, and in a
-       live match it measured anywhere from 4.8 units BELOW the hull (Demolisher,
-       so the round spawned inside the ground and died at once) to 8.5 above it
-       (Striker, so it flew over every tank's hitbox). The game is played from
-       above, so a direct-fire round now leaves at the shooter's own hitbox
-       centre, which is also where a target standing at the same level is.
-       The mortar keeps its barrel (its arc is solved from it) but never starts
-       below that centre. The flash and smoke still come from the barrel. */
-    const hitMidY = (tank.root ? tank.root.position.y : 0) + (tank.colOffY || 0);
-    if(tank.def.shellType === 'mortar'){ if(!(pos.y >= hitMidY)) pos.y = hitMidY; }
-    const y = (tank.def.shellType === 'mortar') ? pos.y : hitMidY;
+       This used to be forced to the middle of the hitbox for every direct-fire
+       tank, on the strength of barrel tips that measured 4.8 units below the
+       hull (Demolisher) or 8.5 above it (Striker). Those numbers came from the
+       rigs the muzzle is no longer read from — the loader now places it on the
+       authored `firing` empty, or on a reparented gun arm, and every model in
+       the roster measures inside its own hitbox. Forcing the hull centre on
+       top of that is what moved the firing point: the flash, the flame and the
+       round all left from the middle of the tank while the barrel sat an arm's
+       length away.
+
+       So use the muzzle. The bounds test is a guard, not the normal path: a
+       rig that reports its muzzle underground (or absurdly high) still falls
+       back to the hitbox centre rather than firing from inside the terrain. */
+    const rootY = tank.root ? tank.root.position.y : 0;
+    const hitMidY = rootY + (tank.colOffY || 0);
+    const muzzleLow = rootY + 0.15;
+    const muzzleHigh = rootY + (tank.colOffY || 0) + (tank.colHalfH || 1) + 3;
+    let y = pos.y;
+    if(!isFinite(y) || y < muzzleLow || y > muzzleHigh) y = hitMidY;
+    pos.y = y;
     if(window.Audio && Audio.click){
       const vol = tank === this.localTank ? 1 : 0.45;
       if(tank.def.shellType === 'flame'){ if(Audio.flame) Audio.flame(vol); }
@@ -14591,7 +15364,25 @@ _initMortarMarker(){
            behind it is gone, so there is nothing to start. */
       }
     }
-    if(tank.def.shellType === 'flame') this._ensureHelixVideo(tank);
+    /* CHURN. A flame jet is not a still picture: it boils. Each shot adds a
+       couple of fire puffs along the jet at randomised offsets, so the cone
+       behind them is never the same silhouette twice — the same trick that
+       keeps explosions from looking like decals. The cone carries the heat and
+       the range; these carry the movement. */
+    if(tank.def.shellType === 'flame' && this.spawnBurst){
+      const fr = tank.def.shellRange || 25;
+      for(let i = 0; i < 3; i++){
+        const d = fr * (0.18 + Math.random() * 0.72);
+        const jitter = (Math.random() - 0.5) * fr * 0.10;
+        const bx = pos.x + dir.x * d - dir.z * jitter;
+        const bz = pos.z + dir.z * d + dir.x * jitter;
+        this.spawnBurst(bx, y + (Math.random() - 0.2) * 1.1, bz, {
+          count: 2, tex: 'flare', speed: 2.4, size: 1.5 + Math.random() * 1.1,
+          life: 0.16 + Math.random() * 0.12, rise: 0.9, gravity: -1.4,
+          color: i === 0 ? 0xffd66a : 0xff7a1a, blend: 'add',
+        });
+      }
+    }
 
     /* The barrel blast — a white-hot flash with red in it that turns straight
        to black smoke — is now the ONLY thing that plays when a tank fires.
@@ -14600,14 +15391,9 @@ _initMortarMarker(){
        the same spot read as a mess, and the smoke was being hidden under the
        two of them. The functions are still there, unused, in case the art
        ever wants to come back. */
-    if(typeof MuzzlePop !== 'undefined' && !(this.settings && this.settings.muzzleFx === false)){
-      /* The nozzle-flash image replaces the shader flash once it has loaded; until the
-         image is on the server (it is not yet) the shader flash keeps playing. */
-      if(this._muzzleFlashReady && typeof this._muzzleFlashImg === 'function') this._muzzleFlashImg(pos, dir);
-      else MuzzlePop.play(this.scene, pos, dir, tank === this.localTank, this.camera ? this.camera.position : null, tank);
-      /* The point light on the barrel stays: the cartoon cloud is the SHAPE of
-         the shot, and the light is what makes the tank's own metal flare when
-         it fires. Without it the gun looks like it is firing silently. */
+    if(!(this.settings && this.settings.muzzleFx === false)){
+      /* 3D nozzle flash (MuzzlePop) removed by request; keep only the barrel
+         light so shots still read as fire. */
       this._muzzleLight(pos.x, pos.y + 0.2, pos.z, tank);
     }
   }
@@ -14762,54 +15548,6 @@ _initMortarMarker(){
   }
 
 
-  _ensureHelixVideo(tank){
-    if(this._helixVideos.has(tank.id)) return;
-    const el = document.createElement('video');
-    el.src = 'assets/helix/fire.mp4';
-    el.muted = true;
-    el.loop = true;
-    el.playsInline = true;
-    el.crossOrigin = 'anonymous';
-    el.playbackRate = 5; el.play().catch(() => {});
-    const tex = new THREE.VideoTexture(el);
-    /* THE ONE PIECE OF VIDEO THAT REALLY WAS OVER-BUDGETED.
-
-       This strip is a 30fps clip played at FIVE TIMES NORMAL SPEED, so the
-       decoder is presenting ~150 frames a second and the renderer is uploading
-       whichever of them is current once per rendered frame -- 60 uploads a
-       second of a full-frame RGBA texture, for a strip that is only ever seen
-       through a luminance key.
-
-       VideoVFX.paceTexture caps the UPLOAD rate at VideoVFX.maxUploadHz (45) and
-       refuses the write outright when the decoder has not actually presented a
-       new frame. It is worth the most here and nothing at all on the 24/30fps
-       one-shot explosions, which is why it is not a blanket "slow the videos
-       down" switch -- see the note in video-vfx.js. */
-    VideoVFX.paceTexture(tex, el);
-    tex.center.set(0.5, 0.5);
-    tex.rotation = Math.PI / 2;
-    tex.wrapS = THREE.RepeatWrapping;
-    tex.repeat.x = -1;
-    tex.offset.x = 1;
-    const range = tank.def.shellRange || 25;
-    const tanHalf = tank.def.fireConeHalfAngle || 0.18;
-    const halfW = range * tanHalf;
-    const w = halfW * 2;
-    const h = range;
-    const geo = new THREE.PlaneGeometry(w, h);
-    geo.translate(0, h / 2, 0);
-    const mat = this._videoMaterial(tex, { opacity: 0.0, chromaKey: 'darkOnly', depthTest: false });
-    if(!(window.__isWebGPU && mat.isNodeMaterial)){
-      mat.onBeforeCompile = s => { s.fragmentShader = window.glslInject(s.fragmentShader, 'float _lum=dot(outgoingLight,vec3(0.299,0.587,0.114));if(_lum<0.06)discard;'); };
-    }
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.rotation.set(-Math.PI / 2, 0, Math.PI);
-    if(tank.barrelEnd) { mesh.position.copy(tank.barrelEnd.position); mesh.position.x += 0.35; }
-    mesh.scale.set(0.1, 0.1, 0.1);
-    tank.turretGroup.add(mesh);
-    this._helixVideos.set(tank.id, { mesh, tex, el, parent: tank.turretGroup, firing: true, fadeTimer: 0, growTimer: 0 });
-  }
-
   /* Material for a video VFX plane.
 
      The chroma key is the whole point of these clips: they are shot against a
@@ -14818,8 +15556,25 @@ _initMortarMarker(){
      WebGPU build (it only speaks node materials), so on WebGPU the key was
      silently dropped and every keyed clip drew its own black rectangle across
      the tank — a real bug, caught by looking at frames instead of trusting the
-     code. The node material below applies the identical luminance test and
-     discards the same pixels. */
+     code. The node material below applies the same key and discards the same
+     pixels.
+
+     THE BACKDROP IS WHITE. Measured off the shipped files
+     (assets/vfx/TL_vfxexplosion.mp4 and TL_vfxfire.mp4): 1920x1080, and every
+     pixel outside the effect has a smallest channel of 250-255, i.e. it is a
+     pure white studio backdrop, not a green screen. Keying "dark" alone (the
+     old test) therefore did nothing but leave a glowing white rectangle over
+     the tank.
+
+     WHITENESS, NOT LUMINANCE. Keying on brightness alone would also punch
+     holes in a white-hot blast core, and this fire is exactly the kind of
+     saturated orange-white that reads as "bright" while its minimum channel
+     is still near zero. So the test is "high minimum channel AND low
+     saturation": white is both, fire is neither, and a pale compression halo
+     around the flame edge fades out through the same ramp instead of leaving
+     a hard sticker outline. Checked against the clips: 0.00% of the effect
+     pixels are achromatic near-white, so nothing that should be seen is
+     thrown away. */
   _videoMaterial(tex, o){
     const opts = o || {};
     if(opts.chromaKey && window.__isWebGPU && window.TSL && window.WebGPU){
@@ -14828,12 +15583,29 @@ _initMortarMarker(){
       const t = T.texture(tex, T.uv());
       const lum = T.dot(t.rgb, T.vec3(0.299, 0.587, 0.114));
       /* 'darkOnly' = the helix strip, which keys on black only. The full key
-         drops near-white as well, which is what the explosion clips need. */
-      const bad = (opts.chromaKey === 'darkOnly')
-        ? lum.lessThan(0.06)
-        : T.or(lum.lessThan(0.06), lum.greaterThan(0.97));
+         drops the white studio backdrop as well — see the long note above
+         _videoMaterial for why it tests whiteness rather than brightness. */
+      const opacity = opts.opacity != null ? opts.opacity : 1;
+      let alpha = t.a.mul(opacity);
+      let bad = lum.lessThan(0.06);
+      if(opts.chromaKey !== 'darkOnly'){
+        try {
+          const mn  = T.min(T.min(t.r, t.g), t.b);
+          const mx  = T.max(T.max(t.r, t.g), t.b);
+          const sat = mx.sub(mn);
+          const key = T.smoothstep(0.90, 0.965, mn).mul( T.oneMinus(T.smoothstep(0.04, 0.14, sat)) );
+          alpha = alpha.mul(T.oneMinus(key));
+          bad = T.or(bad, alpha.lessThan(0.06));
+        } catch(e){
+          /* A TSL name that does not exist on this build must not take the
+             whole effect down: fall back to the flat test, which still removes
+             the box, just with a harder edge. */
+          alpha = t.a.mul(opacity);
+          bad = T.or(lum.lessThan(0.06), lum.greaterThan(0.94));
+        }
+      }
       T.Discard( bad );
-      mat.colorNode = T.vec4(t.rgb, t.a.mul(opts.opacity != null ? opts.opacity : 1));
+      mat.colorNode = T.vec4(t.rgb, alpha);
       mat.transparent = true;
       mat.depthWrite  = false;
       mat.depthTest   = (opts.depthTest === false) ? false : true;
@@ -14848,9 +15620,20 @@ _initMortarMarker(){
     });
     if(opts.chromaKey && opts.chromaKey !== 'darkOnly'){
       mat.onBeforeCompile = s => {
+        /* The white studio backdrop, thrown away by WHITENESS: a bright but
+           saturated pixel is fire and stays, a bright unsaturated one is the
+           backdrop and goes. diffuseColor.a is the alpha three writes to
+           gl_FragColor in the chunk right after this injection point, so
+           feathering it here is what gives the flame edge its anti-aliased
+           fade instead of a sticker cut-out. */
         s.fragmentShader = window.glslInject(
           s.fragmentShader,
-          'float _lum=dot(outgoingLight,vec3(0.299,0.587,0.114));if(_lum<0.06||_lum>0.97)discard;'
+          'float _lum=dot(outgoingLight,vec3(0.299,0.587,0.114));' +
+          'float _mn=min(min(outgoingLight.r,outgoingLight.g),outgoingLight.b);' +
+          'float _mx=max(max(outgoingLight.r,outgoingLight.g),outgoingLight.b);' +
+          'float _key=smoothstep(0.90,0.965,_mn)*(1.0-smoothstep(0.04,0.14,_mx-_mn));' +
+          'diffuseColor.a*=(1.0-_key);' +
+          'if(_lum<0.06||diffuseColor.a<0.06)discard;'
         );
       };
     }
@@ -14878,6 +15661,39 @@ _initMortarMarker(){
        frame regardless. */
     VideoVFX.paceTexture(tex, el);
     tex.minFilter = THREE.LinearFilter;
+
+    /* CROP TO THE EFFECT, NOT TO THE FRAME.
+
+       Both shipped clips are 1920x1080 studio plates and the effect inside
+       them is tiny: measured across the whole explosion clip the fire lives in
+       x 940-1064, y 780-1016 -- 6.5% of the width, 22% of the height, sitting
+       low in the middle. The fire clip is x 728-1208, y 68-1052 (25% x 91%).
+
+       Mapping the WHOLE frame onto the quad is what made these look wrong, and
+       not just because of the white box: the quad was sized by the frame's 16:9,
+       so a 2.6-unit-high plane showed a small flame in a wide empty field, and
+       since the quad is centred (or bottom-anchored) on the hit point, the
+       flame appeared displaced from the thing it was supposed to be coming out
+       of. Cropping the UVs to the measured box and building the geometry at the
+       BOX's aspect fixes both at once: the effect fills its plane, and its
+       centre / its foot are where the maths already puts the plane.
+
+       `crop` is normalised, measured from the TOP-left of the frame. Textures
+       are sampled bottom-up (flipY), hence the 1 - y - h. */
+    const crop = o.crop || null;
+    if(crop){
+      tex.repeat.set(crop.w, crop.h);
+      tex.offset.set(crop.x, 1 - crop.y - crop.h);
+      tex.wrapS = THREE.ClampToEdgeWrapping;
+      tex.wrapT = THREE.ClampToEdgeWrapping;
+    }
+    /* Aspect of what is actually visible, so fitAspect() below corrects to the
+       crop rather than to the plate it was cut out of. */
+    const contentAspect = () => {
+      const vw = (el.videoWidth || 1920) * (crop ? crop.w : 1);
+      const vh = (el.videoHeight || 1080) * (crop ? crop.h : 1);
+      return vw / Math.max(1e-4, vh);
+    };
     const mat = this._videoMaterial(tex, {
       opacity: o.opacity || 1,
       blend: o.blend,
@@ -14888,12 +15704,12 @@ _initMortarMarker(){
     // into a 0.6 "portrait" rectangle, which squashed them ~3x horizontally
     // (and is a big part of why the explosion looked wrong).
     const h = size;
-    const geo = new THREE.PlaneGeometry(h * (o.aspect || (16 / 9)), h);
+    const geo = new THREE.PlaneGeometry(h * (crop ? contentAspect() : (o.aspect || (16 / 9))), h);
     const mesh = new THREE.Mesh(geo, mat);
     // Correct from the file's real dimensions as soon as metadata is in.
     const fitAspect = () => {
       if(!el.videoWidth || !el.videoHeight) return;
-      const target = geo.parameters.height * (el.videoWidth / el.videoHeight);
+      const target = geo.parameters.height * contentAspect();
       const cur = geo.parameters.width;
       if(!cur || Math.abs(target - cur) < 0.001) return;
       const k = target / cur;
@@ -14948,27 +15764,23 @@ _initMortarMarker(){
       info.mat.opacity = 0.9;
       info.life = info.maxLife = 48;
     }
-    // Parented to the SCENE, not the turret: it follows the wreck by position
-    // instead of inheriting the turret's yaw, which used to leave the flame
-    // pointing edge-on (or flat on the deck) instead of at the camera.
+    // Spawn on the turret pivot: track the wreck and sit at turret height.
     info.follow = tank;
+    info.pivotOffset = (tank && tank.def && tank.def.body && tank.def.body.h) ? (tank.def.body.h + 0.45) : 1.4;
     if(info.mesh.parent !== this.scene) this.scene.add(info.mesh);
-    this._placeVideoGround(info, tank.x, tank.y || 0, tank.z);
+    info.basePos.set(tank.x, (tank.y || 0) + info.pivotOffset, tank.z);
+    info.baseH = (info.mesh.geometry && info.mesh.geometry.parameters.height) || info.baseH || 2.4;
     this._videoFireEffects.push(info);
   }
 
   _spawnVideoExplosion(x, y, z){
     if(!this._videoExplosions) this._videoExplosions = [];
     if(!this._videoExpPool) this._videoExpPool = [];
-    // Building a <video> element and spinning up its decoder is one of the most
-    // expensive single operations in this game (tens of ms), and it used to
-    // happen on every single shell?tank hit. A small fixed pool is recycled
-    // instead, so heavy fire never allocates a new video mid-fight.
     const MAX_LIVE = 3;
     const url = 'assets/vfx/TL_vfxexplosion.mp4';
     let info;
     if(this._videoExplosions.length >= MAX_LIVE){
-      info = this._videoExplosions.shift();          // recycle the oldest live one
+      info = this._videoExplosions.shift();
     } else {
       info = this._videoExpPool.pop();
     }
@@ -14979,7 +15791,12 @@ _initMortarMarker(){
       info.mat.opacity = 1;
       info.life = info.maxLife = 1.5;
     }
-    this._placeVideoGround(info, x, y, z);
+    // Horizontal (flat on the ground) instead of vertical billboard.
+    info.flat = true;
+    info.basePos.set(x, y, z);
+    info.baseH = (info.mesh.geometry && info.mesh.geometry.parameters.height) || info.baseH || 2.6;
+    info.mesh.rotation.set(-Math.PI / 2, 0, 0);
+    info.mesh.position.set(x, y, z);
     if(info.mesh.parent !== this.scene) this.scene.add(info.mesh);
     this._videoExplosions.push(info);
   }
@@ -15066,10 +15883,19 @@ _initMortarMarker(){
       if(v.follow && v.follow.x != null){
         v.basePos.x = v.follow.x;
         v.basePos.z = v.follow.z;
-        v.basePos.y = (v.follow.y != null ? v.follow.y : 0);
+        const off = (v.pivotOffset != null) ? v.pivotOffset : 1.4;
+        v.basePos.y = (v.follow.y != null ? v.follow.y : 0) + off;
       }
-      // keeps turning to face the camera and grows FROM the anchor point
-      this._faceVideoToCamera(v, 1 + t * 0.5);
+      // flat (horizontal) effects stay on the ground instead of billboarding
+      if(v.flat){
+        const sc = 1 + t * 0.5;
+        v.mesh.scale.setScalar(sc);
+        v.mesh.rotation.set(-Math.PI / 2, 0, 0);
+        v.mesh.position.copy(v.basePos);
+      } else {
+        // keeps turning to face the camera and grows FROM the anchor point
+        this._faceVideoToCamera(v, 1 + t * 0.5);
+      }
       if(v.life > 0) continue;
       if(v.mesh.parent) v.mesh.parent.remove(v.mesh);
       list.splice(i, 1);
@@ -15298,31 +16124,28 @@ spawnExplosion(x, y, z, color, count, style){
     const o = opts || {};
     const px = x || 0, pz = z || 0;
     const dir = (dirX && dirZ) ? [dirX, dirZ] : null;
-    // 1) soft starburst pop
-    this.spawnBurst(px, y + 0.35, pz, {
-      count: o.flashCount || 1, tex: 'starsoft', color: color || 0xfff2d0,
-      speed: 0.4, size: o.flashSize || 1.7, life: o.flashLife || 0.18,
-      rise: 0.6, gravity: 0, blend: 'add', spin: 0, grow: 1.5, fade: 0.9,
-    });
-    // 2) hot directional streaks along the shell travel
-    this.spawnBurst(px, y + 0.18, pz, {
-      count: o.sparkCount != null ? o.sparkCount : 10, tex: ['spark','ember'],
-      speed: o.sparkSpeed != null ? o.sparkSpeed : 11, size: o.sparkSize || 0.4,
-      life: o.sparkLife || 0.34, rise: 1.6, gravity: o.sparkGravity != null ? o.sparkGravity : 16,
-      biasX: dir ? dir[0] : 0, biasZ: dir ? dir[1] : 0, spread: o.spread != null ? o.spread : 0.7,
+    const sparkN = o.sparkCount != null ? o.sparkCount : 3;
+    const yellowN = Math.ceil(sparkN * 0.67);
+    const redN = sparkN - yellowN;
+    const sparkSpeed = o.sparkSpeed != null ? o.sparkSpeed : 12;
+    const sparkLife = o.sparkLife != null ? o.sparkLife : 0.45;
+    const sparkGravity = o.sparkGravity != null ? o.sparkGravity : 12;
+    const sparkRise = o.sparkRise != null ? o.sparkRise : 6;
+    const spread = o.spread != null ? o.spread : 1.4;
+    // 1) hot directional sparks — only a few, glowing, launched upward
+    if(yellowN > 0) this.spawnBurst(px, y + 0.18, pz, {
+      count: yellowN, tex: ['spark','ember'], color: 0xffdd55,
+      speed: sparkSpeed, size: o.sparkSize || 0.6,
+      life: sparkLife, rise: sparkRise, gravity: sparkGravity,
+      biasX: dir ? dir[0] : 0, biasZ: dir ? dir[1] : 0, spread: spread,
       blend: 'add', spin: 10,
     });
-    // 3) tiny debris
-    this.spawnBurst(px, y + 0.08, pz, {
-      count: o.debrisCount || 3, tex: ['shard','hex'], color: color || 0xc8b898,
-      speed: o.debrisSpeed || 5, size: o.debrisSize || 0.5, life: o.debrisLife || 0.5,
-      rise: 1.6, gravity: 12, biasX: dir ? dir[0] : 0, biasZ: dir ? dir[1] : 0,
-      spread: 1.0, blend: 'normal', spin: 7,
-    });
-    // 4) light dust kick
-    this.spawnBurst(px, y + 0.04, pz, {
-      count: o.dustCount != null ? o.dustCount : 4, tex: 'dust',
-      speed: 3.2, size: 0.9, life: 0.5, rise: 1.0, gravity: 5, blend: 'normal', fade: 0.7,
+    if(redN > 0) this.spawnBurst(px, y + 0.18, pz, {
+      count: redN, tex: ['spark','ember'], color: 0xff3322,
+      speed: sparkSpeed, size: o.sparkSize || 0.6,
+      life: sparkLife, rise: sparkRise, gravity: sparkGravity,
+      biasX: dir ? dir[0] : 0, biasZ: dir ? dir[1] : 0, spread: spread,
+      blend: 'add', spin: 10,
     });
     /* 5) THE SEGMENT SPARKS. Small yellow LINE segments - not dots - thrown
        straight out of the impact point, scattering every which way, pulled
@@ -15331,8 +16154,15 @@ spawnExplosion(x, y, z, color, count, style){
        updated once per frame from the game's VFX tick. */
     if(typeof SparkLines !== 'undefined'){
       SparkLines.spawn(this.scene, px, y + 0.22, pz, dir ? dir[0] : 0, dir ? dir[1] : 0, {
-        count: (o.sparkCount != null ? o.sparkCount : 8),
-        speed: (o.sparkSpeed != null ? o.sparkSpeed : 11),
+        /* MORE AND FURTHER: roughly double the count, double the throw speed
+           and a much wider cone, so the fan leaves the hull and every burst
+           scatters on its own bearings. life/width drive the cool-down fade
+           in CartoonFX. */
+        count: (o.sparkCount != null ? Math.min(o.sparkCount, 3) : 3),
+        speed: 12,
+        life: 0.45,
+        width: 0.12,
+        spread: 1.4,
       });
     }
   }
@@ -15443,7 +16273,8 @@ spawnExplosion(x, y, z, color, count, style){
       px = -dx / len; pz = -dz / len;
     }
     this.spawnExplosion(tank.x, y1, tank.z, color || 0xffaa40, 3, 'boom');
-    this.spawnHitVfx(tank.x, y1, tank.z, px, pz, color);
+    this.spawnHitVfx(tank.x, y1, tank.z, px, pz, color, { flashCount: 0, sparkCount: 3, sparkSpeed: 12, sparkLife: 0.45, sparkGravity: 12, sparkRise: 6, debrisCount: 0, dustCount: 0 });
+    if(this._spawnVideoExplosion) this._spawnVideoExplosion(tank.x, y1, tank.z);
   }
 
   /* Destruction VFX — white-hot pop, shockwave, sparks, debris, smoke column */
@@ -15593,6 +16424,7 @@ spawnExplosion(x, y, z, color, count, style){
   _currentGamemodeId(){
     try {
       if(this._baseDefendMode)   return 'baseDefend';
+      if(this._stealFlagMode)    return 'stealFlag';
       if(this._captureCircleMode) return 'captureTheCircle';
       if(this.glad)             return 'gladiator';
       if(this._tdmState)        return 'teamDeathmatch';
@@ -15648,6 +16480,189 @@ spawnExplosion(x, y, z, color, count, style){
     return cash;
   }
 
+  /* ============================================================================
+     RESPAWN CINEMATIC — the death-to-spawn shot
+     ---------------------------------------------------------------------------
+     Dying in a mode with unlimited respawns used to be a five-second nothing:
+     the camera sat exactly where it was, aimed at a burning hull, with no
+     indication that a new tank was coming. This is the beat that fills it.
+
+     The camera leaves the wreck, sweeps up and across the map, and comes down
+     behind the spawn point arriving on the same frame the new tank does — so
+     the player's own follow camera picks up from where the shot ended instead
+     of snapping there.
+
+     Everything is wall-clock-independent: the shot counts the SAME `dt` the
+     respawn timer does (deathT), so the arrival and the spawn cannot drift
+     apart on a slow machine. It is a cubic Bezier through four points, which
+     is one multiply-heavy expression rather than a spline library, and the
+     look target is a second Bezier through four other points so the framing
+     leads the camera instead of chasing it.
+
+     The `prefers-reduced-motion` contract from the end-of-match shot applies
+     here too: no sweep, no letterbox travel — just a slow wash to black, a cut
+     to the spawn, and the tank arriving.
+     ========================================================================== */
+  _respawnCineDom(){
+    let el = document.getElementById('respawn-cine');
+    if(el) return el;
+    el = document.createElement('div');
+    el.id = 'respawn-cine';
+    el.className = 'rc';
+    el.innerHTML =
+      '<div class="rc-shade"></div>' +
+      '<div class="rc-bar rc-bar-top"></div>' +
+      '<div class="rc-bar rc-bar-bottom"></div>' +
+      '<div class="rc-center">' +
+        '<div class="rc-kicker">TANK DESTROYED</div>' +
+        '<div class="rc-count" id="rc-count">5</div>' +
+        '<div class="rc-hint" id="rc-hint">Respawning at your base</div>' +
+      '</div>';
+    document.body.appendChild(el);
+    return el;
+  }
+
+  onLocalTankWreck(tank){
+    if(!tank || this._respawnCine) return;
+    const respawns = (this._captureCircleMode || this._baseDefendMode || this._stealFlagMode);
+    if(!respawns) return;                 /* TDM/gladiator: spectate instead */
+    const cfg = this._baseDefendMode ? GAMEMODES.baseDefend
+              : this._stealFlagMode ? GAMEMODES.stealFlag
+              : GAMEMODES.captureTheCircle;
+    this._respawnCineStart(tank, (cfg && cfg.respawnTime) || 5);
+  }
+
+  _respawnCineStart(tank, dur){
+    const reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    const fromPos = this.camera.position.clone();
+    const dir = new THREE.Vector3();
+    this.camera.getWorldDirection(dir);
+    const fromLook = fromPos.clone().addScaledVector(dir, 30);
+
+    const wreck = new THREE.Vector3(tank.x, (tank.root && tank.root.position.y) || tank.y || 0, tank.z);
+    const sp = tank._spawnPos || { x: tank.x, y: wreck.y, z: tank.z };
+    const spawn = new THREE.Vector3(sp.x, (isFinite(sp.y) ? sp.y : wreck.y), sp.z);
+    const heading = (tank._spawnHeading != null) ? tank._spawnHeading
+                  : (tank.team === 'blue' ? 0 : Math.PI);
+
+    /* ARRIVE WHERE THE PLAY CAMERA WILL BE.
+
+       Same formula _updateCountdownCamera uses, with the angle the follow rig
+       will snap to (behind the hull), so the last frame of the shot and the
+       first frame of play are the same frame. */
+    const angle = heading + Math.PI;
+    const camHOff = this._getCamHOffset(this.camDist);
+    const arrive = new THREE.Vector3(
+      spawn.x + Math.sin(angle) * (this.camDist + camHOff),
+      spawn.y + this._getCameraHeight(this.camDist),
+      spawn.z + Math.cos(angle) * (this.camDist + camHOff)
+    );
+    /* A camera underground is worse than a camera in the wrong place. */
+    arrive.y = Math.max(arrive.y, spawn.y + 7);
+    this._clampCameraTarget(arrive);
+
+    const mid = wreck.clone().lerp(spawn, 0.5);
+    /* The sweep: high over the ground between the two points, pushed sideways
+       so the move is a curve rather than a straight lift. */
+    const side = new THREE.Vector3(spawn.z - wreck.z, 0, wreck.x - spawn.x).normalize();
+    if(!isFinite(side.x) || (side.x === 0 && side.z === 0)) side.set(1, 0, 0);
+    const away = fromPos.clone().sub(wreck);
+    away.y = 0;
+    if(away.lengthSq() < 0.01) away.set(1, 0, 0);
+    away.normalize();
+
+    const p0 = fromPos;
+    const p1 = wreck.clone().addScaledVector(away, 14).add(new THREE.Vector3(0, 9, 0));
+    const p2 = mid.clone().addScaledVector(side, 34).add(new THREE.Vector3(0, 46, 0));
+    const p3 = arrive;
+
+    const l0 = fromLook;
+    const l1 = wreck.clone().add(new THREE.Vector3(0, 1.6, 0));
+    const l2 = mid.clone().add(new THREE.Vector3(0, 1.5, 0));
+    const l3 = spawn.clone().add(new THREE.Vector3(0, 1.5, 0));
+
+    const dom = this._respawnCineDom();
+    if(dom){
+      dom.classList.add('rc-show');
+      dom.classList.toggle('rc-reduced', reduced);
+      const c = document.getElementById('rc-count');
+      if(c) c.textContent = String(Math.ceil(dur));
+      const h = document.getElementById('rc-hint');
+      if(h) h.textContent = 'Respawning at your spawn point';
+    }
+    if(!reduced) this._shake = 0;
+    this._respawnCine = {
+      tank, t: 0, dur, reduced,
+      p0, p1, p2, p3, l0, l1, l2, l3, angle,
+      started: false,
+    };
+    try { if(this.input && this.input.setJoysticksVisible) this.input.setJoysticksVisible(false); } catch(e){}
+  }
+
+  _respawnCineTick(dt){
+    const rc = this._respawnCine;
+    if(!rc) return;
+    rc.t += dt;
+    const u = Math.min(1, rc.t / rc.dur);
+
+    if(!rc.reduced){
+      /* Smoothstep: slow off the wreck, quick through the middle, and slow
+         again into the arrival — the shape of every camera move that is meant
+         to be watched rather than noticed. */
+      const e = u * u * (3 - 2 * u);
+      const m = 1 - e;
+      const b0 = m * m * m, b1 = 3 * m * m * e, b2 = 3 * m * e * e, b3 = e * e * e;
+      const px = rc.p0.x * b0 + rc.p1.x * b1 + rc.p2.x * b2 + rc.p3.x * b3;
+      const py = rc.p0.y * b0 + rc.p1.y * b1 + rc.p2.y * b2 + rc.p3.y * b3;
+      const pz = rc.p0.z * b0 + rc.p1.z * b1 + rc.p2.z * b2 + rc.p3.z * b3;
+      this.camera.position.set(px, py, pz);
+      this.camera.lookAt(
+        rc.l0.x * b0 + rc.l1.x * b1 + rc.l2.x * b2 + rc.l3.x * b3,
+        rc.l0.y * b0 + rc.l1.y * b1 + rc.l2.y * b2 + rc.l3.y * b3,
+        rc.l0.z * b0 + rc.l1.z * b1 + rc.l2.z * b2 + rc.l3.z * b3
+      );
+    } else {
+      /* Reduced motion: hold on the wreck, then cut to the arrival. */
+      if(u < 0.55){
+        this.camera.position.copy(rc.p0);
+        this.camera.lookAt(rc.l0);
+      } else {
+        this.camera.position.copy(rc.p3);
+        this.camera.lookAt(rc.l3);
+      }
+    }
+
+    const left = Math.max(0, Math.ceil(rc.dur - rc.t));
+    const c = document.getElementById('rc-count');
+    if(c) c.textContent = left > 0 ? String(left) : 'GO';
+
+    /* The tank has been put back: hand the camera over only after a short hold,
+       so the arrival is watched rather than cut off. */
+    if(rc.tau > 0){
+      rc.tau -= dt;
+      if(rc.tau <= 0) this._respawnCineEnd();
+      return;
+    }
+    if(rc.t >= rc.dur){
+      this.camAngle = rc.angle;
+      const h = document.getElementById('rc-hint');
+      if(h) h.textContent = 'You are protected — no firing for 5s';
+      rc.tau = rc.reduced ? 0.45 : 1.15;
+    }
+  }
+
+  _respawnCineEnd(){
+    if(!this._respawnCine) {
+      const el = document.getElementById('respawn-cine');
+      if(el) el.classList.remove('rc-show');
+      return;
+    }
+    this._respawnCine = null;
+    const el = document.getElementById('respawn-cine');
+    if(el) el.classList.remove('rc-show');
+    try { if(this.input && this.input.setJoysticksVisible) this.input.setJoysticksVisible(true); } catch(e){}
+  }
+
   onLocalDeath(){
     if(this.glad){
       // Eliminated — no longer controllable: take the touch controls away
@@ -15657,16 +16672,24 @@ spawnExplosion(x, y, z, color, count, style){
       Menu.toast('Eliminated! You placed #' + (this.localTank ? (this.localTank.placement || '?') : '?'));
       return;
     }
-    if((this._captureCircleMode || this._baseDefendMode) && this.localTank){
+    if((this._captureCircleMode || this._baseDefendMode || this._stealFlagMode) && this.localTank){
       /* Both mid-match-respawn modes: you come back at your own spawn point, so
          there is nothing to spectate and no reason to take the controls away.
          Base Defend has to be in this branch or a death drops you into the
          spectator bar with the match still running — which reads as being
          kicked out of your own game, five seconds before your tank reappears
          underneath you. */
-      Menu.toast(this._baseDefendMode
-        ? 'Destroyed — respawning. Your base is still standing.'
-        : 'Destroyed — respawning at your spawn point...');
+      /* The respawn shot already said all of this on screen, in the middle of
+         the frame, with a countdown. A toast four seconds into it is noise on
+         top of the shot. The message survives for the one case where no shot
+         ran (reduced motion or a mode whose cinematic was torn down). */
+      if(!this._respawnCine){
+        Menu.toast(this._stealFlagMode
+          ? 'Destroyed — respawning. If you were carrying a flag, it is where you fell.'
+          : this._baseDefendMode
+          ? 'Destroyed — respawning. Your base is still standing.'
+          : 'Destroyed — respawning at your spawn point...');
+      }
       return;
     }
     if(this._tdmState && this.localTank){
@@ -15680,7 +16703,12 @@ spawnExplosion(x, y, z, color, count, style){
     this._startSpectate();
   }
 
-  addShake(amount){ this._shake = Math.max(this._shake, amount); }
+  /* CAMERA SHAKE IS OFF. The user asked for a steady view, and every source —
+     kills, blasts, shells landing nearby, the local tank's own recoil — comes
+     through here, so it is switched off once instead of at nine call sites.
+     Callers stay untouched: nothing else in the game reads `_shake`, and the
+     decay block in the camera update now simply never runs. */
+  addShake(amount){ this._shake = 0; }
 
   /* ---------- Visibility ---------- */
   _updateVisibility(){
@@ -15735,7 +16763,10 @@ spawnExplosion(x, y, z, color, count, style){
       let visible;
       if(d < 18) visible = true;
       else if(d <= viewDist){
-        visible = (t.camoFactor >= 0.5);
+        /* Anything with a non-zero camoFactor is still drawn: phase 1 of cover
+           is 20% opacity, which the player must be able to see. Only a fully
+           hidden tank (camoFactor 0) drops out here. */
+        visible = (t.camoFactor > 0);
         if(visible && blockers){
           const tY = t._physBody ? t._physBody.translation().y + 1.5 : 2;
           for(const w of blockers){
@@ -15780,8 +16811,177 @@ spawnExplosion(x, y, z, color, count, style){
   /* ===========================================================
      HUD
      =========================================================== */
+  /* ============================================================
+     THE BATTLE TOP BAR
+
+     One row across the top of the arena, and nothing else up there:
+
+       [your tanks] [your score] [icon clock] [their score] [their tanks]
+
+     What it replaced: the Steal the Flag panel, the Base Defend panel, the
+     TDM scoreboard and the damage leaderboard. Each was its own floating
+     card with its own title, three of them claimed the same strip, and in
+     Steal the Flag the clock — the one number that decides that mode — sat
+     almost in the middle of the screen behind a panel. Same data, ~40px.
+
+     The icons are alive/dead because that is the question a team mode asks
+     every second: "who is left". A wreck is greyed out rather than removed,
+     so the row never re-shuffles under your eyes and you can still count who
+     has already gone down.
+
+     Nothing here is drawn unless a mode with a top-bar is actually live, so
+     the countdown, the menus and the spectator flow are untouched.
+     ============================================================ */
+  _topHudIcon(kind){
+    const S = (p) => '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" '
+      + 'stroke-linecap="round" stroke-linejoin="round">' + p + '</svg>';
+    switch(kind){
+      case 'flag':   return S('<path d="M5 3v18"/><path d="M5 4h11l-2 4 2 4H5"/>');
+      case 'skull':  return S('<path d="M12 3a7 7 0 0 0-7 7c0 2 1 3.2 1 5v2h12v-2c0-1.8 1-3 1-5a7 7 0 0 0-7-7z"/><circle cx="9" cy="10" r="1.3" fill="currentColor"/><circle cx="15" cy="10" r="1.3" fill="currentColor"/>');
+      case 'target': return S('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.2"/>');
+      case 'base':   return S('<path d="M4 20V10l8-6 8 6v10"/><path d="M9 20v-6h6v6"/>');
+      case 'clock':  return S('<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/>');
+      default:       return '';
+    }
+  }
+
+  _updateTopHUD(dt){
+    const root = document.getElementById('top-hud');
+    if(!root) return;
+    const mode = this._stealFlagMode ? 'stealFlag'
+      : this._tdmMode ? 'tdm'
+      : this._captureCircleMode ? 'circle'
+      : this._baseDefendMode ? 'base'
+      : this.glad ? 'glad' : null;
+    const live = !!mode && this.running && !this._cinematicPhase && (this._matchStartDelay || 0) <= 0;
+    const hudEl = document.getElementById('hud');
+    if(hudEl) hudEl.classList.toggle('top-hud-on', !!live);
+    _setHidden(root, !live);
+    if(!live) return;
+
+    /* 10Hz is enough for a clock and far too slow to cost anything next to a
+       frame of rendering — the icons only rebuild when somebody dies. */
+    this._thT = (this._thT || 0) + (dt || 0.016);
+    if(this._thT < 0.1) return;
+    this._thT = 0;
+
+    const mine  = (this.localTank && this.localTank.team) || 'blue';
+    const other = mine === 'blue' ? 'red' : 'blue';
+
+    const paintRoster = (id, list) => {
+      const box = document.getElementById(id);
+      if(!box) return;
+      const key = list.map(t =>
+        (t === this.localTank ? 'L' : 'o') + ((t.alive && !t.dying) ? '1' : '0')).join('');
+      if(box._thKey === key) return;
+      box._thKey = key;
+      box.innerHTML = list.map(t => {
+        const dead = !(t.alive && !t.dying);
+        return '<span class="th-tank' + (dead ? ' dead' : '')
+          + (t === this.localTank ? ' local' : '') + '">'
+          + '<img src="assets/icons/tank-icon.webp" alt=""></span>';
+      }).join('');
+    };
+    const roster = (team) => this.tanks.filter(t => t && !t.isDummy && !t.isPanzer
+      && (team ? t.team === team : true));
+    if(mode === 'glad'){
+      /* Free-for-all has no "their" side, so the ten icons are split in half
+         around the clock instead of being pushed to one end of the screen (or,
+         worse, cut off — the first version showed six of ten tanks, which is
+         exactly the information the bar exists to give). */
+      const all = roster(null);
+      const half = Math.ceil(all.length / 2);
+      paintRoster('th-side-mine', all.slice(0, half));
+      paintRoster('th-side-theirs', all.slice(half));
+    } else {
+      paintRoster('th-side-mine', roster(mine));
+      paintRoster('th-side-theirs', roster(other));
+    }
+
+    const scoreMine = document.getElementById('th-score-mine');
+    const scoreTheirs = document.getElementById('th-score-theirs');
+    const numMine = document.getElementById('th-num-mine');
+    const numTheirs = document.getElementById('th-num-theirs');
+    const icoMine = document.getElementById('th-ico-mine');
+    const icoTheirs = document.getElementById('th-ico-theirs');
+    const clockNum = document.getElementById('th-clock-num');
+    const clockIco = document.getElementById('th-clock-ico');
+    const clockBox = document.getElementById('th-clock');
+    const roundEl = document.getElementById('th-round');
+
+    const fmt = (sec) => {
+      sec = Math.max(0, Math.ceil(sec || 0));
+      return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+    };
+
+    let hasScore = false, aTxt = '0', bTxt = '0';
+    let iconKind = 'clock', clockTxt = '', roundTxt = '', warn = false;
+
+    if(mode === 'stealFlag'){
+      const snap = (typeof StealFlag !== 'undefined') ? StealFlag.snapshot() : null;
+      if(snap){
+        hasScore = true; iconKind = 'flag';
+        aTxt = String(snap.scores[mine] || 0);
+        bTxt = String(snap.scores[other] || 0);
+        clockTxt = fmt(snap.timeLeft);
+        if(snap.overtime){ roundTxt = 'OT'; warn = true; }
+      }
+    } else if(mode === 'tdm' && this._tdmState){
+      const s = this._tdmState;
+      hasScore = true; iconKind = 'skull';
+      aTxt = String((mine === 'blue' ? s.blueRoundWins : s.redRoundWins) || 0);
+      bTxt = String((mine === 'blue' ? s.redRoundWins : s.blueRoundWins) || 0);
+      clockTxt = fmt(s.timeLeft);
+      roundTxt = 'R' + (s.round || 1) + '/' + (s.maxRounds || 3);
+      warn = s.timeLeft != null && s.timeLeft <= 15;
+    } else if(mode === 'circle'){
+      const st = (typeof CaptureCircle !== 'undefined') ? CaptureCircle.getState() : null;
+      hasScore = true; iconKind = 'target';
+      const z = st && st.zones && st.zones[0];
+      aTxt = Math.round(z ? (mine === 'blue' ? z.bluePercent : z.redPercent) : 0) + '%';
+      bTxt = Math.round(z ? (mine === 'blue' ? z.redPercent : z.bluePercent) : 0) + '%';
+      clockTxt = fmt(this.time);
+    } else if(mode === 'base'){
+      const st = (typeof BaseDefend !== 'undefined') ? BaseDefend.getState() : null;
+      hasScore = true; iconKind = 'base';
+      const pick = (team) => (st && st.bases || []).find(b => b && b.team === team);
+      const bm = pick(mine), bt = pick(other);
+      aTxt = String(bm ? Math.max(0, Math.ceil(bm.hp)) : 0);
+      bTxt = String(bt ? Math.max(0, Math.ceil(bt.hp)) : 0);
+      clockTxt = fmt(this.time);
+    } else if(mode === 'glad'){
+      const all = this.tanks.filter(t => t && !t.isDummy);
+      const alive = all.filter(t => t.alive && !t.dying).length;
+      iconKind = 'skull';
+      clockTxt = alive + '/' + all.length;
+      roundTxt = 'PWR ' + ((this.localTank && this.localTank.power) || 0);
+    }
+
+    _setHidden(scoreMine, !hasScore);
+    _setHidden(scoreTheirs, !hasScore);
+    if(hasScore){
+      if(numMine && numMine.textContent !== aTxt) numMine.textContent = aTxt;
+      if(numTheirs && numTheirs.textContent !== bTxt) numTheirs.textContent = bTxt;
+      const svg = this._topHudIcon(iconKind);
+      if(icoMine && icoMine._thIcon !== svg){ icoMine._thIcon = svg; icoMine.innerHTML = svg; }
+      if(icoTheirs && icoTheirs._thIcon !== svg){ icoTheirs._thIcon = svg; icoTheirs.innerHTML = svg; }
+    }
+
+    if(clockIco){
+      const svg = this._topHudIcon(mode === 'glad' ? 'skull' : 'clock');
+      if(clockIco._thIcon !== svg){ clockIco._thIcon = svg; clockIco.innerHTML = svg; }
+    }
+    if(clockNum && clockNum.textContent !== clockTxt) clockNum.textContent = clockTxt;
+    if(roundEl){
+      _setHidden(roundEl, !roundTxt);
+      if(roundTxt && roundEl.textContent !== roundTxt) roundEl.textContent = roundTxt;
+    }
+    if(clockBox) clockBox.classList.toggle('warn', !!warn);
+  }
+
   _updateHUD(dt){
     if(!this.localTank) return;
+    try { this._updateTopHUD(dt); } catch(e) { /* the bar must never take the HUD down */ }
     // While spectating, show the watched tank's live stats instead of the dead local one
     const t = (this.spectate && this.spectateTarget && this.spectateTarget.alive) ? this.spectateTarget : this.localTank;
     // Refresh scoreboard if visible
@@ -15886,16 +17086,11 @@ spawnExplosion(x, y, z, color, count, style){
       }
     }
 
-    const dot = el('camo-dot');
-    const camoTxt = el('camo-text');
-    if(dot && camoTxt){
-      let cls, txt;
-      if(t.camoState === 'bush'){ cls = 'camo-dot on'; txt = 'You are in bush'; }
-      else if(t.camoState === 'tree'){ cls = 'camo-dot mid'; txt = 'Partial cover'; }
-      else { cls = 'camo-dot off'; txt = ''; }
-      if(dot.className !== cls) dot.className = cls;
-      setText(camoTxt, txt);
-    }
+    /* The "in bush / hidden / partial cover" pill used to live here, at the
+       bottom centre of the screen. It is gone: the tank's own nameplate now
+       shows a bush icon in its right-hand gutter while that tank is inside a
+       bush, which says the same thing at the place you are already looking, and
+       without printing it over the middle of the screen for every tank at once. */
     
     // Flamethrower heat bar (shown inside the reload indicator slot)
     const heatWrap = document.getElementById('heat-wrap');
@@ -15958,19 +17153,36 @@ spawnExplosion(x, y, z, color, count, style){
       if(t.def.shellType === 'flame'){
         const heatMax = 750;
         const pct = Math.min(1, Math.max(0, t.heat / heatMax));
+        // Vertical standing fuel barrel (helix only) instead of the bullet.
+        const bbW = 26, bbH = 62, bbR = 7, bbHw = bbW / 2;
+        const bbTop = -bbH / 2, bbBot = bbTop + bbH;
+        const bbFh = Math.max(4, bbH * pct);
+        const roundRect = (x, y, rw, rh, rad) => {
+          if(rctx.roundRect) rctx.roundRect(x, y, rw, rh, rad);
+          else rctx.rect(x, y, rw, rh);
+        };
         rctx.save();
         rctx.translate(cx, cy);
-        rctx.rotate(Math.PI / 4);            // 45°, as drawn
-        const fh = Math.max(4, bh * pct);
-        const grad = rctx.createLinearGradient(0, by + bh, 0, by);
+        // dark track
+        rctx.fillStyle = 'rgba(0,0,0,0.55)';
+        rctx.beginPath(); roundRect(-bbHw, bbTop, bbW, bbH, bbR); rctx.fill();
+        // clip + fill
+        rctx.save();
+        rctx.beginPath(); roundRect(-bbHw, bbTop, bbW, bbH, bbR); rctx.clip();
+        const grad = rctx.createLinearGradient(0, bbBot, 0, bbTop);
         grad.addColorStop(0, '#ffb12b');
         grad.addColorStop(1, pct > 0.75 ? '#ff3b30' : '#ff6a00');
-        paintBullet(() => {
-          rctx.fillStyle = grad;
-          rctx.fillRect(-hw, bot - fh, bw, fh);
-          rctx.fillStyle = pct > 0.75 ? '#ff3b30' : '#ffb12b';
-          rctx.fillRect(-hw, nose, bw, by - nose);   // nose always coloured
-        });
+        rctx.fillStyle = grad;
+        rctx.fillRect(-bbHw, bbBot - bbFh, bbW, bbFh);
+        rctx.restore();
+        // outline
+        rctx.beginPath(); roundRect(-bbHw, bbTop, bbW, bbH, bbR);
+        rctx.lineWidth = 5; rctx.lineJoin = 'round'; rctx.strokeStyle = '#000000'; rctx.stroke();
+        // hoops
+        rctx.strokeStyle = 'rgba(0,0,0,0.65)'; rctx.lineWidth = 2;
+        for(const yy of [bbTop + bbH * 0.33, bbTop + bbH * 0.66]){
+          rctx.beginPath(); rctx.moveTo(-bbHw + 2, yy); rctx.lineTo(bbHw - 2, yy); rctx.stroke();
+        }
         rctx.restore();
         rctx.fillStyle = t.overheated ? '#ff3b30' : '#fff';
         rctx.font = 'bold 16px Segoe UI, sans-serif';

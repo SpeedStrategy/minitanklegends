@@ -1746,24 +1746,25 @@ class Shell {
         if(this.owner === game.localTank) game.spawnHitMarker();
         game.spawnExplosion(this.x, 1.2, this.z, 0xff6a2a, 3, 'boom');
         if(game._spawnVideoExplosion) game._spawnVideoExplosion(this.x, 1.2, this.z);
-        /* GLOWING-LINE STREAKS from the exact impact point, kicked away from
-           the struck hull. Same effect the Rapier path plays via
-           game._impactSparks(); this fallback path must match it or hits
-           would look different depending on whether physics was up. */
+        /* GLOWING-LINE STREAKS — only a few. */
         if(typeof SparkLines !== 'undefined' && game.scene){
           let ox = this.x - t.x, oz = this.z - t.z;
           const ol = Math.hypot(ox, oz);
           if(ol > 1e-4){ ox /= ol; oz /= ol; }
           else { const a2 = Math.random()*Math.PI*2; ox = Math.cos(a2); oz = Math.sin(a2); }
-          SparkLines.spawn(game.scene, this.x, 1.2, this.z, ox, oz);
+          SparkLines.spawn(game.scene, this.x, 1.2, this.z, ox, oz, {
+            count: 3, speed: 12, life: 0.45, width: 0.12, spread: 1.4,
+          });
         }
-        // Impact sparks + a puff of smoke so a landed hit feels meaty
+        // Impact sparks — only a few glowing sparks, yellow + red, launched up
         if(game && game.spawnBurst){
           game.spawnBurst(this.x, 1.2, this.z, {
-            count: 12, tex: 'flare', speed: 10, size: 0.5, life: 0.42, rise: 3.2, gravity: 16,
+            count: 2, tex: ['spark','ember'], color: 0xffdd55, speed: 12, size: 0.6, life: 0.45, rise: 6, gravity: 12,
+            biasX: this.x - (t.x || 0), biasZ: this.z - (t.z || 0), blend: 'add', spin: 10,
           });
           game.spawnBurst(this.x, 1.2, this.z, {
-            count: 6, tex: 'smoke', speed: 2.6, size: 0.9, life: 0.5, rise: 2, gravity: 4, blend: 'normal',
+            count: 1, tex: ['spark','ember'], color: 0xff3322, speed: 12, size: 0.6, life: 0.45, rise: 6, gravity: 12,
+            biasX: this.x - (t.x || 0), biasZ: this.z - (t.z || 0), blend: 'add', spin: 10,
           });
           if(game.localTank && game.localTank.alive){
             const d = Math.hypot(game.localTank.x - this.x, game.localTank.z - this.z);
@@ -2012,7 +2013,87 @@ class Shell {
   }
 }
 
-/* Flamethrower cone (Inferno) — visual triangle cone + distance-based damage. */
+/* THE FLAME SHEET.
+
+   A flat-coloured cone is the reason the Inferno's fire read as a brown wedge
+   lying on the ground: a translucent orange surface has no hot core and no
+   fade, so at any opacity that stays visible it also stays flat.
+
+   NOR IS A CONE WITH A HARD SILHOUETTE FIRE. The jet is a 40-unit mesh seen
+   from above, so a crisp triangular outline — and a rim that ends at exactly
+   the same opacity all the way round — reads as a spotlight or a laser beam,
+   which is what the Inferno still looked like.
+
+   This sheet carries BOTH profiles, so one texture replaces two gradients:
+
+     - down the length: white-hot at the muzzle, orange through the middle,
+       cooling to a dark ember and gone at the tip;
+     - across the width: opaque down the middle of the jet, feathering to fully
+       transparent at the rim, so the cone has no edge to read.
+
+   One 64x256 canvas, built once and shared by every flame in the match. */
+let _flameGradTex = null;
+function _flameGradient(){
+  if(_flameGradTex) return _flameGradTex;
+  const W = 64, H = 256;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  /* Length profile, t = 0 at the muzzle, 1 at the far mouth. The last third
+     never gets brighter than a dull ember: fire that stays white-hot for its
+     whole throw is what makes the jet read as a beam. */
+  const stops = [
+    [0.00, 255, 248, 214, 0.95],
+    [0.12, 255, 226, 132, 0.88],
+    [0.30, 255, 158, 44, 0.70],
+    [0.52, 236, 92, 14, 0.46],
+    [0.74, 170, 46, 8, 0.22],
+    [0.90, 110, 28, 6, 0.07],
+    [1.00, 70, 18, 4, 0.00],
+  ];
+  const sample = (t) => {
+    for(let i = 1; i < stops.length; i++){
+      if(t <= stops[i][0]){
+        const a = stops[i - 1], b = stops[i];
+        const k = (t - a[0]) / Math.max(1e-6, b[0] - a[0]);
+        return [
+          a[1] + (b[1] - a[1]) * k,
+          a[2] + (b[2] - a[2]) * k,
+          a[3] + (b[3] - a[3]) * k,
+          a[4] + (b[4] - a[4]) * k,
+        ];
+      }
+    }
+    return stops[stops.length - 1].slice(1);
+  };
+  /* With the default flipY the BOTTOM canvas row is v=0, so the profile is
+     painted from the bottom up: row H-1 is the muzzle. */
+  for(let y = 0; y < H; y++){
+    const t = (H - 1 - y) / (H - 1);
+    const [r, gg, b, alpha] = sample(t);
+    if(alpha <= 0.002) continue;
+    const hg = g.createLinearGradient(0, 0, W, 0);
+    const at = (p, edge) => 'rgba(' + (r|0) + ',' + (gg|0) + ',' + (b|0) + ',' + (alpha * edge).toFixed(3) + ')';
+    hg.addColorStop(0.00, at(0, 0));
+    hg.addColorStop(0.14, at(0, 0.34));
+    hg.addColorStop(0.32, at(0, 0.82));
+    hg.addColorStop(0.50, at(0, 1));
+    hg.addColorStop(0.68, at(0, 0.82));
+    hg.addColorStop(0.86, at(0, 0.34));
+    hg.addColorStop(1.00, at(0, 0));
+    g.fillStyle = hg;
+    g.fillRect(0, y, W, 1);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  _flameGradTex = tex;
+  return tex;
+}
+
+/* Flamethrower cone (Inferno) — a textured flame jet + distance-based damage. */
 class FlameCone {
   constructor(owner, pos, dir, def){
     this.id = 'p' + (_nextProjId++);
@@ -2028,38 +2109,82 @@ class FlameCone {
     this.type = 'flame';
     this.group = new THREE.Group();
     this.group.position.set(this.x, this.y, this.z);
+    /* POINT THE FIRE WHERE THE DAMAGE GOES.
+
+       The visual used to be a flat triangle built along local +Z with the
+       group left unrotated, so the Inferno's whole flame jet always sprayed
+       due world-north (or due +Z) no matter which way the turret was aimed —
+       while the damage cone, which is solved from `dir`, went the right way. A
+       flame you can see pointing one way while it burns something the other
+       way is worse than no flame at all, so the visual is now parented to the
+       same yaw the shot is. */
+    this.group.rotation.y = Math.atan2(this.dir.x, this.dir.z);
     this._buildVisual();
   }
 
+  /* The old flame was a single flat triangle lying at muzzle height: no depth,
+     no gradient, nothing that reads as fire from the game's top-down camera.
+     This is a short open cone — a hot narrow core inside a wider outer jet —
+     drawn additively so it glows over the map and fades out at the tip. Two
+     open cones are still only ~40 triangles per shot, which is cheaper than
+     the sprites and textures the alternative would need. */
   _buildVisual(){
     const range = this.range;
     const tanHalf = (this.def && this.def.fireConeHalfAngle) || 0.18;
-    const halfW = range * Math.tan(tanHalf);
-    const shape = new THREE.Shape();
-    shape.moveTo(0, 0);
-    shape.lineTo(-halfW, range);
-    shape.lineTo(halfW, range);
-    shape.closePath();
-    const geo = new THREE.ShapeGeometry(shape);
-    geo.rotateX(-Math.PI / 2);
-    const mat = new THREE.MeshBasicMaterial({
-      color: 0xff6600,
-      transparent: true,
-      opacity: 0.0,
-      depthWrite: false,
-      depthTest: false,
-      side: THREE.DoubleSide,
-      blending: THREE.NormalBlending,
-    });
-    this._coneMesh = new THREE.Mesh(geo, mat);
-    this._coneMesh.position.set(0, 0.3, 0);
-    this.group.add(this._coneMesh);
+    const halfW = Math.max(0.4, range * tanHalf);
+    this._jets = [];
+    /* THE OUTER JET IS OPAQUE-ISH, NOT ADDITIVE.
+
+       Additive looks right at night and disappears over the game's bright
+       daytime terrain, where adding orange to already-bright pixels pushes them
+       to white. The outer flame is therefore normal-blended (a translucent
+       orange body that reads on any background) and only the hot core is
+       additive, so the middle of the jet still glows. Both are unlit and
+       tone-mapping-free: fire is its own emission, not a lit surface. */
+    const jet = (topR, nearR, op, additive) => {
+      const geo = new THREE.CylinderGeometry(topR, nearR, range, 18, 1, true);
+      geo.rotateX(Math.PI / 2);          /* cone's +Y axis -> world +Z (the shot) */
+      geo.translate(0, 0, range / 2);    /* apex at the muzzle, mouth at range */
+      const mat = new THREE.MeshBasicMaterial({
+        map: _flameGradient(),
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0.0,
+        depthWrite: false,
+        depthTest: false,
+        side: THREE.DoubleSide,
+        blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
+        toneMapped: false,
+      });
+      mat.userData.peakOpacity = op;
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.renderOrder = 996;
+      mesh.frustumCulled = false;
+      this.group.add(mesh);
+      this._jets.push(mesh);
+      return mesh;
+    };
+    /* The hot core is SHORT: it is the nozzle flame, not a white line running
+       the whole length of the throw. It dies out by about a third of the range,
+       where a real jet has already become rolling orange fire. */
+    jet(halfW, 0.30, 0.95, false);            /* the flame jet itself   */
+    const core = jet(halfW * 0.55, 0.14, 0.60, true);  /* additive hot core */
+    if(core){
+      /* Length is a scale along the jet axis, remembered per mesh because the
+         per-frame update rescales the width and must not undo it. */
+      core.userData.lenScale = 0.34;
+      core.scale.set(1, 1, 0.34);
+    }
+    this._coneMesh = this._jets[0];
   }
 
   attach(scene){ scene.add(this.group); this.scene=scene; }
   detach(){
     if(this.scene){ this.scene.remove(this.group); this.scene=null; }
-    if(this._coneMesh){
+    if(this._jets){
+      this._jets.forEach(m => { m.geometry.dispose(); m.material.dispose(); });
+      this._jets = null;
+    } else if(this._coneMesh){
       this._coneMesh.geometry.dispose();
       this._coneMesh.material.dispose();
     }
@@ -2130,12 +2255,19 @@ class FlameCone {
       }
     }
 
-    if(this._coneMesh){
+    if(this._jets){
       const lifeRatio = this.life / this.maxLife;
       const growPhase = Math.min(1, (1 - lifeRatio) * 5);
-      this._coneMesh.material.opacity = 0.45 * growPhase * lifeRatio;
       const s = 0.3 + 0.7 * growPhase;
-      this._coneMesh.scale.set(s, 1, s);
+      for(let i = 0; i < this._jets.length; i++){
+        const m = this._jets[i];
+        const peak = (m.material.userData && m.material.userData.peakOpacity) || 0.35;
+        m.material.opacity = peak * growPhase * lifeRatio;
+        /* Width breathes with the shot; length stays the damage range (the hot
+           core is the one exception, and it carries its own fraction) so what
+           you see is exactly what gets burned. */
+        m.scale.set(s, s, (m.userData && m.userData.lenScale) || 1);
+      }
     }
 
     if(this.life <= 0) this.dead = true;
@@ -2156,6 +2288,54 @@ const EXPLOSION_STYLES = {
   burn:   { life:0.35,  flash:0.8, ring:false, fire:0,   embers:3, smoke:0,   dust:2 },
   lrg:    { life:1.0,   flash:2.8, ring:true,  fire:1.1, embers:5, smoke:1.1, dust:0, smokeCol:1.4 },
 };
+/* ---- EXPLOSION SPRITE POOL ---------------------------------------------
+   Every explosion used to allocate ~24 THREE.Sprite + SpriteMaterial and
+   dispose the lot a second later. A firefight is 5+ blasts a second, so
+   ~120 create/dispose pairs per second -- and the garbage collector paused
+   the whole game every 1-2 seconds right in the middle of the shooting.
+   Sprites now come from a module free-list (keyed tex|blending, the same
+   scheme as the game's _vfxSprite pool) and go back when the blast dies;
+   steady-state battle cost is close to zero. userData objects and their
+   velocity vectors are reused too, so a blast allocates almost nothing. */
+const _EX_POOL = Object.create(null);
+function _exSprite(tex, opts){
+  const o = opts || {};
+  const blending = (o.blending != null) ? o.blending : THREE.NormalBlending;
+  const key = tex.uuid + '|' + blending;
+  let pool = _EX_POOL[key];
+  if(!pool) pool = _EX_POOL[key] = [];
+  let sp = pool.pop();
+  if(!sp){
+    sp = new THREE.Sprite(new THREE.SpriteMaterial({
+      map:tex, transparent:true, opacity:1, depthWrite:false, depthTest:true, blending
+    }));
+  }
+  const m = sp.material;
+  m.map = tex; m.blending = blending;
+  m.depthWrite = false; m.depthTest = true; m.transparent = true;
+  m.rotation = 0;
+  m.color.set(o.color != null ? o.color : 0xffffff);
+  m.opacity = (o.opacity != null) ? o.opacity : 1;
+  sp.rotation.set(0, 0, 0);
+  sp.visible = true;
+  return sp;
+}
+/* Reuse the per-part userData (and its velocity Vector3) across pool turns. */
+function _exUser(sp){
+  const u = sp.userData || (sp.userData = {});
+  if(!u.v) u.v = new THREE.Vector3();
+  return u;
+}
+function _exRelease(sp){
+  if(!sp) return;
+  const m = sp.material;
+  const key = (m.map ? m.map.uuid : 'none') + '|' + m.blending;
+  const pool = _EX_POOL[key] || (_EX_POOL[key] = []);
+  if(pool.length < 400) pool.push(sp);
+  else m.dispose();
+}
+const _EX_TINT = new THREE.Color();   /* scratch: flash tint, no per-blast clone */
+
 class Explosion {
   constructor(x,y,z,color,count,style){
     this.x=x;this.y=y;this.z=z;this.dead=false;
@@ -2179,8 +2359,9 @@ class Explosion {
 
     // 0) Soft starburst flash — the bright "pop", gently whitened
     if(st.flash > 0){
-      const flashTint = tint.clone().lerp(white, 0.5);
-      const flash = new THREE.Sprite(new THREE.SpriteMaterial({map:VFX.getTex('starsoft'), color:flashTint, transparent:true, opacity:1, blending:THREE.AdditiveBlending, depthWrite:false}));
+      const flash = _exSprite(VFX.getTex('starsoft'), {
+        color: _EX_TINT.copy(tint).lerp(white, 0.5), opacity:1, blending:THREE.AdditiveBlending
+      });
       const fs = (4.6 * K) * (st.flash / 2.4);
       flash.scale.set(fs, fs, 1);
       flash.userData = {type:'flash', base:fs};
@@ -2193,7 +2374,7 @@ class Explosion {
     // expansion + contraction happening at once, the way real fireball
     // footage does, instead of one balloon inflating.
     if(st.fire > 0){
-      const core = new THREE.Sprite(new THREE.SpriteMaterial({map:VFX.getTex('starsoft'), color:white, transparent:true, opacity:1, blending:THREE.AdditiveBlending, depthWrite:false}));
+      const core = _exSprite(VFX.getTex('starsoft'), {color:white, opacity:1, blending:THREE.AdditiveBlending});
       core.position.y = 0.25;
       core.scale.set(1.7*K, 1.7*K, 1);
       core.userData = {type:'core', base:1.7*K};
@@ -2202,7 +2383,7 @@ class Explosion {
 
     // 1) Expanding shockwave ring hugs the ground
     if(st.ring){
-      const ring = new THREE.Sprite(new THREE.SpriteMaterial({map:VFX.getTex('ring'), color:tint, transparent:true, opacity:0.8, blending:THREE.AdditiveBlending, depthWrite:false}));
+      const ring = _exSprite(VFX.getTex('ring'), {color:tint, opacity:0.8, blending:THREE.AdditiveBlending});
       ring.scale.set(0.8,0.8,1);
       ring.position.y = 0.02;
       ring.userData = {type:'ring'};
@@ -2240,7 +2421,7 @@ class Explosion {
          rare enough to read as lobes instead of the new normal case. */
       const r = Math.pow(Math.random(), 2);
       const sc2 = sc * (0.45 + r * 1.15);
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:VFX.getTex('blobfire'), color:tint, transparent:true, opacity:0.9, blending:THREE.AdditiveBlending, depthWrite:false}));
+      const sp = _exSprite(VFX.getTex('blobfire'), {color:tint, opacity:0.9, blending:THREE.AdditiveBlending});
       /* Born inside its clump, jittered — not on a shared ring. */
       sp.position.set(cl.x + (Math.random()-0.5)*0.22, cl.y + Math.random()*0.20, cl.z + (Math.random()-0.5)*0.22);
       sp.scale.set(sc2, sc2, 1);
@@ -2248,14 +2429,13 @@ class Explosion {
          so the burst visibly leans one way while its lobes still fight
          each other. The blend is half-and-half, never a full lean. */
       const a = Math.random()*Math.PI*2;
-      sp.userData = {
-        type:'fire',
-        v:new THREE.Vector3(Math.cos(a)*spd + axisX*spd*0.5, 1.6 + Math.random(), Math.sin(a)*spd + axisZ*spd*0.5),
-        base:sc2,
-        wp: cl.ph + i * 1.13,            /* wobble phase */
-        wa: Math.random()*Math.PI*2,     /* wobble direction */
-        wf: 2.2 + Math.random()*2.6      /* wobble frequency */
-      };
+      const u = _exUser(sp);
+      u.type='fire';
+      u.v.set(Math.cos(a)*spd + axisX*spd*0.5, 1.6 + Math.random(), Math.sin(a)*spd + axisZ*spd*0.5);
+      u.base=sc2;
+      u.wp = cl.ph + i * 1.13;         /* wobble phase */
+      u.wa = Math.random()*Math.PI*2;  /* wobble direction */
+      u.wf = 2.2 + Math.random()*2.6;  /* wobble frequency */
       this.group.add(sp); this.parts.push(sp);
     }
 
@@ -2264,12 +2444,14 @@ class Explosion {
       const a = Math.random()*Math.PI*2;
       const spd = 3.5 + Math.random()*7;
       const base = (0.34 + Math.random()*0.3) * K;
-      const u = {type:'spark', v:new THREE.Vector3(Math.cos(a)*spd + axisX*spd*0.22, 1.2 + Math.random()*1.6, Math.sin(a)*spd + axisZ*spd*0.22), g:11+Math.random()*5, spin:8+Math.random()*14, base};
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:VFX.getTex('spark'), color:white, transparent:true, opacity:0.95, blending:THREE.AdditiveBlending, depthWrite:false}));
+      const sp = _exSprite(VFX.getTex('spark'), {color:white, opacity:0.95, blending:THREE.AdditiveBlending});
+      const u = _exUser(sp);
+      u.type='spark';
+      u.v.set(Math.cos(a)*spd + axisX*spd*0.22, 1.2 + Math.random()*1.6, Math.sin(a)*spd + axisZ*spd*0.22);
+      u.g=11+Math.random()*5; u.spin=8+Math.random()*14; u.base=base;
       sp.position.set((Math.random()-0.5)*0.4, Math.random()*0.4, (Math.random()-0.5)*0.4);
       sp.rotation.z = Math.random()*Math.PI*2;
       sp.scale.set(base, base, 1);
-      sp.userData = u;
       this.group.add(sp); this.parts.push(sp);
     }
 
@@ -2279,12 +2461,15 @@ class Explosion {
       const a = Math.random()*Math.PI*2;
       const spd = 2 + Math.random()*4;
       const base = (0.55 + Math.random()*0.4) * K;
-      const u = {type:'shard', v:new THREE.Vector3(Math.cos(a)*spd, 1+Math.random()*2, Math.sin(a)*spd), g:6+Math.random()*3, spin:(Math.random()<0.5?-1:1)*(3+Math.random()*6), base};
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:VFX.getTex(i%2===0?'shard':'hex'), color:tint, transparent:true, opacity:0.9, depthWrite:false}));
+      const sp = _exSprite(VFX.getTex(i%2===0?'shard':'hex'), {color:tint, opacity:0.9});
+      const u = _exUser(sp);
+      u.type='shard';
+      u.v.set(Math.cos(a)*spd, 1+Math.random()*2, Math.sin(a)*spd);
+      u.g=6+Math.random()*3; u.spin=(Math.random()<0.5?-1:1)*(3+Math.random()*6); u.base=base;
+      u._bounced=false;
       sp.position.set((Math.random()-0.5)*0.5, Math.random()*0.5, (Math.random()-0.5)*0.5);
       sp.rotation.z = Math.random()*Math.PI*2;
       sp.scale.set(base, base, 1);
-      sp.userData = u;
       this.group.add(sp); this.parts.push(sp);
     }
 
@@ -2294,10 +2479,13 @@ class Explosion {
       const a = Math.random()*Math.PI*2;
       const spd = 0.3 + Math.random()*0.8;
       const sc = (0.9 + Math.random()*0.9) * K;
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:VFX.getTex('cloud'), transparent:true, opacity:0.55, depthWrite:false}));
+      const sp = _exSprite(VFX.getTex('cloud'), {opacity:0.55});
       sp.position.set(Math.cos(a)*0.2, Math.random()*0.3, Math.sin(a)*0.2);
       sp.scale.set(sc,sc,1);
-      sp.userData = {type:'smoke', v:new THREE.Vector3(Math.cos(a)*spd, 0.6+Math.random()*0.6, Math.sin(a)*spd), base:sc};
+      const u = _exUser(sp);
+      u.type='smoke';
+      u.v.set(Math.cos(a)*spd, 0.6+Math.random()*0.6, Math.sin(a)*spd);
+      u.base=sc;
       this.group.add(sp); this.parts.push(sp);
     }
 
@@ -2307,10 +2495,13 @@ class Explosion {
       const a = Math.random()*Math.PI*2;
       const spd = 1.6 + Math.random()*2.2;
       const sc = (0.7 + Math.random()*0.6) * K;
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:VFX.getTex('dust'), transparent:true, opacity:0.45, depthWrite:false}));
+      const sp = _exSprite(VFX.getTex('dust'), {opacity:0.45});
       sp.position.set(Math.cos(a)*0.15, Math.random()*0.25, Math.sin(a)*0.15);
       sp.scale.set(sc,sc,1);
-      sp.userData = {type:'dust', v:new THREE.Vector3(Math.cos(a)*spd, 0.4+Math.random()*0.4, Math.sin(a)*spd), base:sc};
+      const u = _exUser(sp);
+      u.type='dust';
+      u.v.set(Math.cos(a)*spd, 0.4+Math.random()*0.4, Math.sin(a)*spd);
+      u.base=sc;
       this.group.add(sp); this.parts.push(sp);
     }
 
@@ -2319,11 +2510,13 @@ class Explosion {
     for(let i=0;i<embN;i++){
       const a = Math.random()*Math.PI*2;
       const sc = (0.16 + Math.random()*0.14) * K;
-      const u = {type:'ember', v:new THREE.Vector3(Math.cos(a)*0.6, 2.0+Math.random()*1.2, Math.sin(a)*0.6), base:sc};
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({map:VFX.getTex('ember'), transparent:true, opacity:0.8, blending:THREE.AdditiveBlending, depthWrite:false}));
+      const sp = _exSprite(VFX.getTex('ember'), {opacity:0.8, blending:THREE.AdditiveBlending});
       sp.position.set((Math.random()-0.5)*0.3, Math.random()*0.3, (Math.random()-0.5)*0.3);
       sp.scale.set(sc,sc,1);
-      sp.userData = u;
+      const u = _exUser(sp);
+      u.type='ember';
+      u.v.set(Math.cos(a)*0.6, 2.0+Math.random()*1.2, Math.sin(a)*0.6);
+      u.base=sc;
       this.group.add(sp); this.parts.push(sp);
     }
 
@@ -2335,23 +2528,24 @@ class Explosion {
        combined. Fires only on styles that have fire (booms with no fire stay
        dust-only). */
     if(st.fire > 0){
-      const jet = new THREE.Sprite(new THREE.SpriteMaterial({map:VFX.getTex('flame'), color:tint, transparent:true, opacity:0.9, blending:THREE.AdditiveBlending, depthWrite:false}));
+      const jet = _exSprite(VFX.getTex('flame'), {color:tint, opacity:0.9, blending:THREE.AdditiveBlending});
       jet.position.set(axisX*0.12, 0.30, axisZ*0.12);
       jet.scale.set(0.42*K, 0.95*K, 1);
-      jet.userData = {
-        type:'jet',
-        v:new THREE.Vector3(axisX*0.5, 6.2 + Math.random()*2.4, axisZ*0.5),
-        base:0.95*K,
-        fLife: 0.36,   /* lives well under the blast's own life */
-        t: 0
-      };
+      const ju = _exUser(jet);
+      ju.type='jet';
+      ju.v.set(axisX*0.5, 6.2 + Math.random()*2.4, axisZ*0.5);
+      ju.base=0.95*K;
+      ju.fLife= 0.36;   /* lives well under the blast's own life */
+      ju.t= 0;
       this.group.add(jet); this.parts.push(jet);
     }
   }
   attach(scene){ scene.add(this.group); this.scene=scene; }
   detach(){
     if(this.scene){ this.scene.remove(this.group); this.scene=null; }
-    this.parts.forEach(p => { if(p.material) p.material.dispose(); });
+    /* Hand every sprite back to the pool instead of disposing its material:
+       the sprite (and its GL state) survives to serve the next blast. */
+    for(let i=0;i<this.parts.length;i++) _exRelease(this.parts[i]);
     this.parts = [];
   }
   update(dt){
@@ -2783,7 +2977,7 @@ class ShellCasing {
         .setLinearDamping(0.3)
         .setAngularDamping(1.0);
       this._physBody = this._physWorld.createRigidBody(desc);
-      const col = RAPIER.ColliderDesc.cylinder(0.09, 0.07)
+      const col = RAPIER.ColliderDesc.cylinder(0.117, 0.091)
         .setDensity(3)
         .setRestitution(0.25)
         .setFriction(0.7);
@@ -2793,8 +2987,14 @@ class ShellCasing {
     } catch(e){ this._physBody = null; }
   }
 
+  /* 1.3x BIGGER (2026-11). A 0.07-radius, 0.18-long tube is 14cm across at the
+     game's scale -- smaller than a track pin, and against a hull that is ten
+     units long it read as a speck rather than as brass leaving the gun. The
+     radius and the length are both scaled by 1.3, so the case keeps its
+     proportions, and the Rapier collider below is scaled to match (a collider
+     smaller than its mesh lets the case sink into the ground). */
   static _initShared(){
-    if(!ShellCasing._sharedGeo) ShellCasing._sharedGeo = new THREE.CylinderGeometry(0.07, 0.07, 0.18, 8);
+    if(!ShellCasing._sharedGeo) ShellCasing._sharedGeo = new THREE.CylinderGeometry(0.091, 0.091, 0.234, 8);
     if(!ShellCasing._sharedMat) ShellCasing._sharedMat = Toon.mat({color:0xe8b02a, emissive:0x6a4a00, emissiveIntensity:0.5});
   }
 

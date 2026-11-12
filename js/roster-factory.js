@@ -50,8 +50,12 @@
      appearing as the tank that was deleted. */
   const BOT_TANKS = [
     'coolbuddy', 'striker', 'sturmratte', 'demolisher', 'predator',
-    'double', 'burst', 'grom', 'tankbuster'
+    'double', 'burst', 'grom', 'hellfire', 'bradley', 'striker2'
   ];
+  /* 'tankbuster' used to be in that list. It is not a tank in TANKS, so every
+     bot that landed on it silently became a Cool Buddy; the slot now holds the
+     three tanks whose models exist but whose ids did not when this table was
+     written. */
   const BOT_NAMES = [
     'Bolt', 'Rivet', 'Spanner', 'Torque', 'Piston', 'Cog', 'Anvil', 'Sprocket',
     'Gizmo', 'Ratchet', 'Flange', 'Bearing', 'Clutch', 'Flywheel', 'Idler', 'Cam'

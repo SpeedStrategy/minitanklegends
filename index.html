@@ -23,8 +23,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Lilita+One&family=Nunito:wght@700;800;900&display=swap">
-<link rel="stylesheet" href="css/style.css?v=20261104c">
+<link rel="stylesheet" href="css/style.css?v=20261110l">
 <link rel="stylesheet" href="css/results.css?v=20261011d">
+<link rel="stylesheet" href="css/login-gate.css?v=20261103b">
 
 <!--
   BOOT ORDER. This runs before the stylesheet, so the very first paint is the
@@ -105,6 +106,47 @@
   }
 </script>
 
+<script>
+  document.documentElement.className += ' auth-locked';
+  (function () {
+    var s = document.createElement('style');
+    s.id = 'auth-lock-critical';
+    s.textContent =
+      /* Same layer list as .booting - EXCEPT the loading screen.
+         The loading screen is deliberately NOT hidden. It is the first thing a
+         player sees, it is the game's own art, and it exists precisely so the
+         wait for 187 MB of assets is not a blank page. The gate appears AFTER
+         it, once boot finishes, which is the sequence the game is supposed to
+         have. Hiding the loading screen here put a login form on screen while
+         the game was still loading and made the two look like a mistake. */
+      '.auth-locked .menu,.auth-locked #game-root,.auth-locked #menu-transition-overlay,' +
+      '.auth-locked #menu-fullscreen-prompt,.auth-locked #box-overlay,' +
+      '.auth-locked #tank-switch-panel,.auth-locked #bigmap-overlay,' +
+      '.auth-locked #map-vote-overlay,.auth-locked #preview-loading,' +
+      '.auth-locked #loading-overlay,.auth-locked #ui-layer{display:none !important}' +
+
+      /* The gate stays hidden until the game says it has finished loading.
+         .lg-ready is added by login-gate.js when boot completes. Without that
+         class the gate is display:none, so during boot you see the loading
+         screen and only the loading screen. */
+      '.auth-locked.lg-ready #login-gate{display:block !important}' +
+
+      /* Belt to the braces: if login-gate.css never arrives, the gate is still a
+         solid wall rather than an invisible clickable layer over the game. */
+      '#login-gate{position:fixed;top:0;left:0;right:0;bottom:0;z-index:300000;' +
+        'background:#0b0f16;color:#e8eef7}' +
+
+      /* The custom cursor only exists over the gate. Applying it globally would
+         replace the game's own pointers - including inside the menu, once the
+         gate has unlocked - which is not what this is for. */
+      '.lg-cursor-active,.lg-cursor-active *{cursor:none !important}';
+    document.head.appendChild(s);
+  })();
+
+  /* If scripting is unavailable there is no account system, so a lock nobody
+     could ever open would be worse than no lock. Release it, and say why. */
+  window.__authLockAvailable = true;
+</script>
 </head>
 
 <body>
@@ -269,64 +311,62 @@
 
       <div id="main-menu-preview-canvas"></div>
 
-      <div id="profile-wrap">
+      <!-- ====================================================================
+           THE MAIN-MENU PLAYER HEADER
 
+           NO CARD. This used to be a dark rounded panel with a backdrop
+           blur sitting over the garage, and the rank and settings controls
+           floated beside it, vertically centred against the CARD -- so they
+           hung halfway down the block rather than lining up with anything a
+           player could name. Everything worth reading in a header is the name
+           row: who am I, what have I earned, how do I change it.
+
+           So there is no panel any more, the rank path and the gear live IN
+           the name row, and the currencies sit under them on the bare
+           background. The avatar carries no frame either -- it is the trophy
+           itself, or a bold white + when nothing is equipped, which is also
+           the only control that opens the trophy list.
+           ==================================================================== -->
+      <div id="profile-wrap">
         <div class="profile" id="profile">
 
-<div class="profile-top">
+          <button class="profile-strip-avatar" id="profile-strip-avatar" type="button" title="Profile" aria-label="Profile"></button>
 
-            <!-- THE MAIN-MENU PLAYER BADGE: avatar, name, clan - in that order.
+          <!-- ONE COLUMN OF INFORMATION, ONE LEFT RAIL OF IDENTITY.
 
-                 This row used to read a hard-coded trophy emoji, then the clan
-                 tag, then the player's name - which platoon.js still documents
-                 as `%trophy% %clan% %nickname%`. Two things were wrong with it:
-                 the trophy looked identical whether you owned one or twenty, and
-                 putting the clan BEFORE the name made the player's own name the
-                 last thing in their own badge.
+               Everything a player can name about themselves is now a single
+               stack: name and its two controls, a rule, then the wallet — and
+               the avatar is the rail all three lines start beside. Before this
+               the avatar sat INSIDE the name row, so it was taller than the
+               text next to it, the trophy and gear floated to the far right of
+               a row whose rule stopped short of them, and the wallet looked
+               like a second paragraph rather than the second row of a header. -->
+          <div class="profile-stack">
 
-                 It is the real avatar now - the first owned trophy - and it opens
-                 the profile screen, where the full trophy list lives. It needs
-                 `pointer-events` of its own because `.profile` sets
-                 pointer-events:none for the whole badge, so the strip does not
-                 swallow clicks meant for the menu behind it. -->
-            <button class="profile-strip-avatar" id="profile-strip-avatar" type="button" title="Profile" aria-label="Profile"></button>
+            <div class="profile-top">
+              <span class="profile-name" id="profile-name">Player</span>
+              <span class="profile-clan" id="profile-clan"></span>
 
-            <span class="profile-name" id="profile-name">Player</span>
+              <button class="trophy-menu-btn" id="trophy-progress-btn" type="button" title="Trophy Roadmap">
+                <div class="trophy-progress-fill" id="trophy-progress-fill"></div>
+                <img class="trophy-progress-icon" id="trophy-progress-icon" src="assets/trophies/rookie.webp" alt="">
+              </button>
 
-            <span class="profile-clan" id="profile-clan"></span>
+              <div id="btn-settings-gear" data-open="settings" title="Settings">
+                <img src="assets/icons/settings.svg" alt="Settings">
+              </div>
+            </div>
+
+            <div class="profile-bottom">
+              <span class="profile-coin"><img class="cur-img" src="assets/currency/cash.webp" alt="cash"><span id="profile-cash-num">0</span></span>
+              <span class="profile-crystal"><img class="cur-img" src="assets/currency/gold.webp" alt="gold"><span id="profile-gold-num">0</span></span>
+              <span class="profile-coin profile-coins-extra"><img class="cur-img" src="assets/currency/coin.webp" alt="coins"><span id="profile-coins-num">0</span></span>
+            </div>
+
+            <div class="profile-account hidden" id="profile-account"></div>
 
           </div>
-
-          <div class="profile-sep"></div>
-
-          <div class="profile-bottom">
-
-            <span class="profile-coin"><img class="cur-img" src="assets/currency/cash.webp" alt="cash"><span id="profile-cash-num">0</span></span>
-
-            <span class="profile-crystal"><img class="cur-img" src="assets/currency/gold.webp" alt="gold"><span id="profile-gold-num">0</span></span>
-
-            <span class="profile-coin profile-coins-extra"><img class="cur-img" src="assets/currency/coin.webp" alt="coins"><span id="profile-coins-num">0</span></span>
-
-          </div>
-
-          <div class="profile-account hidden" id="profile-account"></div>
-
         </div>
-
-        <button class="trophy-menu-btn" id="trophy-progress-btn" type="button" title="Trophy Roadmap">
-
-          <div class="trophy-progress-fill" id="trophy-progress-fill"></div>
-
-          <img class="trophy-progress-icon" id="trophy-progress-icon" src="assets/trophies/rookie.webp" alt="">
-
-        </button>
-
-        <div id="btn-settings-gear" data-open="settings" title="Settings">
-
-          <img src="assets/ui/settings-gear.webp" alt="Settings">
-
-        </div>
-
       </div>
 
       <div class="main-menu-side" id="main-menu-side">
@@ -336,6 +376,13 @@
         <div class="btn menu-side-btn" data-open="storage"><img class="menu-side-chip" src="assets/icons/storage.svg" alt=""><span>Storage</span></div>
 
         <div class="btn menu-side-btn" data-open="collections"><img class="menu-side-chip" src="assets/icons/collections.svg" alt=""><span>Collections</span></div>
+
+        <!-- FOUNDRY. The research line used to be a button buried at the end of
+             the Collections bar, which made a whole progression screen look
+             like a sub-tool of the garage. It is a destination of its own now:
+             menu.js opens the overlay (it is not a .menu panel) and the XP
+             figure on the right is rewritten by Research.updateBadge(). -->
+        <div class="btn menu-side-btn" id="workshop-side-btn" data-open="workshop"><img class="menu-side-chip" src="assets/icons/foundry.svg" alt=""><span>Workshop</span></div>
 
         <div class="btn menu-side-btn" data-open="missions"><img class="menu-side-chip" src="assets/icons/missions.svg" alt=""><span>Missions</span></div>
 
@@ -429,16 +476,27 @@
             </div>
           </div>
 
+          LOCKED-MODE-END -->
+          <!-- TEAM DEATHMATCH IS LIVE. It used to sit inside the LOCKED-MODE
+               comment below, so the mode existed, started and played - and
+               could not be picked, which reads as "there is no such mode".
+               The starter, the map vote and the rules are all in place; only
+               the card was commented out. Kept out of the comment now; the
+               other two locked cards stay locked. -->
           <div class="gm-card" data-gamemode="team-deathmatch">
             <div class="gm-card-bg" style="background-image:url('assets/gamemodes/team-deathmatch.jpg')"></div>
             <div class="gm-card-overlay"></div>
+            <div class="gm-card-sheen"></div>
             <div class="gm-card-content">
+              <div class="gm-card-kicker">KNOCKOUT 5v5</div>
               <div class="gm-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.5 17-.5-1-.5 1h1z"/><path d="M15 22a1 1 0 0 0 1-1v-1a2 2 0 0 0 1.56-3.25 8 8 0 1 0-11.12 0A2 2 0 0 0 8 20v1a1 1 0 0 0 1 1z"/><circle cx="15" cy="12" r="1"/><circle cx="9" cy="12" r="1"/></svg></div>
               <div class="gm-card-name">TEAM DEATHMATCH</div>
-              <div class="gm-card-desc">Blue vs Red. Eliminate the enemy team to win.</div>
+              <div class="gm-card-desc">One life a round, 2 minutes a round. First to two of three wins.</div>
             </div>
+            <div class="gm-card-cta">ENTER &#9656;</div>
           </div>
 
+          <!-- LOCKED-MODE-START (sandbox still waiting for its own match rules)
           <div class="gm-card" data-gamemode="sandbox">
             <div class="gm-card-overlay"></div>
             <div class="gm-card-content">
@@ -485,6 +543,21 @@
               <div class="gm-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h18"/><path d="M5 21V10l7-5 7 5v11"/><path d="M9 21v-6h6v6"/><path d="M12 5V2"/><path d="M12 2.8c1.6.5 3 .4 4.4-.4-.2 1.6.2 3 1.6 4.2-1.6.2-2.8 1-3.6 2.4-.8-1.4-2-2.2-3.6-2.4 1.4-1.2 1.8-2.6 1.6-4.2 1.4.8 2.8.9 4.4.4"/></svg></div>
               <div class="gm-card-name">BASE DEFEND</div>
               <div class="gm-card-desc">Unlimited respawns. Destroy the enemy team's base before they destroy yours.</div>
+            </div>
+            <div class="gm-card-cta">ENTER ▸</div>
+          </div>
+
+          <!-- Steal the Flag. Same card-contract note as Base Defend's above:
+               the card MUST exist or the selection/PLAY validators would run
+               the mode straight into the _selectGamemode refusal. -->
+          <div class="gm-card" data-gamemode="stealFlag">
+            <div class="gm-card-overlay"></div>
+            <div class="gm-card-sheen"></div>
+            <div class="gm-card-content">
+              <div class="gm-card-kicker">CAPTURE THE FLAG</div>
+              <div class="gm-card-icon"><svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22V2"/><path d="M12 3h9l-2.5 3.5L21 10h-9z"/><path d="M12 13H4l2-3-2-3h8"/></svg></div>
+              <div class="gm-card-name">STEAL THE FLAG</div>
+              <div class="gm-card-desc">Steal the enemy flag and bring it to yours. Your own flag must be safe to score. First to 5.</div>
             </div>
             <div class="gm-card-cta">ENTER ▸</div>
           </div>
@@ -1074,6 +1147,143 @@
 
 
 
+    <!-- FOUNDRY — the tank research line, opened from the main menu's own
+         Foundry entry (it is NOT a .menu panel; menu.js hands it to
+         Research.openPanel). No cards, no tiles: the models stand on the floor
+         of the room artwork, and the prices, dots and tabs are hairlines. The
+         nodes, models and tabs are built by js/research.js from
+         Menu._COLLECTIONS, so this markup is only the shell. -->
+    <div class="rs-overlay hidden" id="research-overlay">
+      <div class="rs-backdrop" id="research-backdrop"></div>
+
+      <!-- THE ROOM. The artwork is a photograph of the hall: it is never
+           edited, only POSITIONED by js/research.js (layoutRoom) so the floor
+           line the picture already draws lands exactly under the models' feet.
+           That is the whole illusion — the tanks are 3D, the floor is the
+           player's own background, and the two agree to the pixel. -->
+      <img class="rs-room" id="research-room" src="assets/ui/foundry-bg.png" alt="" draggable="false">
+      <div class="rs-scrim" aria-hidden="true"></div>
+
+      <div class="rs-shell">
+        <header class="rs-head">
+          <div class="rs-brand">
+            <img class="rs-brand-mark" src="assets/icons/foundry.svg" alt="">
+            <div class="rs-brand-txt">
+              <h2 class="rs-title">Workshop</h2>
+              <p class="rs-sub">Pull the next tank out of the workshop</p>
+            </div>
+          </div>
+          <div class="rs-head-right">
+            <button class="rs-help-btn" id="research-help-open" type="button" aria-label="How the workshop works" title="How the workshop works">?</button>
+            <button class="rs-close" id="research-close" type="button" aria-label="Close">&#10005;</button>
+          </div>
+        </header>
+
+        <div class="rs-tabs" id="research-tabs"></div>
+
+        <div class="rs-path-scroll" id="research-scroll">
+          <!-- the line's caption: steps, price of the whole line, progress.
+               Absolute, so it never takes a slot in the scrolling row. -->
+          <div class="rs-sheet" id="research-sheet" aria-hidden="true"></div>
+          <div class="rs-path" id="research-path"></div>
+        </div>
+
+        <footer class="rs-foot">
+          <div class="rs-earn">Earn XP from <b>missions</b>, <b>battles</b> and <b>crates</b></div>
+          <div class="rs-progress-wrap">
+            <div class="rs-progress"><div class="rs-progress-fill" id="research-progress-fill"></div></div>
+            <div class="rs-hint" id="research-hint"></div>
+          </div>
+          <button class="rs-help-link" id="research-help-link" type="button">How it works</button>
+          <div class="rs-tip"><b>Click a tank</b> for <b>STATS</b> &middot; <b>drag</b> to turn it &middot; <b>&#9664; &#9654;</b> walk the line</div>
+          <button class="rs-back" id="research-back" type="button">Back</button>
+        </footer>
+      </div>
+
+      <!-- ==================== THE STATS PILL ====================
+           NOT a panel in the layout: a small button that pops up over the tank
+           you clicked, and only then. position:fixed and moved by
+           js/research.js placeStatsBtn(), so it rides above the 3D layer, is
+           never clipped by the scrolling band, and cannot be dragged with it.
+           Clicking it is the ONLY way the tank sheet opens. -->
+      <button class="rs-pill" id="rs-stats-btn" type="button" hidden aria-haspopup="dialog" aria-controls="research-tank">
+        <span class="rs-pill-txt">STATS</span><i class="rs-pill-q" aria-hidden="true">?</i>
+      </button>
+
+      <!-- ==================== THE TANK SHEET ====================
+           The step you are looking at, in full: name, role, a plain-language
+           description, three stat bars, the price, and the one button that
+           actually researches it. Clicking a tank on the line only SELECTS it
+           and arms the pill above; claiming is always this button, so a stray
+           click can never spend XP. The arrow / rotate controls here are the
+           mouse alternative to dragging a model or scrolling the line.
+
+           It is a SHEET now, not a permanent band: the row gets the whole shop
+           until a player asks a question about a specific tank. Every line of
+           it is written by js/research.js (renderDetail), so the shell here is
+           deliberately empty. -->
+      <div class="rs-tank hidden" id="research-tank" role="dialog" aria-modal="true" aria-labelledby="rs-detail-name">
+        <div class="rs-tank-back" id="rs-stats-back"></div>
+        <section class="rs-detail rs-tank-card" id="research-detail">
+          <button class="rs-tank-x" id="rs-stats-close" type="button" aria-label="Close stats">&#10005;</button>
+          <div class="rs-detail-badge" id="rs-detail-badge">T1</div>
+          <div class="rs-detail-body">
+            <div class="rs-detail-top">
+              <h3 class="rs-detail-name" id="rs-detail-name">Loading&hellip;</h3>
+              <span class="rs-detail-tag" id="rs-detail-tag"></span>
+              <span class="rs-detail-state" id="rs-detail-state"></span>
+            </div>
+            <p class="rs-detail-desc" id="rs-detail-desc"></p>
+            <div class="rs-stats" id="rs-detail-stats"></div>
+          </div>
+          <div class="rs-detail-buy">
+            <div class="rs-detail-price"><span>RESEARCH COST</span><b id="rs-detail-cost">&mdash;</b></div>
+            <button class="rs-cta" id="rs-detail-cta" type="button">RESEARCH</button>
+            <div class="rs-detail-tools">
+              <button class="rs-tool" id="rs-prev" type="button" title="Previous step (left arrow)" aria-label="Previous step">&#9664;</button>
+              <button class="rs-tool" id="rs-spin-l" type="button" title="Turn the model left" aria-label="Turn left">&#8634;</button>
+              <button class="rs-tool rs-tool-hero" id="rs-pose" type="button" title="Restore the hero pose" aria-label="Restore hero pose">&#10022;</button>
+              <button class="rs-tool" id="rs-spin-r" type="button" title="Turn the model right" aria-label="Turn right">&#8635;</button>
+              <button class="rs-tool" id="rs-next" type="button" title="Next step (right arrow)" aria-label="Next step">&#9654;</button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- ==================== HOW IT WORKS ====================
+           Three steps and the controls, in the same voice as the sheet. It is
+           opened by the ? in the header and by the HOW IT WORKS link, so the
+           question is answerable without leaving the screen. -->
+      <div class="rs-help hidden" id="research-help">
+        <div class="rs-help-back" id="research-help-back"></div>
+        <div class="rs-help-card" role="dialog" aria-modal="true" aria-labelledby="research-help-title">
+          <button class="rs-help-x" id="research-help-close" type="button" aria-label="Close">&#10005;</button>
+          <span class="rs-help-kicker">Workshop guide</span>
+          <h3 class="rs-help-title" id="research-help-title">How the workshop works</h3>
+          <p class="rs-help-lead">Research XP buys steps on one continuous line. Every step hands you a tank.</p>
+          <ol class="rs-help-steps">
+            <li><b>01</b><div><h4>Earn Research XP</h4><p>Missions, battles and crates pay it out. The bar above holds your balance.</p></div></li>
+            <li><b>02</b><div><h4>Ask for stats</h4><p>Click a tank and a small STATS ? button pops up over it &mdash; that opens its role, stats and price. Only the glowing step can be researched next.</p></div></li>
+            <li><b>03</b><div><h4>Research it</h4><p>Press the gold button. On a two-tank step you choose which one comes home.</p></div></li>
+          </ol>
+          <div class="rs-help-keys">
+            <span><kbd>Drag</kbd> rotate</span>
+            <span><kbd>&#8592;</kbd><kbd>&#8594;</kbd> walk the line</span>
+            <span><kbd>Enter</kbd> research</span>
+            <span><kbd>Esc</kbd> close</span>
+          </div>
+          <button class="rs-help-go" id="research-help-go" type="button">GOT IT</button>
+        </div>
+      </div>
+
+      <div class="rs-choice hidden" id="research-choice">
+        <h3 class="rs-choice-title" id="research-choice-title">CHOOSE YOUR REWARD</h3>
+        <div class="rs-choice-stage" id="research-choice-stage"></div>
+        <div class="rs-choice-cards" id="research-choice-cards"></div>
+        <button class="rs-choice-cancel" id="research-choice-cancel" type="button">Choose later</button>
+      </div>
+    </div>
+
         <!-- PLATOON -->
     <div class="menu hidden" id="menu-platoon">
       <div class="pt-room">
@@ -1336,7 +1546,7 @@
       <!-- TANK SWITCH (WoT-style bottom during countdown) -->
       <div class="tank-switch-panel hidden" id="tank-switch-panel">
         <div class="tank-switch-header">
-          <span class="ts-label">SELECT TANK</span>
+          <span class="ts-label">\u2694 TOURNAMENT SELECT \u2694</span>
           <span class="ts-count" id="ts-count"></span>
         </div>
         <div class="tank-switch-scroll">
@@ -1357,6 +1567,40 @@
       <div id="speed-readout"><span id="speed-val">0</span> <small>km/h</small></div>
 
       <div id="fps-counter" class="hidden"></div>
+
+      <!-- ===================== BATTLE TOP BAR =====================
+
+           ONE row, no frames, nothing but what decides the match:
+
+             [your tanks] [your score] [icon  clock] [their score] [their tanks]
+
+           It replaces the stack of panels that used to occupy this strip -
+           the flag panel, the base panel, the TDM scoreboard and the damage
+           leaderboard all wanted the same pixels, and in Steal the Flag the
+           clock ended up almost in the middle of the screen. Those panels are
+           hidden while this bar is up (see .top-hud-on in style.css); the
+           same numbers are here, in ~40px.
+
+           The tank icons are alive/dead: full colour and an outline for your
+           own tank, greyed out for a wreck. The score icons are per mode and
+           are injected by Game._updateTopHUD (flag, skull, target, base). -->
+      <div id="top-hud" class="hidden" aria-hidden="true">
+        <div class="th-side" id="th-side-mine"></div>
+        <div class="th-score th-mine hidden" id="th-score-mine">
+          <span class="th-ico" id="th-ico-mine"></span>
+          <span class="th-num" id="th-num-mine">0</span>
+        </div>
+        <div class="th-clock" id="th-clock">
+          <span class="th-round hidden" id="th-round">R1</span>
+          <span class="th-clock-ico" id="th-clock-ico"></span>
+          <span class="th-clock-num" id="th-clock-num">0:00</span>
+        </div>
+        <div class="th-score th-theirs hidden" id="th-score-theirs">
+          <span class="th-num" id="th-num-theirs">0</span>
+          <span class="th-ico" id="th-ico-theirs"></span>
+        </div>
+        <div class="th-side th-side-right" id="th-side-theirs"></div>
+      </div>
 
       <div id="leaderboard">
 
@@ -1405,7 +1649,6 @@
 
       <canvas id="reload-indicator" width="208" height="208"></canvas>
 
-      <div id="camo-indicator"><span id="camo-dot"></span><span id="camo-text">EXPOSED</span></div>
 
       <!-- Fullscreen TAB scoreboard overlay -->
       <div id="scoreboard-overlay" class="hidden">
@@ -1457,6 +1700,31 @@
             <div class="base-hud-cap"><span class="base-hud-side">ENEMY BASE</span><span class="base-hud-src" id="base-hud-theirs-team">MAP ENTITY</span></div>
             <div class="base-hud-track"><div class="base-hud-fill" id="base-hud-theirs-fill"></div></div>
             <div class="base-hud-num" id="base-hud-theirs-num">1000 HP</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- STEAL THE FLAG mode HUD.
+
+           Same strip shape as #base-hud, same relative labelling, filled by
+           js/steal-flag.js: the two side columns name where each flag is,
+           the fills show each team's points towards the win number, and the
+           middle cell is the clock, which becomes "OVERTIME n s" when the
+           tie-break minute is running. -->
+
+      <div id="flag-hud" class="hidden">
+        <div class="base-hud-title">STEAL THE FLAG</div>
+        <div class="base-hud-cols">
+          <div class="base-hud-col">
+            <div class="base-hud-cap"><span class="base-hud-side">YOUR FLAG</span><span class="base-hud-src" id="flag-hud-mine-state">BLUE</span></div>
+            <div class="base-hud-number-row"><span class="flag-hud-score" id="flag-hud-mine-num">SAFE AT HOME</span></div>
+            <div class="base-hud-track"><div class="base-hud-fill" id="flag-hud-mine-fill" style="background:#4488ff"></div></div>
+          </div>
+          <div class="base-hud-vs"><div class="flag-hud-time" id="flag-hud-time">5:00</div><div class="flag-hud-vs-cap">VS</div></div>
+          <div class="base-hud-col">
+            <div class="base-hud-cap"><span class="base-hud-side">ENEMY FLAG</span><span class="base-hud-src" id="flag-hud-theirs-state">RED</span></div>
+            <div class="base-hud-number-row"><span class="flag-hud-score" id="flag-hud-theirs-num">IN THEIR BASE</span></div>
+            <div class="base-hud-track"><div class="base-hud-fill" id="flag-hud-theirs-fill" style="background:#ff4444"></div></div>
           </div>
         </div>
       </div>
@@ -1607,26 +1875,50 @@
 
 
 
-    <!-- CODES MENU -->
+    <!-- ====================================================================
+         CODES — an access terminal, not a form dropped in a card.
 
+         The old screen was a 360px card with a label, an input and a button,
+         centred in a lot of empty striped grey. Everything about it said
+         "placeholder". It is now a full-width console panel with the code glyph
+         stream drifting behind it, the input and REDEEM button on one line, and
+         three chips explaining what the rewards even are -- so the screen
+         answers "what does a code give me" instead of just accepting text.
+
+         ids kept exactly as they were: codes-input, btn-redeem-code,
+         btn-revert-map (menu.js wires all three by id).
+         ==================================================================== -->
     <div class="menu hidden" id="menu-codes">
+      <div class="codes-fly" id="codes-fly" aria-hidden="true"></div>
+      <div class="codes-floor" aria-hidden="true"></div>
 
-      <div class="menu-card">
+      <div class="codes-screen">
+        <div class="codes-head">
+          <div class="codes-kicker">// ACCESS TERMINAL</div>
+          <h2 class="codes-title">REDEEM <span>CODE</span></h2>
+          <p class="codes-sub">Codes are handed out by the devs in streams, on the Discord and in patch notes. Paste one below.</p>
+        </div>
 
-        <h2>Redeem Code</h2>
+        <div class="codes-console">
+          <div class="codes-input-row">
+            <span class="codes-prompt" aria-hidden="true">&gt;</span>
+            <input type="text" id="codes-input" placeholder="PASTE CODE HERE" maxlength="64" autocomplete="off" spellcheck="false">
+            <button class="codes-redeem" id="btn-redeem-code" type="button">REDEEM</button>
+          </div>
+          <div class="codes-help"><span class="codes-help-ico">⚡</span> Codes are not case sensitive. Each code can only be used once.</div>
+        </div>
 
-        <label>Enter your code below</label>
+        <div class="codes-tips">
+          <div class="codes-tip"><b>BOXES</b><span>extra crates land in Storage</span></div>
+          <div class="codes-tip"><b>TANKS</b><span>unlocks appear in Collections</span></div>
+          <div class="codes-tip"><b>CLANS</b><span>use /code to join a hidden clan</span></div>
+        </div>
 
-        <input type="text" id="codes-input" placeholder="Paste code here..." maxlength="64">
-
-        <div class="btn btn-primary" id="btn-redeem-code">Redeem</div>
-
-        <div class="btn" id="btn-revert-map" style="margin-top:8px">Revert Map (restore original)</div>
-
-        <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
-
+        <div class="codes-foot">
+          <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
+          <div class="btn codes-revert" id="btn-revert-map">Revert map (restore original)</div>
+        </div>
       </div>
-
     </div>
 
 
@@ -1653,26 +1945,69 @@
 
     <!-- CLANS MAIN MENU -->
 
+    <!-- ====================================================================
+         CLANS — a two-panel screen, not a card with two buttons.
+
+         The old screen was a 360px card holding a title and Create / Search,
+         which answered none of the questions a player actually has: am I in a
+         clan, which one, how is it doing, what does a clan even give me. It now
+         uses the whole width: your clan on the left (or an empty state), what
+         clans are for on the right, and clan numbers as chips.
+
+         ids kept: clan-current-hint, btn-create-clan-menu, btn-search-clans-menu.
+         New: clan-you-body (filled by Menu._renderClanLanding),
+         btn-open-clan-menu.
+         ==================================================================== -->
     <div class="menu hidden" id="menu-clans">
+      <div class="clans-screen">
+        <div class="clans-head">
+          <div class="clans-kicker">// SOCIAL</div>
+          <h2 class="clans-title">CLANS</h2>
+          <p class="clans-sub">Clans share weekly XP, a private chat and a tag next to your name.</p>
+        </div>
 
-      <div class="menu-card clan-menu-card">
+        <div class="clans-grid">
+          <section class="clans-panel clans-you">
+            <div class="clans-panel-head"><span class="clans-dot"></span> YOUR CLAN</div>
+            <div class="hint clan-hint" id="clan-current-hint" style="display:none"></div>
+            <div id="clan-you-body" class="clan-you-body"></div>
+            <div class="clan-menu-buttons">
+              <div class="btn btn-primary clan-3d-btn clan-ico" id="btn-create-clan-menu"><span class="clan-ico-ani">&#x1F6E1;</span> Create Clan</div>
+              <div class="btn clan-3d-btn clan-ico" id="btn-search-clans-menu"><span class="clan-ico-ani">&#x1F6E1;</span> Search Clans</div>
+              <div class="btn btn-primary clan-3d-btn clan-ico" id="btn-open-clan-menu" style="display:none">Open Clan</div>
+            </div>
+          </section>
 
-        <h2 class="clan-title">CLANS</h2>
-
-        <div class="hint clan-hint" id="clan-current-hint" style="display:none"></div>
-
-        <div class="clan-menu-buttons">
-
-          <div class="btn btn-primary clan-3d-btn clan-ico" id="btn-create-clan-menu"><span class="clan-ico-ani">&#x1F6E1;</span> Create Clan</div>
-
-          <div class="btn clan-3d-btn clan-ico" id="btn-search-clans-menu"><span class="clan-ico-ani">&#x1F6E1;</span> Search Clans</div>
-
+          <section class="clans-panel clans-info">
+            <div class="clans-panel-head"><span class="clans-dot"></span> WHAT CLANS DO</div>
+            <ul class="clans-features">
+              <li>
+                <span class="clans-feat-ico">&#x26A1;</span>
+                <div><b>Weekly XP</b><span>Every member's battles feed one clan total, reset every week.</span></div>
+              </li>
+              <li>
+                <span class="clans-feat-ico">&#x1F4AC;</span>
+                <div><b>Clan chat</b><span>A private room that follows you into every match.</span></div>
+              </li>
+              <li>
+                <span class="clans-feat-ico">&#x1F3F7;</span>
+                <div><b>A tag</b><span>Your clan shows next to your nickname on the main menu.</span></div>
+              </li>
+              <li>
+                <span class="clans-feat-ico">&#x1F510;</span>
+                <div><b>Hidden clans</b><span>Create a private clan and share its code instead of a name.</span></div>
+              </li>
+            </ul>
+            <div class="clans-note" id="clans-guest-note" style="display:none">
+              <b>Clans need an account.</b>
+              <span>Your clan and its chat are saved to your account, so guests cannot create or join one.</span>
+              <button type="button" class="clans-signup" id="clans-signup">Create a free account</button>
+            </div>
+          </section>
         </div>
 
         <div class="btn btn-back" data-back="menu-main"><img class="back-ico" src="assets/icons/left-arrow.webp" alt=""> Back</div>
-
       </div>
-
     </div>
 
 
@@ -2141,9 +2476,9 @@
 
     // Game scripts, in exactly the order this page used to list them.
     const GAME_SCRIPTS = [
-      'js/toon.js?v=20261030a',
+      'js/toon.js?v=20261107i',
       'js/xray.js?v=20261008p',
-      'js/config.js?v=20261103a',
+      'js/config.js?v=20261111b',
       'js/vfx.js?v=1787330007',
       'js/fireball.js?v=20260929m',
       'js/mortar-blast.js?v=20261006a',
@@ -2155,25 +2490,25 @@
       'js/decal.js?v=20260927e',
       
       'js/obj_data.js?v=1787330007',
-      'js/models.js?v=20261010a',
+      'js/models.js?v=20261111a',
       'js/water-shader.js?v=20260929a',
       'js/water-tsl.js?v=20260926a',
-      'js/world.js?v=20261102n',
+      'js/world.js?v=20261107i',
       /* BEFORE tank.js: Tank._drawHp calls HPBarStyles.draw for the nameplate,
          and falls back to a plain solid bar if the module is not there yet. The
          style preview page loads this same file to render the five options. */
       'js/hpbar-styles.js?v=20261103a',
-      'js/tank.js?v=20261104b',
+      'js/tank.js?v=20261112a',
       'js/tank-sprays.js?v=20261104b',
       /* Styles (cosmetics): tank.js calls TankStyles.apply once the model is
          on, so the module has to exist by the tank build — place it with the
          other cosmetic modules, before the menus that show it. */
       'js/tank-styles.js?v=20261104b',
-      'js/projectile.js?v=20261104b',
+      'js/projectile.js?v=20261112a',
       'js/bullet-trail.js?v=20260929a',
       'js/input.js?v=20261101a',
       'js/bot-nav.js?v=20261026f',
-      'js/bot.js?v=20261104b',
+      'js/bot.js?v=20261105a',
       /* net.js BEFORE matchmaking.js. matchmaking.js binds itself to Net's
          callbacks, and it used to be listed first, so at load time Net did not
          exist and the binding silently never happened. matchmaking.js also
@@ -2190,36 +2525,45 @@
       'js/audio.js?v=20261030a',
       'js/shopdata.js?v=20260929a',
       'js/clan-default-layout.js?v=1787330007',
-      'js/menu.js?v=20261104b',
+      'js/menu.js?v=20261111e',
       'js/trophy-roadmap.js?v=20261101a',
+      /* Tank Research. After menu.js because it walks Menu._COLLECTIONS and
+         after config.js/TANKS for the roster; it wires itself on boot. */
+      'js/research.js?v=20261110g',
       'js/garage.js?v=20261003a',
-      'js/missions.js?v=20261030a',
+      'js/missions.js?v=20261107a',
       /* PROGRESSION 2.0 — per-tank XP/levels/tree/currencies. Must precede
          tank-menu.js because the reworked tank window reads window.Progression
          at render time. */
       'js/upgrade-tree.js?v=20261030g',
-      'js/tank-menu.js?v=20261031a',
+      'js/tank-menu.js?v=20261110a',
       'js/menu-editor.js?v=1787330007',
       'js/editor123.js?v=20260926a',
       'js/tank-editor.js?v=20261102m',
       'js/map-importer.js?v=20260908a',
       'js/graphics-settings.js?v=20260915a',
-      'js/capture-circle.js?v=20261101g',
+      'js/capture-circle.js?v=20261112a',
       /* Base Defend. Must load BEFORE game.js: the mode starter calls
          BaseDefend.init(), and every file here is a plain script tag with no
          module resolution, so load order is the only dependency ordering there
          is. Placed next to capture-circle.js because it is that mode's sibling
          and is disposed in the same place. */
+      /* Steal the Flag. Same placement rule as base-defend.js above: the mode
+         module must exist BEFORE game.js, because startStealFlag() calls
+         StealFlag.init() inside the GLB-load callback and plain script tags
+         have no other dependency ordering to rely on. */
+      'js/steal-flag.js?v=20261105a',
       'js/base-defend.js?v=20261027e',
-      'js/map-voting.js?v=20261102m',
+      'js/map-voting.js?v=20261111a',
       'js/default-map.js?v=1787330007',
       'js/gladiator-map.js?v=1787330007',
       'js/boot-watchdog.js?v=20261008a',
       'js/bruno-explosion.js?v=20261102a',
       'js/fog.js?v=20261104b',
-      'js/game.js?v=20261104b',
+      'js/game.js?v=20261112a',
       'js/results.js?v=20261030h',
       'js/auth.js?v=1787330007',
+      '/js/login-gate.js?v=20261028a',
       /* Real-money store. After auth.js because the return trip calls into Auth,
          and before menu.js because the store render asks it for the table. */
       'js/payments.js?v=20261012a',
@@ -2376,6 +2720,253 @@
     <div id="dev-console-log" style="height:140px; overflow:auto; background:rgba(0,0,0,0.8); padding:6px 8px; border:1px solid #0a3a0a; margin-bottom:6px; border-radius:3px; line-height:1.5;"></div>
     <div id="dev-console-debug" style="display:none;"></div>
     <input id="dev-console-input" type="text" disabled placeholder="type command or JS... (Enter to run)" style="width:100%; background:rgba(0,0,0,0.8); color:#0f0; border:1px solid #0a3a0a; padding:6px 8px; font:13px 'Consolas','Courier New',monospace; border-radius:3px; outline:none; box-sizing:border-box;">
+  </div>
+<div id="login-gate" class="login-gate" hidden>
+    <!-- The photograph. Set as an inline style on the element rather than only
+         in the stylesheet, for the same reason the loading screen does it: an
+         inline background resolves against the DOCUMENT, so it cannot be broken
+         by this stylesheet living one directory down in css/. The class still
+         carries everything else - the drift, the positioning, the cover fit.
+
+         It is FIRST so the vignette and the grain sit on top of it. -->
+    <div class="login-gate-bg"
+         style="background:#1c2230 url('assets/TL_loadingscreen.webp') center center / cover no-repeat;"></div>
+    <div class="login-gate-vignette"></div>
+    <div class="login-gate-grain"></div>
+
+    <!-- Custom cursor: four white sticks in a crosshair, centre cut out.
+         Only active over the gate (see .lg-cursor-active on <html>), so the
+         game keeps its own pointers everywhere else. -->
+    <div class="lg-cursor" id="lg-cursor" aria-hidden="true">
+      <span class="lg-stick lg-stick-t"></span>
+      <span class="lg-stick lg-stick-r"></span>
+      <span class="lg-stick lg-stick-b"></span>
+      <span class="lg-stick lg-stick-l"></span>
+    </div>
+
+    <!-- Confetti / spark burst on confirm. The element exists once and is
+         reused; JS appends shards into it and removes them when they finish. -->
+    <div class="lg-burst" id="lg-burst" aria-hidden="true"></div>
+
+    <!-- Full-screen layout. There is deliberately no framed "card" - the game
+         fills the screen and so does this. -->
+    <div class="login-gate-inner">
+
+      <header class="lg-head">
+        <!-- ONE logo, and it is the game's own.
+             assets/icons/favicon.webp is the exact image already shown in the
+             browser tab and on a phone's home screen, so the gate is the same
+             mark the player has already seen before they click anything.
+
+             It is deliberately NOT a second file. The previous attempt used
+             "tank legends logo new.png" from the repository root, which is the
+             same tank art exported with a baked-in black background (PNG colour
+             type 2, no alpha) - it rendered as a black square sitting on the
+             photograph. The favicon is colour type 6, genuinely transparent, so
+             it sits on the art with no box behind it. -->
+        <img class="lg-logo" id="lg-logo"
+             src="assets/icons/favicon.webp"
+             alt="Tank Legends" draggable="false" decoding="async">
+        <div class="lg-wordmark">
+          <span class="lg-wordmark-main">TANK LEGENDS</span>
+          <span class="lg-wordmark-sub">Choose how you want to play</span>
+        </div>
+      </header>
+
+      <!-- ============================================================
+           STEP 1 - THE CHOICE
+           ============================================================ -->
+      <div class="choose-panel active" id="login-gate-panel-choose">
+        <div class="choose-row">
+
+          <button class="choose-card" id="choose-guest" type="button" data-choice="guest">
+            <span class="choose-icon" aria-hidden="true">
+              <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="24" cy="15" r="7.5" stroke="currentColor" stroke-width="3"/>
+                <path d="M11 40c0-7.2 5.8-13 13-13s13 5.8 13 13" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+              </svg>
+            </span>
+            <span class="choose-text">
+              <span class="choose-name">Play as Guest</span>
+              <span class="choose-tag">Jump straight in</span>
+            </span>
+            <span class="choose-check" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M5 13l4.5 4.5L19 7" stroke="currentColor" stroke-width="3.5"
+                      stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+          </button>
+
+          <button class="choose-card" id="choose-login" type="button" data-choice="login">
+            <span class="choose-icon" aria-hidden="true">
+              <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="17" cy="19" r="10" stroke="currentColor" stroke-width="3"/>
+                <path d="M24.5 26.5L37 39" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+              </svg>
+            </span>
+            <span class="choose-text">
+              <span class="choose-name">Log In</span>
+              <span class="choose-tag">I have an account</span>
+            </span>
+            <span class="choose-check" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M5 13l4.5 4.5L19 7" stroke="currentColor" stroke-width="3.5"
+                      stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+          </button>
+
+          <button class="choose-card" id="choose-signup" type="button" data-choice="signup">
+            <span class="choose-icon" aria-hidden="true">
+              <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M24 8l5.2 10.6L41 20.3l-8.5 8.3 2 11.6L24 34.8 13.5 40.2l2-11.6L7 20.3l11.8-1.7z"
+                      stroke="currentColor" stroke-width="3" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <span class="choose-text">
+              <span class="choose-name">Sign Up</span>
+              <span class="choose-tag">Save my progress</span>
+            </span>
+            <span class="choose-check" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M5 13l4.5 4.5L19 7" stroke="currentColor" stroke-width="3.5"
+                      stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </span>
+          </button>
+
+        </div>
+
+        <div class="choose-note" id="choose-note">
+          <div class="choose-note-body" id="choose-note-body">
+            Pick one to continue. You can change your mind later.
+          </div>
+        </div>
+
+        <button class="choose-ok" id="choose-ok" type="button" disabled>OK</button>
+      </div>
+
+      <!-- ============================================================
+           STEP 2 - THE FORMS
+           ============================================================ -->
+      <div class="login-gate-panel" id="login-gate-panel-login">
+        <h2 class="lg-form-title">Log In</h2>
+        <p class="lg-form-sub">Welcome back, commander.</p>
+
+        <div class="login-gate-field">
+          <input id="gate-login-user" type="text" placeholder="Username or email"
+                 autocomplete="username" spellcheck="false">
+        </div>
+        <div class="login-gate-field">
+          <input id="gate-login-pass" type="password" placeholder="Password"
+                 autocomplete="current-password">
+        </div>
+        <div class="login-gate-msg hidden" id="gate-msg-login"></div>
+        <button class="login-gate-btn" id="gate-login-btn" type="button">Log In</button>
+
+        <!-- Never a dead end. Somebody on this screen may well have no account
+             yet, which is exactly who was stuck: there was no Sign Up option
+             anywhere here, only a small Back button. -->
+        <div class="lg-alt">
+          <button class="lg-link" id="gate-go-signup" type="button">No account yet? <strong>Sign Up</strong></button>
+          <button class="lg-link" id="gate-go-guest" type="button">Just play as a guest</button>
+          <button class="lg-link" id="gate-forgot" type="button">Forgot your password?</button>
+        </div>
+
+        <button class="lg-back" id="gate-login-back" type="button">
+          <span class="lg-back-arrow" aria-hidden="true">&#x2190;</span> Back
+        </button>
+      </div>
+
+      <div class="login-gate-panel" id="login-gate-panel-register">
+        <h2 class="lg-form-title">Create Account</h2>
+        <p class="lg-form-sub">Takes about twenty seconds.</p>
+
+        <div class="login-gate-field">
+          <input id="gate-reg-user" type="text" placeholder="Username (3-20 letters, numbers, _ -)"
+                 autocomplete="username" spellcheck="false">
+        </div>
+        <div class="login-gate-field">
+          <input id="gate-reg-email" type="email" placeholder="Email" autocomplete="email">
+        </div>
+        <div class="login-gate-field">
+          <input id="gate-reg-pass" type="password" placeholder="Password (min 8 characters)"
+                 autocomplete="new-password">
+        </div>
+
+        <!-- PASSWORD STRENGTH
+             Four segments that fill left to right as the password improves,
+             with a short verdict underneath. Deliberately four states and one
+             sentence: a long rubric of rules reads as a form to be defeated
+             rather than advice to be taken. -->
+        <div class="pw-meter" id="pw-meter" data-level="0">
+          <div class="pw-bars">
+            <span class="pw-bar"></span><span class="pw-bar"></span>
+            <span class="pw-bar"></span><span class="pw-bar"></span>
+          </div>
+          <div class="pw-verdict" id="pw-verdict">Use 8 or more characters</div>
+        </div>
+
+        <div class="login-gate-field">
+          <input id="gate-reg-pass2" type="password" placeholder="Repeat password"
+                 autocomplete="new-password">
+        </div>
+        <div class="login-gate-msg hidden" id="gate-msg-register"></div>
+        <button class="login-gate-btn" id="gate-reg-btn" type="button">Create Account</button>
+        <div class="login-gate-fine">
+          We email you once to confirm the address, so you can recover the account
+          if you forget your password. Nothing else is sent.
+        </div>
+        <button class="lg-back" id="gate-reg-back" type="button">
+          <span class="lg-back-arrow" aria-hidden="true">&#x2190;</span> Back
+        </button>
+      </div>
+
+      <div class="login-gate-panel" id="login-gate-panel-reset">
+        <h2 class="lg-form-title" id="gate-reset-note">Password Reset</h2>
+        <p class="lg-form-sub" id="gate-reset-sub">We will email you a link to set a new one.</p>
+
+        <div class="login-gate-field" id="gate-reset-email-field">
+          <input id="gate-reset-email" type="email" placeholder="Account email" autocomplete="email">
+        </div>
+        <div class="login-gate-field hidden" id="gate-reset-pass-field">
+          <input id="gate-reset-pass" type="password" placeholder="New password (min 8 characters)"
+                 autocomplete="new-password">
+        </div>
+        <div class="login-gate-field hidden" id="gate-reset-pass2-field">
+          <input id="gate-reset-pass2" type="password" placeholder="Repeat new password"
+                 autocomplete="new-password">
+        </div>
+        <div class="login-gate-msg hidden" id="gate-msg-reset"></div>
+        <button class="login-gate-btn" id="gate-reset-btn" type="button">Send reset link</button>
+        <button class="lg-back" id="gate-reset-back" type="button">
+          <span class="lg-back-arrow" aria-hidden="true">&#x2190;</span> Back
+        </button>
+      </div>
+
+      <div class="login-gate-panel" id="login-gate-panel-verified">
+        <h2 class="lg-form-title">Email Confirmed</h2>
+        <p class="lg-form-sub" id="gate-verified-text">
+          You can now recover this account if you forget your password.
+        </p>
+        <button class="login-gate-btn" id="gate-verified-btn" type="button">Continue</button>
+      </div>
+
+      <div class="login-gate-checking" id="gate-checking">
+        <div class="login-gate-spinner"></div>
+      </div>
+
+    </div>
+
+    <div class="login-gate-foot">
+      <span id="login-gate-foot-text">Your progress follows your account to every device you play on.</span>
+      <!-- BUILD STAMP. Not decoration: twice now a reported bug turned out to be
+           a browser still running an older build, and the only way to tell was
+           to ask which code was live. This makes the answer visible on screen
+           instead of a round trip. Bump it in /js/login-gate.js GATE_BUILD. -->
+      <span class="login-gate-build" id="login-gate-build"></span>
+    </div>
   </div>
 </body>
 

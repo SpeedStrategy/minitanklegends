@@ -105,6 +105,24 @@ const Menu = {
       try { saveSettings(this.settings); } catch(e){}
       try { if(game && game.applySettings) game.applySettings(this.settings); } catch(e){}
     }
+    /* NEW DEFAULTS FOR EVERYBODY, ONCE.
+
+       loadSettings() only supplies a default when a key is MISSING, and every
+       existing player already has these three saved (from the old defaults),
+       so changing the constants in config.js alone would only ever reach a
+       brand-new profile. This one-time pass hands the new defaults to the
+       saves that predate them: the low 40° camera angle and the much lighter
+       22% X-ray fade. Guarded by its own flag so a player who then picks 85°
+       or 90% keeps it -- the migration must not fight the settings screen. */
+    if(this.settings && !this.settings.camDefaultsV2){
+      this.settings.camDefaultsV2 = true;
+      if(typeof this.settings.camPitchIdx !== 'number') this.settings.camPitchIdx = 0;
+      else if(this.settings.camPitchIdx === 4) this.settings.camPitchIdx = 0;   // old default 85°
+      if(this.settings.xrayOpacity == null || this.settings.xrayOpacity === 0.92) this.settings.xrayOpacity = 0.22;
+      if(!this.settings.zoomMode) this.settings.zoomMode = 'distance';
+      try { saveSettings(this.settings); } catch(e){}
+      try { if(game && game.applySettings) game.applySettings(this.settings); } catch(e){}
+    }
     document.body.classList.add(this._detectPlatform() === 'desktop' ? 'is-desktop' : 'is-mobile');
     try { Audio.init(); } catch(e){ console.warn('Audio.init failed:', e); }
     try { Audio.hookButtons(); } catch(e){ console.warn('Audio.hookButtons failed:', e); }
@@ -128,6 +146,8 @@ const Menu = {
     try { this._renderProfile(); } catch(e){}
     try { this._applyBackgrounds(); } catch(e){}
     try { this._wireEsc(); } catch(e){}
+    try { this._wireBackKey(); } catch(e){ console.error('Menu._wireBackKey failed:', e); }
+    try { this._liftBackButtons(); } catch(e){ console.error('Menu._liftBackButtons failed:', e); }
     try { this._wireMobileBack(); } catch(e){}
     try { this._wirePeerPresence(); } catch(e){}
     try { this._wireMinimapKey(); } catch(e){}
@@ -614,6 +634,74 @@ const Menu = {
     }, 450);
   },
 
+  /* ---------- THE MENU WIPE: a screen-filling grid of squares ---------- */
+  /* Menu-to-menu switches play a cartoon tile transition: a grid of white
+     squares scales in along a diagonal wave until it covers the screen, the
+     switch happens underneath, then the squares scale back out the same way.
+     The whole thing runs about a second. Pure DOM + CSS transitions,
+     transform only. Respects prefers-reduced-motion by doing nothing. */
+  _tileWipe(callback){
+    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      callback(); return;
+    }
+    if (this._wipeRunning) {
+      /* a wipe is already mid-flight: perform the switch under the cover it
+         is about to show and let that run finish on schedule */
+      this._wipeQueue.push(callback);
+      return;
+    }
+    this._wipeRunning = true;
+    this._wipeQueue = [];
+
+    /* one cell every ~96px, clamped so tiny and giant screens both get a
+       decent-looking grid */
+    const vw = Math.max(320, window.innerWidth);
+    const vh = Math.max(240, window.innerHeight);
+    const cols = Math.min(18, Math.max(10, Math.round(vw / 96)));
+    const rows = Math.min(12, Math.max(6, Math.round(vh / 96)));
+
+    const w = document.getElementById('menu-wipe');
+    const host = w || document.createElement('div');
+    host.id = 'menu-wipe';
+    host.className = 'menu-wipe';
+    host.style.setProperty('--mw-cols', cols);
+    host.style.setProperty('--mw-rows', rows);
+    host.classList.remove('reveal');
+    while (host.firstChild) host.removeChild(host.firstChild);
+    const frag = document.createDocumentFragment();
+    const CELL = 20;               /* ms per step of the diagonal wave */
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const cell = document.createElement('i');
+        cell.style.setProperty('--d', ((r + c) * CELL) + 'ms');
+        cell.style.setProperty('--d2', (((rows - 1 - r) + (cols - 1 - c)) * CELL + 40) + 'ms');
+        frag.appendChild(cell);
+      }
+    }
+    host.appendChild(frag);
+    if (!w) document.body.appendChild(host);
+    void host.offsetWidth;
+    host.classList.add('busy', 'cover');
+
+    const coverMax = (rows + cols - 2) * CELL + 180;
+    const revealMax = (rows + cols - 2) * CELL + 260;
+    const me = this;
+    setTimeout(function () {
+      if (callback) callback();
+      const queued = me._wipeQueue || [];
+      /* any switches requested while airborne land under this cover */
+      for (let i = 0; i < queued.length; i++) { try { queued[i](); } catch (e) {} }
+      me._wipeQueue = [];
+      void host.offsetWidth;
+      host.classList.remove('cover');
+      host.classList.add('reveal');
+      setTimeout(function () {
+        host.classList.remove('reveal', 'busy');
+        me._wipeRunning = false;
+      }, revealMax);
+    }, coverMax + 60);
+  },
+
   show(id, opts={}){
     // Release pointer lock so cursor is visible in menus
     if(document.pointerLockElement) document.exitPointerLock();
@@ -672,6 +760,9 @@ const Menu = {
         this._postMenuShow(id);
       });
     } else {
+      /* Menu switches stay INSTANT on purpose: the white-square wipe is not a
+         menu transition, it is reserved for the single moment that deserves
+         one -- picking one of the two research tanks (research.js). */
       _switch();
       this._postMenuShow(id);
     }
@@ -683,6 +774,9 @@ const Menu = {
        this exact menu instead of just "the game froze". Cheap, synchronous, and
        the only thing that can attribute a main-thread hang. */
     try { if(window.__mtlMark) window.__mtlMark('menu:open:' + id); } catch(e){}
+    /* The screen that was just shown owns the top-left back chip now; everyone
+       else's stays hidden in the slot. */
+    try { this._liftBackButtons(); } catch(e){}
     if(id !== 'menu-store' && id !== 'menu-shop-buy' && id !== 'menu-shop-receive'){
       if(this._shopTimer){ clearInterval(this._shopTimer); this._shopTimer = null; }
       /* Same reason as Escape: any hold or reveal still running belongs to a
@@ -706,18 +800,7 @@ const Menu = {
       this._renderProfile();
     }
     if(id === 'menu-clans'){
-      // When already in a clan, only allow searching for other clans (create is hidden)
-      const createBtn = document.getElementById('btn-create-clan-menu');
-      if(createBtn) createBtn.style.display = this._clanData ? 'none' : '';
-      const hint = document.getElementById('clan-current-hint');
-      if(hint){
-        if(this._clanData){
-          hint.style.display = '';
-          hint.innerHTML = 'You are in clan: <b>' + this._clanData.name + '</b>';
-        } else {
-          hint.style.display = 'none';
-        }
-      }
+      this._renderClanLanding();
     }
     if(id === 'menu-store'){
       Audio.playMusic('assets/shop/shop.mp3');
@@ -1211,6 +1294,15 @@ const Menu = {
       b.onclick = ()=>{
         const t = b.dataset.open;
         if(t==='singleplayer'){ this.game.startSingleplayer(); return; }
+        /* FOUNDRY IS AN OVERLAY, NOT A PANEL. There is no #menu-foundry for
+           show() to reveal: js/research.js owns that screen (its own back
+           control, its own Escape handling, its own scroll). Falling through
+           to show() would hide every menu and display nothing at all. */
+        if(t==='workshop'){
+          if(typeof Research !== 'undefined' && Research.openPanel) Research.openPanel();
+          else this.toast('Workshop is not ready yet');
+          return;
+        }
         if(t==='clans'){
           // If already in a clan, go straight to the clan UI layout
           if(this._clanData){
@@ -1227,7 +1319,11 @@ const Menu = {
     document.querySelectorAll('[data-back]').forEach(b=>{
       b.onclick = ()=>{
         let t = b.dataset.back;
-        const cur = b.closest('.menu');
+        /* Back controls are lifted out of their menu into the top-left slot, so
+           closest() no longer finds it -- fall back to the owner id recorded at
+           lift time, or the collections screen would forget it was opened from
+           the platoon and drop the player on the main menu instead. */
+        const cur = b.closest('.menu') || (b._mtlBackHome ? document.getElementById(b._mtlBackHome) : null);
         if(t === 'menu-main' && cur && cur.id === 'menu-collections' && this._platoonReturn){
           t = 'menu-platoon';
         }
@@ -1489,9 +1585,13 @@ const Menu = {
     document.getElementById('esc-yes').onclick = ()=>{ this._closeEsc(); this.game.leaveToMenu(); };
     document.getElementById('esc-no').onclick  = ()=> this._resumeGame();
 
-    // Clan system buttons
-    document.getElementById('btn-create-clan-menu').onclick = ()=> this.show('menu-create-clan');
-    document.getElementById('btn-search-clans-menu').onclick = ()=> this.show('menu-search-clans');
+    // Clan system buttons — both need an account (see _requireAccount)
+    document.getElementById('btn-create-clan-menu').onclick = ()=>{
+      if(this._requireAccount('create a clan')) this.show('menu-create-clan');
+    };
+    document.getElementById('btn-search-clans-menu').onclick = ()=>{
+      if(this._requireAccount('join a clan')) this.show('menu-search-clans');
+    };
     
     // Clan visibility toggle
     document.querySelectorAll('.clan-visibility-seg .seg-opt').forEach(o=>{
@@ -2134,12 +2234,181 @@ const Menu = {
      the screen was running (shop holds, sandbox rooms). goBack() picks that
      same path instead of guessing a destination, so the floating mobile back
      button and the phone's own back gesture can never skip a cleanup. */
-  _BACK_SELECTOR: '[data-back], #btn-play-back, #shop-back-main, #shop-back-buy, #shop-receive-back, #pl-back, #btn-preview-back, #collections-back',
+  /* Every control that can be a screen's way out. #tm-back (garage) and
+     .ms-back-btn (missions) are named because those two screens are built by
+     their own modules rather than authored in index.html. */
+  _BACK_SELECTOR: '[data-back], #btn-play-back, #shop-back-main, #shop-back-buy, #shop-receive-back, #pl-back, #btn-preview-back, #collections-back, #me-back, #tm-back, .ms-back-btn',
   _ESC_OWNED_MENUS: ['menu-store','menu-shop-buy','menu-shop-receive','menu-storage','menu-profile','menu-collections','menu-platoon','menu-sandbox'],
   _ownBack(menu){
     /* Phones hide these (the floating back replaces them), but clicking still works. */
     const all = [...menu.querySelectorAll(this._BACK_SELECTOR)];
+    /* Lifted controls no longer live inside their menu -- they sit in the shared
+       top-left slot (see _liftBackButtons) -- so they have to be found by owner
+       as well, or goBack would report "this screen has no back button" and take
+       the Escape fallback instead of the screen's own cleanup path. */
+    document.querySelectorAll('#mtl-back-slot > *').forEach(b=>{
+      if(b._mtlBackHome === menu.id) all.push(b);
+    });
     return all.find(b => b.offsetParent !== null) || all[0] || null;
+  },
+
+  /* ==========================================================================
+     EVERY MENU'S WAY OUT IS IN THE SAME CORNER
+
+     The control itself is the screen's own: same node, same onclick, so shop
+     holds, sandbox teardown and the settings save-exit keep working exactly as
+     before. All that changes is where it is parented -- a zero-size slot on
+     <body> -- and a class that pins it to the top-left of the viewport.
+
+     Parented rather than merely repositioned because several of these buttons
+     live inside .menu-card, and a backdrop-filtered element is a containing
+     block for fixed descendants: `position:fixed` there would be relative to
+     the CARD and the button would sit in the card's corner, not the screen's.
+
+     Idempotent, and re-run on every menu switch so controls that a screen
+     creates on demand are picked up too. */
+  /* THE LOOK OF THE BACK CHIP, ON WHATEVER BUTTON OWNS IT.
+
+     The controls it replaces are worded a dozen different ways -- "Back",
+     "<- Back", "◀ BACK", "← RETURN TO HQ", a bare arrow -- and their width grew
+     with the label, which is what let a long one cover the heading behind it. So
+     the words come out and one white arrow goes in: the control is already a way
+     out, so the word is telling the player something the arrow says faster.
+
+     The shortcut is drawn with the SAME key art Settings > Controls uses for the
+     Z bind (assets/icons/keybinds), not a typed "Z", so the badge here and the
+     chip in the bind list are recognisably the same key.
+
+     Idempotent: a decorated control is left alone, because a screen that
+     re-renders its panel hands us a brand new node instead. */
+  _decorateBackChip(b){
+    if(!b || b.querySelector('.mtl-back-glyph')) return b;
+    while(b.firstChild) b.removeChild(b.firstChild);
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('class', 'mtl-back-glyph');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    const head = document.createElementNS(NS, 'path');
+    head.setAttribute('d', 'M10.5 5.5 L4.5 12 L10.5 18.5');
+    const shaft = document.createElementNS(NS, 'path');
+    shaft.setAttribute('d', 'M4.5 12 H19.5');
+    svg.appendChild(head);
+    svg.appendChild(shaft);
+    b.appendChild(svg);
+
+    let zIcon = '';
+    try { zIcon = this._keyIconFor('KeyZ'); } catch(e){}
+    if(zIcon){
+      const img = document.createElement('img');
+      img.className = 'mtl-back-key';
+      img.src = zIcon + '?v=20261031a';
+      img.alt = 'Z';
+      img.draggable = false;
+      b.appendChild(img);
+    }
+    b.setAttribute('aria-label', 'Back');
+    b.setAttribute('title', 'Back (Z)');
+    return b;
+  },
+
+  _liftBackButtons(){
+    /* The research overlay's back is not a .menu child (it lives in the fixed
+       rs-overlay), so it is decorated here rather than lifted -- same chip, same
+       glyph, same key badge. Runs before the mobile bail-out so a phone gets the
+       same square instead of a 44px box full of wrapped text. */
+    try { this._decorateBackChip(document.getElementById('research-back')); } catch(e){}
+    /* Phones already have their own floating back; do not fight it. */
+    if(document.body.classList.contains('is-mobile')) return false;
+    let slot = document.getElementById('mtl-back-slot');
+    if(!slot){
+      slot = document.createElement('div');
+      slot.id = 'mtl-back-slot';
+      slot.setAttribute('aria-hidden', 'false');
+      document.body.appendChild(slot);
+    }
+    /* Controls that a screen re-renders (the garage replaces its whole panel,
+       missions rebuild their card) arrive as a NEW node each time. Appending it
+       alongside the previous one would leave a stale chip first in the slot and
+       that stale copy is the one that would stay visible, so a same-key arrival
+       replaces its predecessor. Key is the node's own identity, not just the
+       menu: the clan screen genuinely has two different back controls and both
+       must stay. */
+    const keyOf = b => b._mtlBackHome + '|' + (b.id || b.className || b.textContent.trim());
+    const byKey = {};
+    [...slot.children].forEach(b=>{ byKey[keyOf(b)] = b; });
+    document.querySelectorAll('.menu').forEach(menu=>{
+      [...menu.querySelectorAll(this._BACK_SELECTOR)].forEach(b=>{
+        if(b._mtlBackHome) return;
+        b._mtlBackHome = menu.id;
+        /* Key from the ORIGINAL node (its id, else class, else text), before the
+           label is swapped for the glyph -- a re-rendered control has to match
+           the one it replaces. */
+        const k = keyOf(b);
+        if(byKey[k] && byKey[k] !== b) byKey[k].remove();
+        byKey[k] = b;
+        this._decorateBackChip(b);
+        slot.appendChild(b);
+      });
+    });
+    const active = document.querySelector('.menu:not(.hidden)');
+    /* ONE CHIP PER SCREEN. A couple of menus own two back controls (the clan
+       screen has the icon arrow and a text Back); showing both would stack two
+       chips in the same corner. The first in document order wins, and the rest
+       stay parked in the slot, hidden. */
+    const shown = {};
+    [...slot.children].forEach(b=>{
+      const owner = b._mtlBackHome;
+      const live = !!active && owner === active.id && !shown[owner];
+      if(live) shown[owner] = true;
+      b.classList.toggle('mtl-back-live', live);
+    });
+    return true;
+  },
+
+  /* Z GOES BACK, FROM ANY MENU.
+
+     Same entry point the phone's back gesture and the Escape handler use
+     (goBack), so the shortcut cannot skip a screen's cleanup. Ignored while a
+     text field has focus -- Z is a letter before it is a shortcut -- and while
+     the research overlay is open, because research is fullscreen, is not a
+     .menu, and answers Z itself. */
+  _wireBackKey(){
+    if(this._backKeyWired) return;
+    this._backKeyWired = true;
+    window.addEventListener('keydown', e=>{
+      if(e.code !== 'KeyZ') return;
+      if(e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+      if(e.repeat) return;
+      const ae = document.activeElement;
+      if(ae && (/^(input|textarea|select)$/i.test(ae.tagName) || ae.isContentEditable)) return;
+      if(window.Research && Research.open) return;   /* research handles its own Z */
+      if(this.goBack()) e.preventDefault();
+    });
+
+    /* SOME SCREENS BUILD THEMSELVES AFTER THEY ARE SHOWN.
+
+       Missions and the garage tank screen are empty divs in index.html and
+       render their contents from js/missions.js and js/tank-menu.js, so at the
+       moment _postMenuShow lifts controls there is nothing to lift and their
+       back button would never reach the corner. Watching the menu subtrees
+       catches it whenever it appears.
+
+       Moving a node is itself a mutation, so this settles by construction: the
+       follow-up pass finds every control already lifted and does nothing. rAF
+       coalesces a burst of renders into one pass instead of one per node. */
+    try {
+      const self = this;
+      let queued = false;
+      const obs = new MutationObserver(function () {
+        if (queued) return;
+        queued = true;
+        requestAnimationFrame(function () { queued = false; self._liftBackButtons(); });
+      });
+      document.querySelectorAll('.menu').forEach(m => obs.observe(m, { childList: true, subtree: true }));
+      this._backObserver = obs;
+    } catch (e) {}
   },
   _authOpen(){
     const ov = document.getElementById('auth-overlay');
@@ -2487,7 +2756,7 @@ const Menu = {
     const sty = this._xrayStyles().indexOf(s.xrayStyle) >= 0 ? s.xrayStyle : 'stripes';
     const names = { stripes:'Diagonal stripes', scanlines:'Scanlines', hatch:'Cross-hatch',
                     dots:'Dotted grid', solid:'Solid silhouette', pulse:'Travelling pulse' };
-    const op = Math.round((s.xrayOpacity != null ? s.xrayOpacity : 0.92) * 100);
+    const op = Math.round((s.xrayOpacity != null ? s.xrayOpacity : 0.22) * 100);
 
     wrap.innerHTML = `
       <label style="margin-top:0">
@@ -2824,8 +3093,12 @@ const Menu = {
   _renderCameraSettings(){
     const wrap = document.getElementById('camera-settings');
     if(!wrap) return;
-    const pitchIdx = (typeof this.settings.camPitchIdx === 'number') ? this.settings.camPitchIdx : 4;
-    const pitchNames = ['45°', '50°', '60°', '80°', '85°'];
+    const pitchIdx = (typeof this.settings.camPitchIdx === 'number') ? this.settings.camPitchIdx : 0;
+    /* No hardcoded degree list: the options ARE config.js CAM_PITCH_OPTIONS,
+       so adding an angle there adds a button here. */
+    const pitchOpts = (typeof CONFIG !== 'undefined' && CONFIG.CAM_PITCH_OPTIONS) || [40, 45, 50, 60, 80, 85];
+    const pitchNames = pitchOpts.map(v => v + '°');
+    const zoomAngle = (this.settings.zoomMode === 'angle');
     /* The dev-stage camera work added Rotation (Fixed / Follow hull) and a
        Zoom picker (settings.cameraStage, 0..5) on top of the angle picker.
        All three live here now in order: angle, rotation, zoom. */
@@ -2834,10 +3107,16 @@ const Menu = {
     const follow = !!this.settings.camFollowHull;
     wrap.innerHTML =
       '<label>Camera Angle</label>' +
-      '<div class="seg" style="display:grid; grid-template-columns:repeat(5,1fr); gap:4px;">' +
+      '<div class="seg" style="display:grid; grid-template-columns:repeat(' + pitchNames.length + ',1fr); gap:4px;">' +
         pitchNames.map((n, i) => '<div class="seg-opt' + (pitchIdx===i?' active':'') + '" data-campitch="' + i + '">' + n + '</div>').join('') +
       '</div>' +
-      '<div class="hint">Top-down pitch of the view. Distance stays the same; only the angle changes.</div>' +
+      '<div class="hint">How steeply the view looks down. 40° is the low, field-ahead view; 85° is almost straight down. The distance to the tank stays the same; only the angle changes.</div>' +
+      '<label style="margin-top:16px">Wheel Zoom Changes</label>' +
+      '<div class="seg" style="display:grid; grid-template-columns:repeat(2,1fr); gap:4px;">' +
+        '<div class="seg-opt' + (zoomAngle?'':' active') + '" data-zoommode="distance">Distance</div>' +
+        '<div class="seg-opt' + (zoomAngle?' active':'') + '" data-zoommode="angle">Angle</div>' +
+      '</div>' +
+      '<div class="hint">Distance pulls the camera back over the six zoom steps. Angle parks it at one distance and scrolls through the camera angles above instead.</div>' +
       '<label style="margin-top:16px">Camera Rotation</label>' +
       '<div class="seg" style="display:grid; grid-template-columns:repeat(2,1fr); gap:4px;">' +
         '<div class="seg-opt' + (follow?'':' active') + '" data-camfollow="0">Fixed</div>' +
@@ -2852,6 +3131,14 @@ const Menu = {
     wrap.querySelectorAll('[data-campitch]').forEach(el=>{
       el.onclick = ()=>{
         this.settings.camPitchIdx = +el.dataset.campitch;
+        saveSettings(this.settings);
+        if(this.game) this.game.applySettings(this.settings);
+        this._renderCameraSettings();
+      };
+    });
+    wrap.querySelectorAll('[data-zoommode]').forEach(el=>{
+      el.onclick = ()=>{
+        this.settings.zoomMode = el.dataset.zoommode === 'angle' ? 'angle' : 'distance';
         saveSettings(this.settings);
         if(this.game) this.game.applySettings(this.settings);
         this._renderCameraSettings();
@@ -3061,64 +3348,87 @@ const Menu = {
      nothing in the console to explain why. That is exactly what happened to the
      Mortar: it was fully playable, fully in the roster, and invisible.
 
-     If you add a tank, add it here too. Collection 3 is the heavy/artillery
-     line, which is where the Mortar belongs. */
+     If you add a tank, add it here too.
+
+     SLOT ORDER IS COLUMN-MAJOR, and the two rows are drawn 1 3 5 over 2 4:
+
+         slot 1   slot 3   slot 5
+         slot 2   slot 4
+
+     so index 0/2/4 of `tanks` is the top row and index 1/3 is the bottom row.
+     _renderCollections splits them on that rule — the array order IS the slot
+     numbering, and the DOM is built odd-first to match.
+
+     A slot may hold three things:
+       'tankId'          a real tank from TANKS
+       { soon: 'Name' }  announced content that has no model yet. Drawn as a
+                         locked COMING SOON tile carrying the planned name, so
+                         the roster reads as a finished plan rather than as
+                         holes in the grid.
+       null              genuinely empty slot
+
+     The number of collections is not fixed here; the research path in
+     research.js walks this same list, so adding collection 5 below adds its
+     five research steps automatically. */
   _COLLECTIONS: [
-    { id: 1, tanks: ['coolbuddy','demolisher','predator',null,'grom'] },
-    { id: 2, tanks: ['helix','striker','double','burst',null] },
-    { id: 3, tanks: ['ghost','sturmratte','mortar',null,null] },
+    /* C1 — Coolbuddy, Ark, Ghost, Grom, Sturmratte. ARK is the tank whose id is
+       `striker` (config.js: name:'Ark'), so slot 2 is that id — and that legacy
+       id is exactly why the tank actually NAMED Striker is `striker2` in C3.
+       Hellfire, Bradley and Striker were "soon" markers until their models
+       arrived (TL/fixed tanks/final) and are real tanks now, which also makes
+       three research-path steps real rewards instead of signposts. */
+    { id: 1, tanks: ['coolbuddy','striker','ghost','grom','sturmratte'] },
+    { id: 2, tanks: ['hellfire','burst','demolisher','predator','bradley'] },
+    { id: 3, tanks: [{ soon: 'Mystery' },{ soon: 'Kosmo' },'double','striker2','helix'] },
+    { id: 4, tanks: ['mortar',{ soon: 'Penetrator' },{ soon: 'Liqvidator' },{ soon: 'Tesak' },{ soon: 'Destroyer' }] },
   ],
 
   _loadCollectionsFromStorage(){
     try {
       const raw = localStorage.getItem('tankparty_collections');
-      if(raw){
-        const saved = JSON.parse(raw);
-        if(Array.isArray(saved) && saved.length === 3){
-          /* MERGE, do not replace.
-             This key is only ever written by the collection editor, so anyone
-             who has ever opened it has a saved layout — and a plain assignment
-             would silently hide every tank added to the game since they last
-             opened the editor, with no way to get it back short of clearing
-             localStorage by hand.
+      if(!raw) return;
+      const saved = JSON.parse(raw);
+      if(!Array.isArray(saved) || !saved.length) return;
 
-             So the saved layout wins wherever it has an opinion (a slot it
-             actually filled), and any tank from the built-in list that is
-             missing from it gets put back into the first genuinely empty slot
-             of its own collection. Their arrangement survives; new tanks still
-             turn up. */
-          const built = this._COLLECTIONS.map(c => c.tanks.filter(t => t));
-          const home = new Map();
-          built.forEach((list, ci) => list.forEach(id => { if(!home.has(id)) home.set(id, ci); }));
-          this._COLLECTIONS = this._COLLECTIONS.map((defCol, ci) => {
-            const src = Array.isArray(saved[ci] && saved[ci].tanks) ? saved[ci].tanks : defCol.tanks;
-            const merged = src.slice();
-            /* A tank only counts as placed if it is in the collection it
-               BELONGS to. Anything else in a saved layout is either a duplicate
-               or a leftover, and it is dropped rather than honoured — because
-               honouring it is what let one tank appear in three collections at
-               once and pushed a real tank out of the menu entirely.
+      /* MERGE, do not replace — but the BUILT list above is the authority.
 
-               Consequence worth knowing: the collection editor can no longer
-               move a tank to a DIFFERENT collection and have it stick. Tanks
-               live in the collection declared above. */
-            const placed = new Set();
-            merged.forEach((t, i) => {
-              if(t && home.get(t) === ci) placed.add(t);
-              else merged[i] = null;
-            });
-            /* Anything that belongs here and is not placed goes in a free slot. */
-            built[ci].forEach(id => {
-              if(placed.has(id)) return;
-              const slot = merged.indexOf(null);
-              if(slot >= 0) merged[slot] = id;
-              else if(merged.length < 5) merged.push(id);
-              placed.add(id);
-            });
-            return { id: (saved[ci] && saved[ci].id) || defCol.id, tanks: merged };
+         This key is only ever written by the collection editor, so anyone who
+         has opened it has a saved layout. The old merge started from that
+         layout and repaired it, which meant a stale save could delete a whole
+         collection (the check demanded exactly three of them) and could put a
+         tank in a slot that no longer exists.
+
+         Inverted: the roster declared above is the layout, and a saved layout
+         is only allowed to REORDER the tanks that already belong to the same
+         collection. Every tank is always present, a save can never hide one,
+         and a slot reserved for announced content ({ soon: 'Name' }) is never
+         overwritten by a saved id. Consequence worth knowing: a save still
+         cannot move a tank to a DIFFERENT collection, which is deliberate —
+         tanks live in the collection declared above, and honouring a cross-
+         collection move is what once let one tank appear in three collections
+         at once. */
+      const built = this._COLLECTIONS.map(c => c.tanks.slice());
+      const home = new Map();
+      built.forEach((list, ci) => list.forEach(t => { if(typeof t === 'string') home.set(t, ci); }));
+
+      this._COLLECTIONS = this._COLLECTIONS.map((defCol, ci) => {
+        const slots = built[ci].slice();
+        const src = Array.isArray(saved[ci] && saved[ci].tanks) ? saved[ci].tanks : null;
+        if(src){
+          src.forEach((id, i) => {
+            if(typeof id !== 'string' || home.get(id) !== ci) return;
+            if(i >= slots.length) return;
+            const at = slots.indexOf(id);
+            if(at < 0 || at === i) return;
+            const target = slots[i];
+            /* A soon marker owns its slot: the roster's plan outranks a save. */
+            if(target && typeof target !== 'string') return;
+            slots[at] = target || null;
+            slots[i] = id;
           });
         }
-      }
+        return { id: (saved[ci] && saved[ci].id) || defCol.id, tanks: slots };
+      });
     } catch(e){}
   },
 
@@ -3133,7 +3443,9 @@ const Menu = {
       if(ci > 0){
         const lockDiv = document.createElement('div');
         lockDiv.className = 'collection-lock';
-        const allOwned = col.tanks.every(t => isUnlocked(t));
+        /* Announced-only slots are not "owned", so they must not count. */
+        const realSlots = col.tanks.filter(t => typeof t === 'string');
+        const allOwned = realSlots.length > 0 && realSlots.every(t => isUnlocked(t));
         if(allOwned) lockDiv.classList.add('open');
         lockDiv.innerHTML = `<div class="lock-big">${allOwned ? '&#x1F513;' : '&#x1F512;'}</div><div class="lock-text">${allOwned ? 'Unlocked' : 'Locked'}</div>`;
         track.appendChild(lockDiv);
@@ -3152,14 +3464,16 @@ const Menu = {
       const botRow = document.createElement('div');
       botRow.className = 'tank-row row-bot';
 
-      col.tanks.forEach((tankId, ti) => {
+      /* SLOTS ARE COLUMN-MAJOR: 1 3 5 on top, 2 4 underneath. The array order
+         is the slot number, so even indices are the top row. */
+      col.tanks.forEach((entry, ti) => {
+        const tankId = (typeof entry === 'string') ? entry : null;
+        const soon = (entry && typeof entry === 'object' && entry.soon) ? entry.soon : null;
         const slot = document.createElement('div');
         slot.className = 'tank-slot';
         if(tankId && isUnlocked(tankId)){
           slot.classList.add('unlocked');
           if(isTankSelected(tankId)) slot.classList.add('selected');
-        } else if(!tankId || !isUnlocked(tankId)){
-          if(!tankId) slot.classList.add('locked');
         }
 
         if(tankId && isUnlocked(tankId)){
@@ -3169,26 +3483,36 @@ const Menu = {
             const turtColor = '#' + t.turretColor.toString(16).padStart(6,'0');
             slot.innerHTML = `<div class="tank-slot-body" style="background:${bodyColor}"></div><div class="tank-slot-turret" style="background:${turtColor}"></div><div class="tank-slot-barrel" style="background:#2a2a2e"></div><div class="tank-name">${t.name}</div>`;
           }
-        } else if(!tankId){
+        } else if(soon){
+          /* Announced, no model yet: the planned name is shown so the roster
+             reads as a plan, not as a hole. Never claimable from the garage. */
+          slot.classList.add('locked', 'soon');
+          slot.innerHTML = `<div class="soon-badge">COMING SOON</div><div class="lock-icon">&#x1F512;</div><div class="tank-name soon-name">${soon}</div>`;
+        } else if(!entry){
           slot.classList.add('locked');
           slot.innerHTML = `<div class="lock-icon">&#x1F512;</div><div class="tank-name">Coming Soon</div>`;
         } else {
+          /* Real tank, not unlocked yet: show its NAME with the padlock. The
+             collections screen is the roster plan the player is working
+             through, so hiding every locked tank behind the word "Locked"
+             made four of five slots anonymous. */
           slot.classList.add('locked');
-          slot.innerHTML = `<div class="lock-icon">&#x1F512;</div><div class="tank-name">Locked</div>`;
+          const lockedDef = tankId ? TANKS[tankId] : null;
+          slot.innerHTML = `<div class="lock-icon">&#x1F512;</div><div class="tank-name">${lockedDef ? lockedDef.name : 'Locked'}</div>`;
         }
 
         slot.addEventListener('click', ()=>{
           if(tankId && isUnlocked(tankId)){
             this.show('menu-tank');
             if(window.TankMenu) TankMenu.show(tankId);
-          } else if(!tankId){
-            this.toast('Coming Soon!');
+          } else if(soon || !entry){
+            this.toast(soon ? (soon + ' — coming soon!') : 'Coming Soon!');
           } else {
-            this.toast('Tank locked! Play to unlock.');
+            this.toast('Tank locked! Research it to unlock.');
           }
         });
 
-        if(ti < 3) topRow.appendChild(slot);
+        if(ti % 2 === 0) topRow.appendChild(slot);
         else botRow.appendChild(slot);
       });
 
@@ -3235,7 +3559,37 @@ const Menu = {
   hideConnecting(){ document.getElementById('connecting').classList.add('hidden'); },
 
   /* ---------- Codes ---------- */
+  /* THE CODE STREAM BEHIND THE CODES SCREEN.
+
+     Generated rather than authored: positions, sizes, speeds and phases are
+     random, so the layer never lines up into a visible repeat and it costs zero
+     bytes of markup. Deliberately faint (5-12% white, one in four yellow) and
+     slow (16-38 s a cycle) -- it is wallpaper behind an input field, not a
+     visual effect competing for attention. Pointer-events are off in CSS, so
+     nothing here can swallow a click meant for the console. */
+  _buildCodesBackground(){
+    const host = document.getElementById('codes-fly');
+    if(!host || host._built) return;
+    host._built = true;
+    const words = ['TANK-9F3K','TL-2026','BOX999','/CODE','MORTAR','STEALTH','GG-WP','0x7C4A','RDY-4','SECTOR-7','#4021','LOADOUT','XP+500','CLAN-2K','OBJ-115','>_'];
+    let html = '';
+    for(let i = 0; i < 24; i++){
+      const w = words[i % words.length];
+      const x = Math.round(Math.random() * 96);
+      const y = Math.round(Math.random() * 96);
+      const dur = (16 + Math.random() * 22).toFixed(1);
+      const delay = (-Math.random() * 38).toFixed(1);
+      const size = 11 + Math.round(Math.random() * 9);
+      const op = (0.05 + Math.random() * 0.07).toFixed(3);
+      const hot = (i % 4 === 0) ? ' hot' : '';
+      html += '<span class="' + hot.trim() + '" style="left:' + x + '%;top:' + y + '%;font-size:' + size +
+              'px;opacity:' + op + ';animation-duration:' + dur + 's;animation-delay:' + delay + 's">' + w + '</span>';
+    }
+    host.innerHTML = html;
+  },
+
   _wireCodes(){
+    this._buildCodesBackground();
     const input = document.getElementById('codes-input');
     const btn = document.getElementById('btn-redeem-code');
     if(!btn) return;
@@ -3254,7 +3608,7 @@ const Menu = {
         try { Editor123.open(); } catch(e){ console.error(e); this.toast('Error: '+e.message); }
       } else if(code === 'op321'){
         this.settings.allUnlocked = true;
-        this.settings.unlockedTanks = Array.from(new Set([...(this.settings.unlockedTanks||[]), 'demolisher', 'predator', 'double', 'burst', 'grom', 'coolbuddy', 'striker', 'ghost', 'sturmratte', 'helix', 'mortar']));
+        this.settings.unlockedTanks = Array.from(new Set([...(this.settings.unlockedTanks||[]), 'demolisher', 'predator', 'double', 'burst', 'grom', 'coolbuddy', 'striker', 'ghost', 'sturmratte', 'helix', 'mortar', 'hellfire', 'bradley', 'striker2']));
         saveSettings(this.settings);
         this.toast('All tanks unlocked!');
         setTimeout(() => this._renderCollections(), 50);
@@ -3581,6 +3935,14 @@ const Menu = {
               continue;
             }
             self.settings[rolls[ci].key] = (self.settings[rolls[ci].key] || 0) + rolls[ci].amount;
+          }
+          /* TANK RESEARCH: a small flat amount of Research XP per crate, paid
+             when the rewards are CLAIMED (this handler runs once -- showRewards
+             is idempotent above). Deliberately small: crates nudge the path,
+             they never replace playing a battle. */
+          if(window.Research && Research.addXP){
+            var rxp = ((Research.XP && Research.XP.perCrate) || 12) * count;
+            if(rxp > 0) Research.addXP(rxp, count > 1 ? (count + ' crates') : 'crate');
           }
           saveSettings(self.settings);
           self._initStorageGrid();
@@ -3937,8 +4299,17 @@ const Menu = {
 
     /* window.Auth, not a bare Auth: the store must still draw if auth.js ever
        fails to load, rather than throwing and taking the whole store down. */
+    /* REAL MONEY NEEDS A REAL ACCOUNT. A bundle is charged through Stripe and
+       delivered to an account, so a guest has nowhere to receive it and no way
+       to get it back after closing the tab. The ask is a sentence plus a button
+       that opens the same gate as everything else — not a dead grey card. */
     if(!window.Auth || !Auth.loggedIn()){
-      if(note) note.innerHTML = 'Log in to buy bundles — a purchase is delivered to your account.';
+      if(note){
+        note.innerHTML = '<span class="shop-account-ask">Bundles cost real money and are delivered to your account, ' +
+          'so they need one first.<button type="button" class="shop-account-btn" id="shop-account-btn">Create a free account</button></span>';
+        const askBtn = document.getElementById('shop-account-btn');
+        if(askBtn) askBtn.onclick = () => { this._requireAccount('buy bundles'); };
+      }
       return;
     }
     if(note) note.innerHTML = 'Paid with Stripe. Delivered to your account and kept if you clear this browser.';
@@ -4297,8 +4668,122 @@ const Menu = {
     }
   },
 
+  /* ==========================================================================
+     AN ACCOUNT, BEFORE ANYTHING THAT LIVES ON ONE
+
+     A clan is stored against the account: its roster, its chat and the tag on
+     the player's name all disappear with the tab if there is no account behind
+     them. Buying a bundle is the same story — there is nowhere to deliver it.
+
+     So both entry points ask for an account ONCE, through the same gate the
+     login button uses, and they do it at the moment the player tries the
+     action rather than by greying the button out and leaving them to guess.
+     Guests can still open and read these screens.
+     ========================================================================== */
+  _requireAccount(what){
+    try{
+      if(window.Auth && typeof Auth.loggedIn === 'function' && Auth.loggedIn()) return true;
+      if(window.Auth && typeof Auth.open === 'function'){
+        this.toast('Create a free account to ' + (what || 'use this') + ' — it only takes a moment');
+        Auth.open('register');
+        return false;
+      }
+    }catch(e){}
+    this.toast('Create a free account to ' + (what || 'use this'));
+    return false;
+  },
+
   /* ---------- Clan System ---------- */
   _clanData: null,
+
+  /* ==========================================================================
+     THE CLAN LANDING
+
+     This screen used to be a title, a one-line "you are in clan: X" hint and two
+     buttons, on a 360px card in the middle of a 1440px screen. Everything a
+     player wants to know before pressing either button — am I in one, how big is
+     it, how is it doing this week, what do clans even do — was missing, and all
+     the width was wasted.
+
+     So the panel is rendered here: a hero row for the clan (or an empty state),
+     four stat chips, and, for guests, a polite note that clans need an account.
+     The two original buttons keep their ids and their handlers; this only adds
+     the "Open Clan" shortcut and the contents of the panel. */
+  _renderClanLanding(){
+    const clan = this._clanData;
+    const s = this.settings || {};
+    const signedIn = !!(window.Auth && typeof Auth.loggedIn === 'function' && Auth.loggedIn());
+    const esc = v => String(v == null ? '' : v).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+    const box      = document.getElementById('clan-you-body');
+    const openBtn  = document.getElementById('btn-open-clan-menu');
+    const createBtn= document.getElementById('btn-create-clan-menu');
+    const searchBtn= document.getElementById('btn-search-clans-menu');
+    const hint     = document.getElementById('clan-current-hint');
+    const guestNote= document.getElementById('clans-guest-note');
+    const signup   = document.getElementById('clans-signup');
+
+    /* The old inline hint duplicated the panel below it, so it is retired. */
+    if(hint){ hint.style.display = 'none'; hint.innerHTML = ''; }
+
+    if(openBtn)   openBtn.style.display = clan ? '' : 'none';
+    if(createBtn) createBtn.style.display = clan ? 'none' : '';
+    if(createBtn) createBtn.classList.toggle('is-locked', !signedIn);
+    if(searchBtn) searchBtn.classList.toggle('is-locked', !signedIn);
+    if(guestNote) guestNote.style.display = signedIn ? 'none' : 'flex';
+
+    if(signup && !signup._wired){
+      signup._wired = true;
+      signup.onclick = () => { try { if(window.Auth && Auth.open) Auth.open('register'); } catch(e){} };
+    }
+    if(openBtn && !openBtn._wired){
+      openBtn._wired = true;
+      openBtn.onclick = () => {
+        if(!this._requireAccount('open your clan')) return;
+        this.show('menu-clan-ui');
+        try { this._renderClanUI(); } catch(e){}
+      };
+    }
+    if(!box) return;
+
+    if(!clan){
+      box.innerHTML =
+        '<div class="clan-empty">' +
+          '<div class="clan-empty-ico">' + (signedIn ? '🛡' : '🔒') + '</div>' +
+          '<h3>' + (signedIn ? 'No clan yet' : 'Clans need an account') + '</h3>' +
+          '<p>' + (signedIn
+            ? 'You are playing solo. Join a clan to share weekly XP, use clan chat and wear a tag next to your name.'
+            : 'Clan membership and clan chat are saved to your account. Create a free account to join or found one.') + '</p>' +
+        '</div>';
+      return;
+    }
+
+    const members = Array.isArray(clan.members) ? clan.members : [];
+    const mine = members.filter(m => m && m.name === s.playerName)[0] || null;
+    const role = (clan.owner && clan.owner === s.playerName) ? 'Owner' : ((mine && mine.rank) || 'Member');
+    const weeklyXp = s.clanWeeklyXP || 0;
+    const weekWins = s.clanWeekWins || 0;
+    const created = clan.createdAt ? new Date(clan.createdAt).toLocaleDateString() : '—';
+    const chip = (label, value) =>
+      '<div class="clan-stat"><b>' + label + '</b><span>' + value + '</span></div>';
+
+    box.innerHTML =
+      '<div class="clan-hero">' +
+        '<div class="clan-badge">' + (clan.isHidden ? '🔒' : '🛡') + '</div>' +
+        '<div class="clan-hero-id">' +
+          '<h3>' + esc(clan.name) + '</h3>' +
+          '<span class="clan-hero-meta">' + (clan.isHidden ? 'HIDDEN' : 'PUBLIC') +
+            ' · CODE ' + esc(clan.code || '----') + '</span>' +
+        '</div>' +
+      '</div>' +
+      '<div class="clan-stats">' +
+        chip('MEMBERS', members.length) +
+        chip('YOUR ROLE', esc(role)) +
+        chip('WEEKLY XP', Number(weeklyXp).toLocaleString('en-US')) +
+        chip('WEEK WINS', weekWins) +
+      '</div>' +
+      '<div class="clan-foot-meta">Founded ' + created + ' by ' + esc(clan.owner || 'unknown') + '</div>';
+  },
 
   _loadClanData(){
     const saved = localStorage.getItem('tankparty_clan');
@@ -4316,6 +4801,10 @@ const Menu = {
   },
 
   _createClan(){
+    /* The screen and the button are already gated; this is the last door. A clan
+       is account state, and a guest who reached this function another way would
+       otherwise leave a clan that vanishes with the tab. */
+    if(!this._requireAccount('create a clan')) return;
     const nameInput = document.getElementById('clan-name-input');
     const name = nameInput.value.trim();
     
@@ -4416,6 +4905,7 @@ const Menu = {
   },
 
   async _searchPublicClans(){
+    if(!this._requireAccount('join a clan')) return;
     const searchInput = document.getElementById('public-clan-search');
     const searchTerm = (searchInput ? searchInput.value : '').trim().toLowerCase();
 
@@ -4465,6 +4955,7 @@ const Menu = {
   },
 
   async _joinHiddenClan(){
+    if(!this._requireAccount('join a clan')) return;
     const codeInput = document.getElementById('hidden-clan-code');
     const code = (codeInput ? codeInput.value : '').trim().toUpperCase();
 
@@ -6095,7 +6586,7 @@ const Menu = {
     
     // Drop back to the main menu — the PLAY button starts the chosen mode
     this.show('menu-main');
-    const names = {'random-battle':'Random Battle', 'team-deathmatch':'Team Deathmatch', 'gladiator':'Gladiator', sandbox:'Sandbox', captureTheCircle:'Capture The Circle', baseDefend:'Base Defend'};
+    const names = {'random-battle':'Random Battle', 'team-deathmatch':'Team Deathmatch', 'gladiator':'Gladiator', sandbox:'Sandbox', captureTheCircle:'Capture The Circle', baseDefend:'Base Defend', stealFlag:'Steal the Flag'};
     this.toast((names[gamemode] || gamemode) + ' selected — press PLAY');
   },
 
@@ -6123,6 +6614,11 @@ const Menu = {
       code: (typeof TDMMatchmaker !== 'undefined' && TDMMatchmaker.lastMatch && TDMMatchmaker.lastMatch.code) || null,
       workerUrl: CONFIG.MATCHMAKING_URL,
       mapVote: (TDMMatchmaker.lastMatch && TDMMatchmaker.lastMatch.mapVote) || null,
+      /* WHICH MODE IS VOTING. Some modes are not a map choice at all: Steal the
+         Flag's two objectives are authored into Kaukaz and nowhere else, so the
+         vote screen offers exactly one arena instead of pretending the player
+         has a decision. The filter lives in map-voting.js, keyed on this. */
+      mode: this._selectedGamemode || null,
     };
   },
 
@@ -6262,7 +6758,8 @@ const Menu = {
        and dropped into a local battle, so "no searching animation" was also
        what a broken socket looked like. It is handled further down, visibly. */
     const isMultiplayer = (m === 'gladiator' || m === 'captureTheCircle' ||
-                           m === 'team-deathmatch' || m === 'baseDefend');
+                           m === 'team-deathmatch' || m === 'baseDefend' ||
+                           m === 'stealFlag');
     if(!isMultiplayer){ afterQueue(); return; }
     if(!tdmReady()){
       /* SAID OUT LOUD, NOT SILENTLY.
@@ -6277,6 +6774,22 @@ const Menu = {
       afterQueue();
       return;
     }
+
+    /* THE SEARCHING STATE GOES UP ON THE CLICK, NOT ON THE REPLY.
+
+       _showPlayCountdown() used to be called from inside the queue's success
+       handler, i.e. only after the reachability probe AND the joinQueue request
+       had both come back. Until then the button sat there as if nothing had been
+       pressed — the press animation played and that was all — which is exactly
+       the "I press PLAY and it never switches to searching" report. On a slow
+       tunnel, or when the socket has to time out first, that gap is seconds of
+       a dead-looking button.
+
+       Showing it here means the button visibly becomes SEARCHING with a live
+       timer the instant it is pressed. Every exit path already funnels through
+       _hidePlayCountdown() — offline fallback, error, cancel, stall watchdog and
+       a real match — so nothing can be left stuck in that state. */
+    this._showPlayCountdown(afterQueue);
 
     /* Is anyone actually serving? Probe before queueing, because the queue has
        a 15 second bot-fill timer and failing at the end of it wastes the
@@ -6366,7 +6879,10 @@ const Menu = {
         return;
       }
       self._queued = true;
-      self._showPlayCountdown(afterQueue);
+      /* Already showing: startSelectedGamemode raises it on the click so the
+         button reacts immediately. Only re-arm it if something hid it while the
+         queue was still connecting. */
+      if(!self._playCountdownInterval) self._showPlayCountdown(afterQueue);
       /* SEARCH FOR 3 SECONDS WHEN NOBODY ELSE IS QUEUED. The server always
          waits its full 15 s window before filling with bots. If the queue held
          only us when we joined and no match has formed after 3 s, leave the
@@ -6481,6 +6997,26 @@ const Menu = {
        built, and it restores the role and roster that _resetArena just cleared.
        Solo play is untouched, because with no _netCode there is nothing to
        restore. */
+    /* THE VOTED MAP HAS TO REACH THE STARTER ON EVERY PATH.
+
+       Game.startTeamDeathmatch() reads `this._votedMap` and clears it, so the
+       map has to be handed over in the same tick as the start call -- and it
+       was only being handed over on the branch where a roster already existed
+       from the queue. Every other TDM start (server offline, queue never
+       formed, the vote timer expiring on a local match) called
+       startTeamDeathmatch() bare, so _votedMap was null inside it and it fell
+       back to GAMEMODES.teamDeathmatch.glbUrl. The player voted, the vote
+       screen closed, and TDM played TL_map_ruins.glb -- the same arena, every
+       time, for every map on the cards. No error, no toast: a silent default.
+
+       One helper, called immediately before every TDM start, is the fix. It is
+       deliberately a no-op when nothing was voted, so a direct TDM start keeps
+       the mode's own map. */
+    const handOverVotedMap = () => {
+      try {
+        if(this.game && this._votedMap) this.game.setVotedMap(this._votedMap);
+      } catch(e){ console.warn('Could not pass the voted map to TDM:', e); }
+    };
     const netArm = () => {
       /* Gate on the GAME's armed match, not on Menu._netCode.
 
@@ -6524,14 +7060,21 @@ const Menu = {
       this._startBaseDefendSafely();
       return;
     }
+    if(m === 'stealFlag'){
+      /* The third UNLIMITED-RESPAWN team mode rides the same arm-start-fail
+         three-step: arm the network role, start through the guarded helper,
+         land at the menu on a throw. The starter pins kaukaz either way (see
+         the map note in startStealFlag), so there is nothing else this branch
+         needs to hand it. */
+      netArm();
+      this._startStealFlagSafely();
+      return;
+    }
     if(m === 'team-deathmatch'){
       /* A match that came through the queue has ALREADY been formed by the
-         time the map vote finishes. Reaching this point means we were matched,
-         we have a roster, and re-joining the queue would put us into a second,
-         different match -- dropping the pair we were just matched with.
-
-         Only queue here when no match was ever formed (TDM reached directly,
-         with no roster). */
+         time the map vote finishes. Reaching this point with a roster means we
+         were matched, and re-joining the queue would put us into a second,
+         different match -- dropping the pair we were just matched with. */
       if(tdmReady() && this._matchRoster){
         /* Team Deathmatch is the ONE multiplayer mode whose starter is not
            routed through the netArm() calls above -- it has its own branch
@@ -6546,7 +7089,7 @@ const Menu = {
           this.toast('Connected! Host is starting the match...');
         }
         try {
-          if(this.game && this._votedMap) this.game.setVotedMap(this._votedMap);
+          handOverVotedMap();
           if(this.game){
             this.game.setMatchRoster(this._matchRoster);
             this.game.startTeamDeathmatch();
@@ -6558,33 +7101,35 @@ const Menu = {
         }
         return;
       }
-      if(tdmReady()){
-        TDMMatchmaker.init(CONFIG.MATCHMAKING_URL);
-        TDMMatchmaker.onMatchStart = (matchInfo) => {
-          this._hidePlayCountdown();
-          if(matchInfo.mode === 'host'){
-            try { this.game.startTeamDeathmatch(); } catch(err){
-              console.error('Start TDM failed:', err);
-              try { this.game.leaveToMenu(); } catch(e2){}
-              this.toast('Could not start team deathmatch — back to menu');
-            }
-          } else {
-            this.toast('Connected! Host is starting the match...');
-          }
-        };
-        const playerName = (this.settings && this.settings.playerName) || 'Player';
-        const tankId = (this.settings && this.settings.selectedTank) || 'coolbuddy';
-        const color = (this.settings && this.settings.playerColor) || 0x888888;
-        this._showPlayCountdown();
-        TDMMatchmaker.joinQueue(playerName, tankId, color).then(result => {
-          if(result.error){
-            this._hidePlayCountdown();
-            this.toast(result.error);
-          }
-        });
-        return;
-      }
+      /* NO ROSTER MEANS NO MATCH WAS EVER FORMED, SO START NOW.
+
+         This was a second `TDMMatchmaker.joinQueue()` call. Two things were
+         wrong with it, and together they are the "no map loads in TDM" report.
+
+         It re-searched AFTER the player had already voted. When the queue did
+         eventually answer, the start went through a path that never handed over
+         the winner (see handOverVotedMap), so the mode loaded its own default
+         arena and every map on the cards played the same. When the queue did
+         NOT answer -- which is the common case, since the first attempt already
+         failed -- the vote screen was gone, the search UI came back up and the
+         loading screen sat on "Loading <map>" with nothing to show for it.
+
+         A vote that ends with no roster is a solo match. It starts here, on the
+         map that won. A player who IS in a queued match never reaches this
+         point: that case returns from the roster branch above, and a client
+         returns earlier still, from _startWhenMapKnown, once the host has
+         announced the map. */
+      /* The search chip is still on screen from the PLAY press. It was hidden
+         when the queue delivered a match; nothing delivers one here, so it has
+         to be taken down or the match starts under a "Searching... 1 in queue"
+         banner that has nothing left to search for. */
+      this._hidePlayCountdown();
+      /* The queue's own "Searching… N in queue" line is a Net status that is only
+         replaced by the NEXT status ("Match ABC • 1 human"), which a local start
+         never produces. Net._status(null) is how that line is hidden. */
+      try { if(typeof Net !== 'undefined' && Net._status) Net._status(null); } catch(e){}
       try {
+        handOverVotedMap();
         if(this.game) this.game.startTeamDeathmatch();
       } catch(err){
         console.error('Start Team Deathmatch failed:', err);
@@ -6753,6 +7298,25 @@ const Menu = {
       console.error('Start Base Defend failed:', err);
       try { if(this.game) this.game.leaveToMenu(); } catch(e2){}
       this.toast('Could not start base defend — back to menu');
+    }
+  },
+
+  /* The mode card's guarded start. Same shape its two siblings use; setVotedMap
+     is kept because a voted kaukaz still sizes the boundary through
+     _fitWorldToMap even though the flags stay on the mode's own map. */
+  _startStealFlagSafely(){
+    try {
+      if(this.game && this._votedMap) this.game.setVotedMap(this._votedMap);
+      if(this.game){
+        this.game.setMatchRoster(this._matchRoster);
+        this.game.startStealFlag();
+      }
+    } catch(err){
+      try { if(this.game && this.game._reportWorld) this.game._reportWorld('start-threw'); }
+      catch(e2){}
+      console.error('Start Steal the Flag failed:', err);
+      try { if(this.game) this.game.leaveToMenu(); } catch(e2){}
+      this.toast('Could not start steal the flag — back to menu');
     }
   },
 
@@ -7008,6 +7572,8 @@ const Menu = {
          at 24px, where the more literal alternatives (a crosshair, a target) all
          collapse into the same circle-and-dot the Circle mode already uses. */
       'baseDefend': '<path d="M3 21h18"/><path d="M5 21V10l7-5 7 5v11"/><path d="M9 21v-6h6v6"/><path d="M12 5V2"/><path d="M12 2.8c1.6.5 3 .4 4.4-.4-.2 1.6.2 3 1.6 4.2-1.6.2-2.8 1-3.6 2.4-.8-1.4-2-2.2-3.6-2.4 1.4-1.2 1.8-2.6 1.6-4.2 1.4.8 2.8.9 4.4.4"/>',
+      /* A pair of opposing pennants: two small flags on poles. */
+      'stealFlag': '<path d="M12 2v20"/><path d="M12 3h9l-2.5 3.5L21 10h-9z"/><path d="M12 13H4l2-3-2-3h8"/>',
       'gladiator': '<rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><path d="M16 8h.01"/><path d="M8 8h.01"/><path d="M8 16h.01"/><path d="M16 16h.01"/><path d="M12 12h.01"/>'
     };
     const svgEl = document.getElementById('gamemode-icon');
