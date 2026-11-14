@@ -594,7 +594,11 @@ const MuzzlePop = (() => {
 
   return {
     get(scene){
-      const useTSL = !!(window.WebGPU && window.TSL);
+      /* __isWebGPU is required — see the note on the same test in tank.js. TSL
+         can be loaded while the renderer is WebGL 2 (a failed WebGPU attempt),
+         and a node material cannot be drawn by WebGLRenderer at all: it throws
+         every frame and freezes the 3D view behind a working HUD. */
+      const useTSL = !!(window.__isWebGPU && window.WebGPU && window.TSL);
       if(!this._fx) this._fx = new MuzzleCloudFX(scene, useTSL);
       return this._fx;
     },

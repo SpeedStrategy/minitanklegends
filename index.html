@@ -6,7 +6,37 @@
 
 <meta charset="UTF-8">
 
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+<meta id="vp" name="viewport" content="width=1280, viewport-fit=cover, user-scalable=no, maximum-scale=1">
+<!--
+  THE PHONE SHOWS THE DESKTOP GAME, SHRUNK.
+
+  A fixed layout width makes the browser scale the whole page like a desktop
+  site instead of re-flowing it into a phone shape: same screens, same panels,
+  same numbers, just proportionally smaller. Media queries also see that width,
+  so the desktop rules are the ones that apply — there is no second, phone-
+  shaped version of the UI to keep in sync any more.
+
+  The width is derived from the screen's aspect ratio so the page is always
+  720 CSS px TALL (the height the desktop UI is designed for). A 19.5:9 phone
+  gets a 1556x720 layout, a 16:9 phone a 1280x720 one; either way the browser
+  scales it down to the panel. Only touch devices are retargeted — a desktop
+  browser keeps its real window size. -->
+<script>
+(function(){
+  var touch = ('ontouchstart' in window) || (navigator.maxTouchPoints || 0) > 0;
+  if(!touch) return;
+  var sw = screen.width || 0, sh = screen.height || 0;
+  if(!sw || !sh) return;
+  var aspect = Math.max(sw, sh) / Math.min(sw, sh);
+  if(!(aspect > 1)) return;                       /* square/broken metrics */
+  var DESIGN_H = 720;
+  var w = Math.round(DESIGN_H * aspect);
+  w = Math.max(1024, Math.min(1920, w));
+  var vp = document.getElementById('vp');
+  if(vp) vp.setAttribute('content',
+    'width=' + w + ', viewport-fit=cover, user-scalable=no, maximum-scale=1');
+})();
+</script>
 
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -23,8 +53,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Lilita+One&family=Nunito:wght@700;800;900&display=swap">
-<link rel="stylesheet" href="css/style.css?v=20261110l">
-<link rel="stylesheet" href="css/results.css?v=20261011d">
+<link rel="stylesheet" href="css/style.css?v=20261114d">
+<link rel="stylesheet" href="css/results.css?v=20261113a">
 <link rel="stylesheet" href="css/login-gate.css?v=20261103b">
 
 <!--
@@ -383,6 +413,12 @@
              menu.js opens the overlay (it is not a .menu panel) and the XP
              figure on the right is rewritten by Research.updateBadge(). -->
         <div class="btn menu-side-btn" id="workshop-side-btn" data-open="workshop"><img class="menu-side-chip" src="assets/icons/foundry.svg" alt=""><span>Workshop</span></div>
+
+        <!-- TRAINING. The Testgrounds map and its lesson (js/tutorial.js).
+             A destination, not a panel: the handler starts a mode, so it has
+             its own branch in the [data-open] wiring instead of falling
+             through to show('menu-training'). -->
+        <div class="btn menu-side-btn" data-open="training" id="btn-training-side"><img class="menu-side-chip" src="assets/icons/training.svg" alt=""><span>Training</span></div>
 
         <div class="btn menu-side-btn" data-open="missions"><img class="menu-side-chip" src="assets/icons/missions.svg" alt=""><span>Missions</span></div>
 
@@ -1195,7 +1231,13 @@
             <div class="rs-hint" id="research-hint"></div>
           </div>
           <button class="rs-help-link" id="research-help-link" type="button">How it works</button>
-          <div class="rs-tip"><b>Click a tank</b> for <b>STATS</b> &middot; <b>drag</b> to turn it &middot; <b>&#9664; &#9654;</b> walk the line</div>
+          <!-- THE CLAIM DOOR. The STATS pill above a tank opens the tank's own
+               menu now (the same screen Collections opens), so the gold
+               RESEARCH button needs a front door of its own instead of being
+               the only thing behind the pill. It opens the step sheet, which is
+               where the cost and the claim button live. -->
+          <button class="rs-claim" id="research-claim" type="button">Research</button>
+          <div class="rs-tip"><b>Click a tank</b> for its <b>menu</b> &middot; <b>drag</b> to turn it &middot; <b>&#9664; &#9654;</b> walk the line</div>
           <button class="rs-back" id="research-back" type="button">Back</button>
         </footer>
       </div>
@@ -1543,20 +1585,25 @@
         </div>
       </div>
 
-      <!-- TANK SWITCH (WoT-style bottom during countdown) -->
+      <!-- TANK SWITCH (pre-battle picker during countdown)
+
+           A Brawl-Stars style roster: one row of cards you scroll, each
+           wearing a real 3D render of the tank, the picked one raised and
+           lit in yellow. There are no arrow buttons any more - the rail is
+           dragged, wheeled or flicked, and it snaps a card to the middle.
+
+           The cards are built by Game._populateTankSwitchList; the pictures
+           come from TankPick.thumb, which renders the actual model at the
+           roster angle. -->
       <div class="tank-switch-panel hidden" id="tank-switch-panel">
         <div class="tank-switch-header">
-          <span class="ts-label">\u2694 TOURNAMENT SELECT \u2694</span>
+          <span class="ts-label">&#9876; TOURNAMENT SELECT</span>
           <span class="ts-count" id="ts-count"></span>
         </div>
-        <div class="tank-switch-scroll">
-          <div class="tank-switch-nav">
-            <button class="ts-nav-btn" id="ts-prev" title="Previous">&#9664;</button>
-          </div>
-          <div class="tank-switch-grid" id="tank-switch-grid"></div>
-          <div class="tank-switch-nav">
-            <button class="ts-nav-btn" id="ts-next" title="Next">&#9654;</button>
-          </div>
+        <div class="ts-rail" id="tank-switch-grid"></div>
+        <div class="ts-foot">
+          <span class="ts-picked" id="ts-picked"></span>
+          <span class="ts-hint">DRAG OR SCROLL &middot; TAP TO PICK &middot; &#9733; FAVOURITE</span>
         </div>
       </div>
 
@@ -1645,6 +1692,17 @@
           <span class="super-label">READY</span>
         </button>
         <span id="super-hint" class="hidden"></span>
+      </div>
+
+      <!-- GEAR — the fire-mode switch, drawn as a second super slot on the far
+           side of the super button. Only tanks whose def declares `gear` show
+           it, so most of the roster never sees this element at all. It is a
+           MODE switch, not a reload: one second of cooldown between flips. -->
+      <div id="gear-wrap" class="hidden">
+        <button id="gear-btn" title="Gear — switch fire mode (G)">
+          <span class="gear-icon">&#9881;</span>
+          <span class="gear-label">SINGLE</span>
+        </button>
       </div>
 
       <canvas id="reload-indicator" width="208" height="208"></canvas>
@@ -2319,12 +2377,26 @@
     document.addEventListener('DOMContentLoaded', function () { window.__dclFired = true; });
   </script>
 
+  <!-- WEBGPU IS SERVED FROM OUR OWN ORIGIN, NOT A CDN.
+
+       These entries used to point at jsdelivr. That had two real costs:
+
+         1. three.webgpu.js imports ./three.core.js, so the CDN copy pulled a
+            SECOND full copy of three's core next to the local one already on
+            the page: two module graphs, ~1.5 MB extra, and two sets of class
+            internals that never quite agree.
+         2. On a phone (or a school network, or behind a proxy) a blocked or
+            slow CDN made the dynamic import reject and WebGPU could not start
+            AT ALL, with only a console warning to explain it.
+
+       The files now live beside three.module.js and share its three.core.js, so
+       the WebGPU build is the same library the WebGL build is. -->
   <script type="importmap">
     {
       "imports": {
         "three": "./vendor/three/three.module.js",
-        "three/webgpu": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.webgpu.js",
-        "three/tsl": "https://cdn.jsdelivr.net/npm/three@0.185.1/build/three.tsl.js",
+        "three/webgpu": "./vendor/three/three.webgpu.js",
+        "three/tsl": "./vendor/three/three.tsl.min.js",
         "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.185.1/examples/jsm/"
       }
     }
@@ -2478,11 +2550,11 @@
     const GAME_SCRIPTS = [
       'js/toon.js?v=20261107i',
       'js/xray.js?v=20261008p',
-      'js/config.js?v=20261111b',
+      'js/config.js?v=20261114c',
       'js/vfx.js?v=1787330007',
       'js/fireball.js?v=20260929m',
       'js/mortar-blast.js?v=20261006a',
-      'js/muzzle-pop.js?v=20261024a',
+      'js/muzzle-pop.js?v=20261112b',
       'js/spark-lines.js?v=20261104b',
       'js/cartoon-fx.js?v=20261104a',
       'js/shaders.js?v=1787330007',
@@ -2491,20 +2563,28 @@
       
       'js/obj_data.js?v=1787330007',
       'js/models.js?v=20261111a',
+      /* The pre-battle picker's card art: real model renders drawn from the
+         roster angle, cached as data URLs. Needs THREE and Models, so it
+         sits right after models.js. game.js reads window.TankPick. */
+      'js/tank-pick.js?v=20261114a',
       'js/water-shader.js?v=20260929a',
       'js/water-tsl.js?v=20260926a',
-      'js/world.js?v=20261107i',
+      'js/world.js?v=20261114c',
       /* BEFORE tank.js: Tank._drawHp calls HPBarStyles.draw for the nameplate,
          and falls back to a plain solid bar if the module is not there yet. The
          style preview page loads this same file to render the five options. */
       'js/hpbar-styles.js?v=20261103a',
-      'js/tank.js?v=20261112a',
+      'js/tank.js?v=20261114f',
       'js/tank-sprays.js?v=20261104b',
       /* Styles (cosmetics): tank.js calls TankStyles.apply once the model is
          on, so the module has to exist by the tank build — place it with the
          other cosmetic modules, before the menus that show it. */
-      'js/tank-styles.js?v=20261104b',
-      'js/projectile.js?v=20261112a',
+      'js/tank-styles.js?v=20261113b',
+      /* PAINTS: per-part paint over the hull or the turret, beside the whole-
+         tank styles above. It must exist before tank.js builds a tank (the
+         battle hook reads it) and before tank-menu.js renders the Paint tab. */
+      'js/tank-paints.js?v=20261113b',
+      'js/projectile.js?v=20261114b',
       'js/bullet-trail.js?v=20260929a',
       'js/input.js?v=20261101a',
       'js/bot-nav.js?v=20261026f',
@@ -2523,20 +2603,20 @@
       'js/matchmaking.js?v=20261027b',
       'js/nakama-net.js?v=1787330007',
       'js/audio.js?v=20261030a',
-      'js/shopdata.js?v=20260929a',
+      'js/shopdata.js?v=20261113a',
       'js/clan-default-layout.js?v=1787330007',
-      'js/menu.js?v=20261111e',
+      'js/menu.js?v=20261113d',
       'js/trophy-roadmap.js?v=20261101a',
       /* Tank Research. After menu.js because it walks Menu._COLLECTIONS and
          after config.js/TANKS for the roster; it wires itself on boot. */
-      'js/research.js?v=20261110g',
+      'js/research.js?v=20261112a',
       'js/garage.js?v=20261003a',
       'js/missions.js?v=20261107a',
       /* PROGRESSION 2.0 — per-tank XP/levels/tree/currencies. Must precede
          tank-menu.js because the reworked tank window reads window.Progression
          at render time. */
       'js/upgrade-tree.js?v=20261030g',
-      'js/tank-menu.js?v=20261110a',
+      'js/tank-menu.js?v=20261114d',
       'js/menu-editor.js?v=1787330007',
       'js/editor123.js?v=20260926a',
       'js/tank-editor.js?v=20261102m',
@@ -2560,10 +2640,13 @@
       'js/boot-watchdog.js?v=20261008a',
       'js/bruno-explosion.js?v=20261102a',
       'js/fog.js?v=20261104b',
-      'js/game.js?v=20261112a',
-      'js/results.js?v=20261030h',
+      'js/game.js?v=20261114j',
+      /* The Testgrounds lesson. After game.js: it reads the arena the mode
+         builds, and every entry point into it runs long after load. */
+      'js/tutorial.js?v=20261113e',
+      'js/results.js?v=20261113a',
       'js/auth.js?v=1787330007',
-      '/js/login-gate.js?v=20261028a',
+      '/js/login-gate.js?v=20261113a',
       /* Real-money store. After auth.js because the return trip calls into Auth,
          and before menu.js because the store render asks it for the table. */
       'js/payments.js?v=20261012a',
@@ -2968,6 +3051,24 @@
       <span class="login-gate-build" id="login-gate-build"></span>
     </div>
   </div>
+
+<!-- LANDSCAPE ONLY.
+
+     A phone held upright sees this instead of the game (menu.js
+     _initRotateLock shows it). It is a direct child of <body> on purpose: the
+     in-game warning lives inside #hud, which is display:none outside a match,
+     and a rotate screen that only exists while playing is not a rotate screen.
+     Desktop windows are never affected, and the hub page is a different
+     document with its own CSS, so it keeps working in portrait. -->
+<div id="rotate-lock" class="hidden" role="alertdialog" aria-live="polite">
+  <div class="rotate-lock-inner">
+    <div class="rotate-lock-phone" aria-hidden="true">
+      <span class="rotate-lock-glyph">&#x1F4F1;</span>
+    </div>
+    <h2 class="rotate-lock-title">TURN YOUR PHONE</h2>
+    <p class="rotate-lock-text">Tank Legends is played sideways. Rotate your device to landscape and the battle carries on.</p>
+  </div>
+</div>
 </body>
 
 </html>

@@ -641,6 +641,8 @@
           const en = entryFor(slot.key, slot.id);
           slot.entry = en;
           if (!en) return;
+          /* the mystery step: one black silhouette, whichever model is on duty */
+          if (slot.shadow && !en.ink) { en.ink = true; paintShadow(en); }
           if (en.detached) {
             try { stage.scene.add(en.pivot); } catch (err) {}
             en.detached = false;
@@ -699,6 +701,7 @@
           if (en.spin === undefined || en.spin === null) en.spin = en.baseSpin || 0;
           if (en.spinGroup) en.spinGroup.rotation.y = en.spin;
           applyTurret(en);
+          if (slot.hidden) en.pivot.visible = false;
 
           /* The shadow ellipse: a bit wider than the measured footprint at the
              final scale, squashed to a cartoon pancake, its centre just above
@@ -712,7 +715,7 @@
             const pw = Math.max(36, footprint * scale * 1.08);
             en.shadow.scale.set(pw, pw * 0.30, 1);
             en.shadow.position.set(slot.x, groundY + 1.5, -30);
-            en.shadow.visible = true;
+            en.shadow.visible = !slot.hidden;
           }
         });
 
@@ -767,9 +770,43 @@
         return true;
       };
 
+      /* THE SHADOW TANK'S INK.
+
+         "The Other One" used to be a dashed place marker because showing both
+         tanks there would repeat step 1. It is a single anonymous silhouette
+         now: the two candidate models take turns standing in the same spot,
+         and this material is what makes them read as a shadow instead of as a
+         tank you can already recognise. Geometry is untouched -- only the
+         surface is replaced, so the shape stays crisp and the outline is the
+         model's own. */
+      function paintShadow(en) {
+        try {
+          if (!stage.inkMat) stage.inkMat = new THREE.MeshBasicMaterial({ color: 0x0a0c10 });
+          en.tank.root.traverse(function (o) {
+            if (o.isMesh && o.material && !o.isSprite) o.material = stage.inkMat;
+          });
+        } catch (e) { /* a tank that refuses to be repainted is simply not dark */ }
+      }
+
+      /* Hide/show one pooled model without touching the others. The morphing
+         mystery tank is two slots stacked on the same pixels; exactly one of
+         them is visible at any moment. */
+      stage.setSlotHidden = function (key, hidden) {
+        const en = stage.pool[key];
+        if (!en || !en.pivot) return;
+        en.pivot.visible = !hidden;
+        if (en.shadow) en.shadow.visible = !hidden;
+        stage.dirty = true;
+        stage.paint();
+      };
+
       stage.setSlots = function (list) {
         stage.slots = (list || []).map(function (s) {
-          return { key: s.key || s.id, id: s.id, x: s.x, y: s.y, w: s.w, h: s.h, auto: !!s.auto };
+          return {
+            key: s.key || s.id, id: s.id, x: s.x, y: s.y, w: s.w, h: s.h, auto: !!s.auto,
+            /* the mystery tank's two stacked halves */
+            shadow: !!s.shadow, hidden: !!s.hidden,
+          };
         });
         stage.place();
         stage.paint();
@@ -1022,6 +1059,7 @@
             researchActive = nodes[nodes.length - 1].ci;
           }
           render();
+          startShadowTicker();
         };
       })(this);
       try { if (typeof Audio !== 'undefined' && Audio.click) Audio.click(); } catch (e) {}
@@ -1040,6 +1078,7 @@
          is about to be hidden with the whole overlay. */
       closeTankSheet(false);
       hideStatsBtn();
+      stopShadowTicker();
       if (_pathStage) _pathStage.stop();
       document.body.classList.remove('rs-lock');
     },
@@ -1054,6 +1093,45 @@
   /* The latest road/model measurement pass (see settleGeometry). The shared
      window-resize listener re-runs it so a viewport change re-aims both. */
   var _rsSettle = null;
+
+  /* ------------------------------------------------------- the mystery clock
+
+     "The Other One" is two black silhouettes stacked on the same pixels, and
+     this is what trades them every three seconds. One timer for the whole
+     screen, started when the workshop opens and cleared when it closes, so a
+     closed workshop never leaves a callback running. */
+  var _shadowTimer = 0;
+  var _shadowSide = 0;
+
+  function startShadowTicker() {
+    if (_shadowTimer) return;
+    _shadowTimer = setInterval(function () {
+      if (!Research.open) { stopShadowTicker(); return; }
+      const e = els();
+      if (!e || !e.path) return;
+      const groups = e.path.querySelectorAll('.rs-model-mystery');
+      if (!groups.length) return;
+      _shadowSide = 1 - _shadowSide;
+      const st = _pathStage;
+      groups.forEach(function (m) {
+        const halves = m.querySelectorAll('[data-shadow]');
+        for (let i = 0; i < halves.length; i++) {
+          const hide = (i === _shadowSide);
+          const el = halves[i];
+          el.classList.toggle('rs-shadow-off', hide);
+          if (st) {
+            try { st.setSlotHidden(el.getAttribute('data-slot-key'), hide); } catch (err) {}
+          }
+        }
+      });
+    }, 3000);
+  }
+
+  function stopShadowTicker() {
+    if (!_shadowTimer) return;
+    clearInterval(_shadowTimer);
+    _shadowTimer = 0;
+  }
 
   function xpTotal() {
     const s = settings() || {};
@@ -1279,7 +1357,23 @@
       const slotKey = function (i) { return node.id + ':' + i; };
 
       let modelHtml = '';
-      if (node.soon || unresolvedFollow || !show[0]) {
+      if (unresolvedFollow && opts.length > 1) {
+        /* THE OTHER ONE, AS A SHADOW.
+
+           This step is literally "whichever tank you did not take", so naming
+           either model here would give the answer away (or repeat step 1). It
+           used to be a dashed place marker, which said nothing at all. It is a
+           black silhouette now: the two candidate models are both mounted on
+           the same pixels, only one is visible at a time, and they trade
+           places every three seconds -- close enough to read the shape, dark
+           enough to keep the secret. The big ? over it is the label. */
+        modelHtml =
+          '<div class="rs-model rs-model-mystery">' +
+            '<div class="rs-model-slot rs-shadow-slot" data-shadow="1" data-slot-key="' + slotKey(0) + '" data-slot-tank="' + opts[0].id + '"></div>' +
+            '<div class="rs-model-slot rs-shadow-slot rs-shadow-off" data-shadow="1" data-slot-key="' + slotKey(1) + '" data-slot-tank="' + opts[1].id + '"></div>' +
+            '<span class="rs-mystery-q" aria-hidden="true">?</span>' +
+          '</div>';
+      } else if (node.soon || !show[0]) {
         modelHtml = '<div class="rs-model rs-model-empty"><span class="rs-soon-mark"><i>?</i></span></div>';
       } else if (show.length === 2 && show[1]) {
         modelHtml =
@@ -1383,6 +1477,8 @@
             slots.push({
               key: area.getAttribute('data-slot-key'),
               id: area.getAttribute('data-slot-tank'),
+              shadow: area.getAttribute('data-shadow') === '1',
+              hidden: area.classList.contains('rs-shadow-off'),
               x: r.left + r.width / 2 - pRect.left,
               y: r.top - pRect.top,
               /* a little air around each model so neighbouring tanks never
@@ -1755,7 +1851,14 @@
      never show the previous tank's numbers. */
   function openTankSheet() {
     const p = statsParts();
-    if (!p.tank || !_statsNodeId) return;
+    if (!p.tank) return;
+    /* The footer's Research button can open the sheet without a tank having
+       been clicked first: arm it on the step the line is standing on. */
+    if (!_statsNodeId) {
+      const n = ensureSelection(buildPath());
+      if (n) _statsNodeId = n.id;
+    }
+    if (!_statsNodeId) return;
     renderDetail(buildPath());
     p.tank.classList.remove('hidden');
     hideStatsBtn();
@@ -1845,6 +1948,24 @@
       try { if (m && m.show) m.show('menu-tank'); } catch (e) {}
       try { if (window.TankMenu && TankMenu.show) TankMenu.show(id); } catch (e) {}
     }, 140);
+  }
+
+  /* THE PILL'S REAL DESTINATION: the tank's own menu.
+
+     Returns false when the step has no tank to open (a signpost, or "the other
+     one" before its pair is chosen), so the caller can fall back to the sheet. */
+  function openTankMenuFor(nodeId) {
+    const nodes = buildPath();
+    const node = nodeId
+      ? nodes.filter(function (n) { return n.id === nodeId; })[0]
+      : null;
+    if (!node) return false;
+    const opts = resolvedOptions(node, nodes);
+    const id = selectedTankId || (opts[0] && opts[0].id);
+    if (!id) return false;
+    if (typeof TANKS === 'undefined' || !TANKS[id]) return false;
+    openGarage(id);
+    return true;
   }
 
   function render() {
@@ -2199,13 +2320,27 @@
            not also be read as a click on the tank underneath it. */
         ev.preventDefault();
         ev.stopPropagation();
-        openTankSheet();
+        /* THE PILL OPENS THE TANK, NOT A SIDE PANEL.
+
+           It used to open the workshop's own stats sheet, which is a second,
+           smaller tank screen that has to be maintained beside the real one.
+           A tank's menu already exists (Collections -> click a tank), so the
+           pill now opens exactly that. The sheet is still the place the
+           RESEARCH button lives; the footer's Research button opens it, and
+           Enter still presses it. */
+        if (!openTankMenuFor(_statsNodeId)) openTankSheet();
       });
     }
     const tankClose = document.getElementById('rs-stats-close');
     if (tankClose) tankClose.addEventListener('click', function () { closeTankSheet(); });
     const tankBack = document.getElementById('rs-stats-back');
     if (tankBack) tankBack.addEventListener('click', function () { closeTankSheet(); });
+    const claimBtn = document.getElementById('research-claim');
+    if (claimBtn) claimBtn.addEventListener('click', function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      openTankSheet();
+    });
 
     /* ---- the inspector's controls ---------------------------------------- */
     const helpOpenBtn = document.getElementById('research-help-open');

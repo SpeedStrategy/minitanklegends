@@ -908,6 +908,18 @@ const TANKS = {
      damage-per-second rather than per shot, which is why its range is short
      (~20m) and its reload quick. Sitting in collection 2 where the Shotgun used
      to be, because it replaces it mechanically.
+
+     TWO SHELLS, ONE GEAR. The magazine holds two shells (magSize) and the GEAR
+     — a switch button sitting before the super slot — chooses whether the
+     trigger spends one or both of them:
+
+        SINGLE  one shell, one fan, one shove backwards.
+        SALVO   both shells in the same frame, twice the fan and TWICE the
+                kick. With one shell loaded it falls back to a single shot,
+                so the mode never wastes the trigger.
+
+     The gear is a mode, not a reload: it costs a one-second cooldown and
+     nothing else, so it can be flipped mid-duel.
      ========================================================================== */
   burst: {
     id:'burst', name:'Burst', tier:1, collection:2,
@@ -918,7 +930,21 @@ const TANKS = {
     /* 30 km/h: faster than everything except the Ghost (34). */
     hp:140, speed:30, turn:2.3,
     turretTurn:2.9,
-    damage:9, reload:1.35, shellSpeed:130, shellRange:20,
+    /* 0.7s between shells, 2.6s for a dry magazine. Total cycle for the pair is
+       3.3s either way, so SINGLE and SALVO land the same damage per second and
+       the choice is about burst (pun intended) versus control. */
+    damage:9, reload:0.7, shellSpeed:130, shellRange:20,
+    magSize:2, magReload:2.6,
+    /* THE KICK. Firing throws the hull backwards: knockbackForce is metres per
+       second of reverse velocity and knockbackTilt is how hard the nose lifts.
+       A salvo fires two shells, so it applies this twice — 2x the shove, which
+       is the cost of the doubled damage. */
+    knockbackForce:5.5, knockbackTilt:0.34,
+    /* The gear switch. `modes` is cycled in order; `cd` is seconds between
+       flips; labels are what the button and the toast print. */
+    gear:{ modes:['single','salvo'], default:'single', cd:1,
+           labels:{ single:'SINGLE', salvo:'SALVO' },
+           desc:{ single:'one shell per trigger', salvo:'both shells at once, double kick' } },
     accel:26, shellType:'shotgun',
     /* Ten pellets per shot. Individually feeble, collectively a DPS weapon —
        and the triangle aim line exists to show the player the width of the fan,
@@ -942,7 +968,7 @@ const TANKS = {
        model needs almost no help beyond saying which node is which. */
     rig:{ hull:['Cube003'], turret:'Cube004', gun:'gun' },
     armor:{front:11, sides:18, back:11},
-    desc:'30 km/h with a ten-pellet spread. Enormous DPS inside 20m, almost nothing past it. Tip: get inside 20m, aim centre mass, and keep firing.',
+    desc:'30 km/h, a ten-pellet spread and a two-shell magazine. GEAR fires one shell or dumps both (double kick). Tip: get inside 20m, aim centre mass, and keep firing.',
     friction: 0.88,
     superType:'nova', novaPellets:32, novaDamage:70, novaRadius:16,
   },
@@ -1385,6 +1411,9 @@ const DEFAULT_BINDS = {
   camRight: { key:'ArrowRight', label:'Camera Right' },
   minimap:  { key:'KeyM',       label:'Toggle Map' },
   super:    { key:'KeyF',       label:'Super Ability' },
+  /* The gear switch (Burst: SINGLE / SALVO). Kept on G because that is the key
+     the double-barrel tanks already used for their own mode toggle. */
+  gear:     { key:'KeyG',       label:'Gear / Fire Mode' },
   freezeTurret: { key:'RMB',   label:'Freeze Turret (Hold)' },
 };
 
@@ -1512,6 +1541,14 @@ function loadSettings(){
          fallback below, so a corrupt save loses nothing. */
       trophyOwnedIds:   Array.isArray(s.trophyOwnedIds) ? s.trophyOwnedIds.filter(id => typeof id === 'string') : [],
       equippedTrophyId: (typeof s.equippedTrophyId === 'string' && s.equippedTrophyId) ? s.equippedTrophyId : null,
+      /* THE TESTGROUNDS (js/tutorial.js). Three flags, and all three are
+         whitelisted for the usual reason: this literal IS the settings object
+         after a round trip, so a key missing here is dropped the next time
+         anything saves -- which would re-offer the tutorial on every launch,
+         or re-pay the starter pack. */
+      tutorialDone:        !!s.tutorialDone,
+      tutorialPromptSeen:  !!s.tutorialPromptSeen,
+      tutorialStarterPack: !!s.tutorialStarterPack,
       /* The running win count behind the trophy ladder. Whitelisted alongside
          the owned ids above: a key missing from this literal is dropped by
          every loadSettings() round trip, and the roadmap would show 0 wins

@@ -7,11 +7,13 @@ const SHOP_DATA = {
   // 15 deals: reward:amount:price:currency:priority:stock
   ALL_DEALS: [
     { reward:'first_spray', amount:1, price:0, currency:'gold', priority:1, stock:1, free:true, name:'First Spray', desc:'A simple gray square spray. Free for all players!' },
-    /* Tank styles: one paint texture over the whole tank. Always on the shelf
-       (priority keeps them near the top) and not one-shot daily filler. */
-    { reward:'style_woodland_camo', amount:1, price:1200, currency:'gold', priority:1, stock:99, name:'Woodland Camo', desc:'Olive-drab military woodland pattern for your tank.' },
-    { reward:'style_desert_camo',   amount:1, price:1200, currency:'gold', priority:1, stock:99, name:'Desert Storm',  desc:'Sandy desert pattern with brown blotches.' },
-    { reward:'style_tiger_stripes', amount:1, price:1800, currency:'gold', priority:1, stock:99, name:'Tiger Stripes',  desc:'Loud orange paint job with black stripes.' },
+    /* Tank styles are NOT listed here any more.
+
+       They live in exactly one place -- the style catalog in tank-styles.js --
+       and the shelf is built from it in Menu._renderShopDeals. Keeping a second
+       hand-written copy in this rotation is what would make a new camo appear in
+       the tank menu but not in the store (or the reverse), and it made the
+       random daily pick able to hide a permanent product behind a sale slot. */
     { reward:'cash', amount:750,  price:10,  currency:'gold',  priority:1, stock:10 },
     { reward:'cash', amount:1000, price:12,  currency:'gold',  priority:1, stock:10 },
     { reward:'cash', amount:1250, price:15,  currency:'gold',  priority:2, stock:5  },
@@ -190,6 +192,10 @@ const SHOP_DATA = {
       try{
         if(window.TankStyles) window.TankStyles.addOwnedStyle(styleId);
       }catch(e){}
+    } else if(window.TankPaints && TankPaints.PACKS && TankPaints.PACKS[offer.reward]){
+      /* A paint pack: the pack's own store is the source of truth, and it is
+         idempotent per pack, so buying twice cannot mint coats. */
+      try{ TankPaints.grantPack(offer.reward); }catch(e){ console.warn('paint pack grant:', e); }
     } else if(offer.reward === 'cash') s.cash = (s.cash || 0) + offer.amount;
     else if(offer.reward === 'coins') s.coins = (s.coins || 0) + offer.amount;
     else if(offer.reward === 'gold') s.gold = (s.gold || 0) + offer.amount;

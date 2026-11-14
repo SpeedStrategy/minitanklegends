@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- Paint tin used by the Paint Pack store cards. Flat inks and a hard
+       outline: the same vocabulary as the rest of the UI art. -->
+  <g stroke="#0b0c0e" stroke-width="3.2" stroke-linejoin="round" stroke-linecap="round">
+    <path d="M13 22 L51 22 L51 52 L13 52 Z" fill="#e8e2d2"/>
+    <path d="M13 22 L51 22 L47 15 L17 15 Z" fill="#c9c1ad"/>
+    <path d="M10 22 L54 22 L54 27 L10 27 Z" fill="#9aa3ad"/>
+  </g>
+  <g stroke="#0b0c0e" stroke-width="2.6" stroke-linejoin="round">
+    <path d="M20 33 L44 33 L44 46 L20 46 Z" fill="#ffd24a"/>
+    <path d="M20 39 L44 39 L44 46 L20 46 Z" fill="#e8705b"/>
+  </g>
+  <circle cx="27" cy="35.5" r="2.6" fill="#101216"/>
+  <circle cx="37" cy="35.5" r="2.6" fill="#101216"/>
+  <path d="M42 12 C46 6 54 8 55 15 C56 21 50 24 46 21" fill="none" stroke="#0b0c0e" stroke-width="2.6" stroke-linecap="round"/>
+  <circle cx="53" cy="20" r="2.6" fill="#ffd24a" stroke="#0b0c0e" stroke-width="2"/>
+</svg>

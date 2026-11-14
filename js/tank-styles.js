@@ -26,34 +26,147 @@ var KEY = 'tankparty_styles';
 
 /* ---- the catalog ------------------------------------------------------ */
 
+/*  EVERY CAMO IS ONE ENTRY. Adding a paint is one line here plus the .webp in
+    assets/styles (tools/convert-camos.js makes that file from any png/jpg/
+    jfif): the tank menu, the store shelf and the art template all read this
+    table, so nothing else has to be edited to ship a new style.
+
+    `repeat` is how many times the texture tiles across the model's longest
+    side. Busy, small-detail patterns (flora, the rose print) want MORE tiles so
+    the motif stays readable; loud, large-shape patterns (arcade, kaleidoscope)
+    want fewer so the shapes are not chopped into confetti by the model's UVs. */
 var STYLE_DEFS = {
   woodland_camo: {
     id: 'woodland_camo',
     name: 'Woodland Camo',
-    texture: 'assets/styles/woodland_camo.webp?v=2',
+    texture: 'assets/styles/woodland_camo.webp?v=3',
     price: 1200,
     currency: 'gold',
     desc: 'Olive-drab military woodland pattern.',
     repeat: 2.0,          /* texture tiles across the model's longest side */
+    swatch: '#4a5334',
   },
   desert_camo: {
     id: 'desert_camo',
     name: 'Desert Storm',
-    texture: 'assets/styles/desert_camo.webp?v=2',
+    texture: 'assets/styles/desert_camo.webp?v=3',
     price: 1200,
     currency: 'gold',
     desc: 'Sandy desert pattern with brown blotches.',
     repeat: 2.0,
+    swatch: '#bc9e6a',
   },
   tiger_stripes: {
     id: 'tiger_stripes',
     name: 'Tiger Stripes',
-    texture: 'assets/styles/tiger_stripes.webp?v=2',
+    texture: 'assets/styles/tiger_stripes.webp?v=3',
     price: 1800,
     currency: 'gold',
     desc: 'Loud orange paint job with black stripes.',
     repeat: 2.2,
+    swatch: '#ce6c18',
   },
+  flora: {
+    id: 'flora',
+    name: 'Flora',
+    texture: 'assets/styles/flora.webp?v=1',
+    price: 1500,
+    currency: 'gold',
+    desc: 'Dense purple blossoms and vines over dark steel.',
+    repeat: 3.0,
+    swatch: '#7b4a72',
+  },
+  fracture: {
+    id: 'fracture',
+    name: 'Fracture',
+    texture: 'assets/styles/fracture.webp?v=1',
+    price: 1600,
+    currency: 'gold',
+    desc: 'Shattered plate and frost cracks in cold grey.',
+    repeat: 2.2,
+    swatch: '#5b6168',
+  },
+  arcade: {
+    id: 'arcade',
+    name: 'Arcade',
+    texture: 'assets/styles/arcade.webp?v=1',
+    price: 2000,
+    currency: 'gold',
+    desc: 'Neon cabinet geometry in hot pink, cyan and lime.',
+    repeat: 1.6,
+    swatch: '#e0359a',
+  },
+  biohazard: {
+    id: 'biohazard',
+    name: 'Biohazard',
+    texture: 'assets/styles/biohazard.webp?v=1',
+    price: 2100,
+    currency: 'gold',
+    desc: 'Toxic green spills and warning swirls.',
+    repeat: 2.4,
+    swatch: '#2f6b2a',
+  },
+  nightshade: {
+    id: 'nightshade',
+    name: 'Nightshade',
+    texture: 'assets/styles/nightshade.webp?v=1',
+    price: 2200,
+    currency: 'gold',
+    desc: 'Black-on-olive shadows with buried faces.',
+    repeat: 2.6,
+    swatch: '#2b2f28',
+  },
+  haunt: {
+    id: 'haunt',
+    name: 'Haunt',
+    texture: 'assets/styles/haunt.webp?v=1',
+    price: 2300,
+    currency: 'gold',
+    desc: 'Rust-orange spooks grinning through the paint.',
+    repeat: 2.6,
+    swatch: '#8c4a1e',
+  },
+  black_roses: {
+    id: 'black_roses',
+    name: 'Black Roses',
+    texture: 'assets/styles/black_roses.webp?v=1',
+    price: 2400,
+    currency: 'gold',
+    desc: 'A midnight garden of blue and rose print.',
+    repeat: 3.0,
+    swatch: '#3a4a6a',
+  },
+  all_hallows: {
+    id: 'all_hallows',
+    name: 'All Hallows',
+    texture: 'assets/styles/all_hallows.webp?v=1',
+    price: 2500,
+    currency: 'gold',
+    desc: 'Jack-o-lanterns turning in dark green smoke.',
+    repeat: 2.4,
+    swatch: '#1f2a1a',
+  },
+  halloween2026: {
+    id: 'halloween2026',
+    name: 'Halloween 2026',
+    texture: 'assets/styles/halloween2026.webp?v=1',
+    price: 2600,
+    currency: 'gold',
+    desc: 'Carved pumpkin grins lit against pitch black.',
+    repeat: 2.4,
+    swatch: '#c86a10',
+  },
+  kaleidoscope: {
+    id: 'kaleidoscope',
+    name: 'Kaleidoscope',
+    texture: 'assets/styles/kaleidoscope.webp?v=1',
+    price: 2700,
+    currency: 'gold',
+    desc: 'Impossible birds and blooms, every colour at once.',
+    repeat: 1.8,
+    swatch: '#2f7fbf',
+  },
+
   /* Born from a rendering bug: a tank half under a building, the x-ray pass
      striping it white while the occluder fade tore the picture. The texture is
      painted in code (glitchTextureUrl below) and jumps around while it is worn
@@ -72,7 +185,25 @@ var STYLE_DEFS = {
   },
 };
 
-var STYLE_LIST = ['woodland_camo', 'desert_camo', 'tiger_stripes', 'glitch'];
+/* ORDER IS THE SHELF ORDER: the two cheapest camos first so a new player sees
+   something they can afford, then the specialist paints, then the seasonal
+   pair, then the loudest ones, with Glitch last as the showpiece. */
+var STYLE_LIST = [
+  'woodland_camo',
+  'desert_camo',
+  'flora',
+  'fracture',
+  'tiger_stripes',
+  'arcade',
+  'biohazard',
+  'nightshade',
+  'haunt',
+  'black_roses',
+  'all_hallows',
+  'halloween2026',
+  'kaleidoscope',
+  'glitch',
+].filter(function(id){ return !!STYLE_DEFS[id]; });
 
 /* Neon green with white diagonal x-ray bands, then a few horizontal slices
    shifted sideways and tinted -- the "torn signal" part. Fixed seed, so every
@@ -366,15 +497,57 @@ function removeFromModel(grp){
   });
 }
 
-/* Style → ONE colour, for the tank-menu swatch that shows what the style
-   reads as at a glance. */
-var SWATCH = {
-  woodland_camo: '#4a5334',
-  desert_camo:   '#bc9e6a',
-  tiger_stripes: '#ce6c18',
-  glitch:        '#3f9e26',
-};
-function swatchOf(styleId){ return SWATCH[styleId] || '#888888'; }
+/* Style → ONE colour, for anything that needs a flat tint of the paint (the
+   shop card behind the art, a swatch dot). Read from the catalog so a new camo
+   only ever declares its colour once. */
+function swatchOf(styleId){
+  var d = STYLE_DEFS[styleId];
+  return (d && d.swatch) || '#888888';
+}
+
+/* ---- the icon template -------------------------------------------------
+
+   EVERY camo gets the same card, and it is built here once rather than in each
+   screen that shows a paint, so the tank menu and the store cannot drift apart.
+
+   What the template is:
+
+     * the artist's CAMO SHAPE — the ragged, hand-drawn paint patch in
+       tools/bake-camo-template.js (assets/icons/camo-template.svg). A camo is
+       not shown in a rectangle any more: the texture is POURED into that
+       patch, the way a paint job would look spilled on the bench,
+     * the patch's own ink line (camo-template-ink.svg) sitting BEHIND the
+       paint, so only the part of the stroke that falls outside the poured
+       shape shows — a hand-drawn outline, with none of the scribble crossing
+       the camo itself,
+     * and the paint-roller icon pinned to its BOTTOM-LEFT corner, slightly
+       outside the patch and ON TOP of it, so the brush visibly overlaps the
+       camo instead of sitting beside it like another swatch.
+
+   The brush is drawn on a cream chip because the icon itself is pure black
+   line art: dropped straight onto a dark camo it disappears. The chip is the
+   sticker that makes it read at any tile size. */
+var BRUSH_ICON = 'assets/icons/style-brush.webp?v=1';
+/* The shape and its ink line are applied by css/style.css (.style-art-camo is
+   masked with the patch, .style-art-ink draws the line behind it). */
+var CAMO_INK = 'assets/icons/camo-template-ink.svg?v=2';
+function artMarkup(styleId, opts){
+  var d = STYLE_DEFS[styleId];
+  if(!d) return '';
+  var o = opts || {};
+  var src = d.texture || '';
+  var cls = 'style-art' + (o.className ? ' ' + o.className : '');
+  /* The texture is a data URL for Glitch, which contains characters that would
+     break a url() token; quoted for both cases and escaped for the URL itself. */
+  var bg = src ? ' style="background-image:url(&quot;' + String(src).replace(/&/g, '&amp;').replace(/"/g, '%22') + '&quot;)"' : '';
+  return '<div class="' + cls + '">' +
+           '<div class="style-art-splat">' +
+             '<div class="style-art-ink" style="background-image:url(&quot;' + CAMO_INK + '&quot;)"></div>' +
+             '<div class="style-art-camo"' + bg + '></div>' +
+           '</div>' +
+           '<div class="style-art-brush" aria-hidden="true"><img src="' + BRUSH_ICON + '" alt="" draggable="false"></div>' +
+         '</div>';
+}
 
 /* ---- battle ------------------------------------------------------------ */
 
@@ -420,6 +593,9 @@ return {
   equipStyle: equipStyle,
   ownerOfStyle: ownerOfStyle,
   swatchOf: swatchOf,
+  artMarkup: artMarkup,
+  BRUSH_ICON: BRUSH_ICON,
+  CAMO_INK: CAMO_INK,
   apply: apply,
   applyToModel: applyToModel,
   removeFromModel: removeFromModel,

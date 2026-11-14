@@ -650,9 +650,34 @@ input:focus{border-color:var(--accent)}
   white-space:nowrap;background:rgba(0,0,0,.7);color:#ffd27a;font-size:11px;padding:4px 10px;border-radius:10px;
   border:1px solid rgba(255,177,43,.35);pointer-events:none}
 
-@media (max-width:768px){#super-wrap{left:calc(50% - 200px);bottom:14px;width:54px;height:54px}#super-btn::before{inset:4px}}
-@media (max-height:500px){#super-wrap{left:calc(50% - 150px);bottom:12px;width:44px;height:44px}#super-btn::before{inset:3px}}
-@media (max-height:400px){#super-wrap{display:none}}
+/* Gear — the fire-mode switch. Sits on the far side of the super slot (away
+   from the HP bar, which the super already hugs) and is deliberately a size
+   down: it is a switch you flick between fights, not an ability you watch.
+   The conic ring is the same idiom as the super's, driven by --cd, so the one
+   second of cooldown reads as a ring refilling rather than a dead button. */
+#gear-wrap{position:absolute;left:calc(50% - 348px);bottom:18px;width:56px;height:56px;transition:opacity .5s ease}
+#gear-btn{
+  width:100%;height:100%;border-radius:50%;border:2px solid rgba(255,255,255,.22);
+  background:conic-gradient(rgba(255,209,74,.95) calc((1 - var(--cd,0)) * 360deg), rgba(255,255,255,.1) 0);
+  position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  cursor:pointer;outline:none;padding:0;box-shadow:0 2px 8px rgba(0,0,0,.4);
+}
+#gear-btn::before{content:'';position:absolute;inset:5px;border-radius:50%;background:linear-gradient(160deg,#20242a,#12151a)}
+.gear-icon{position:relative;z-index:1;font-size:17px;line-height:1;filter:drop-shadow(0 1px 2px #000)}
+.gear-label{position:relative;z-index:1;font-size:8px;font-weight:800;color:#fff;margin-top:1px;text-shadow:0 1px 2px #000;letter-spacing:.4px}
+/* SALVO is the loud mode: the plate turns amber so both the mode and the
+   double kick are visible without reading the word. */
+#gear-btn.salvo{border-color:#ffd24a;box-shadow:0 0 12px rgba(255,210,74,.6)}
+#gear-btn.salvo .gear-label{color:#ffd24a}
+#gear-btn.cooling{opacity:.75}
+#gear-btn:active{transform:scale(.95)}
+
+@media (max-width:768px){#super-wrap{left:calc(50% - 200px);bottom:14px;width:54px;height:54px}#super-btn::before{inset:4px}
+  #gear-wrap{left:calc(50% - 262px);bottom:14px;width:46px;height:46px}}
+@media (max-height:500px){#super-wrap{left:calc(50% - 150px);bottom:12px;width:44px;height:44px}#super-btn::before{inset:3px}
+  #gear-wrap{left:calc(50% - 200px);bottom:12px;width:38px;height:38px}}
+@media (max-height:400px){#super-wrap{display:none}
+  #gear-wrap{display:none}}
 
 #hp-text{position:absolute;left:50%;bottom:32px;transform:translateX(-50%);
 
@@ -1075,6 +1100,30 @@ input:focus{border-color:var(--accent)}
 .settings-btn-primary{background:#fff;color:#1a1a1a;border:none;font-weight:600}
 
 .settings-btn-primary:hover{background:#ddd;color:#1a1a1a}
+
+/* AN ACTION INSIDE A SETTINGS PANEL.
+
+   Every other row on this screen changes a value; this one launches a mode, so
+   it is boxed and reads left-to-right: what it does, then the button. The panel
+   scrolls, so the box must not stretch or it will drag the hint line down with
+   it on a narrow window. */
+.settings-action-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  margin-top:10px;
+  padding:11px 13px;
+  border:2px solid #0b0c0e;
+  border-radius:10px;
+  background:rgba(255,255,255,0.035);
+}
+.settings-action-row .hint{ flex:1 1 auto; min-width:0; line-height:1.45; }
+.settings-action-row .settings-btn{ flex:0 0 auto; cursor:pointer; }
+@media (max-width: 620px){
+  .settings-action-row{ flex-direction:column; align-items:stretch; gap:9px; }
+  .settings-action-row .settings-btn{ text-align:center; }
+}
 
 
 
@@ -4199,6 +4248,72 @@ html, body {
 
 
 
+/* ===== LANDSCAPE ONLY (phones) =====
+   Shown by menu.js when a phone is held upright. It is a screen in its own
+   right: the same dark blueprint grid as the menus, chunky ink outline, and a
+   phone that turns itself, so the instruction needs no reading. Pointer events
+   are ON — this is a wall, not a hint. */
+#rotate-lock {
+  position: fixed;
+  inset: 0;
+  /* Above the login gate (300000): in portrait there is nothing to do on this
+     page but turn the phone, so the gate must not sit on top of the request. */
+  z-index: 400000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: env(safe-area-inset-top) 24px env(safe-area-inset-bottom);
+  background-color: #15171b;
+  background-image:
+    linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px),
+    radial-gradient(ellipse at 50% 40%, rgba(255,193,58,.10), transparent 62%);
+  background-size: 30px 30px, 30px 30px, 100% 100%;
+  text-align: center;
+  touch-action: none;
+}
+#rotate-lock.hidden { display: none !important; }
+.rotate-lock-inner { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.rotate-lock-phone {
+  width: 96px;
+  height: 96px;
+  border-radius: 22px;
+  background: #23262e;
+  border: 4px solid #000;
+  box-shadow: 0 6px 0 #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.rotate-lock-glyph {
+  font-size: 46px;
+  line-height: 1;
+  display: block;
+  animation: rotateLockTurn 2.4s ease-in-out infinite;
+  transform-origin: 50% 50%;
+}
+@keyframes rotateLockTurn {
+  0%, 18%   { transform: rotate(0deg); }
+  46%, 82%  { transform: rotate(-90deg); }
+  100%      { transform: rotate(0deg); }
+}
+.rotate-lock-title {
+  margin: 0;
+  font-family: 'Lilita One', 'Fredoka', sans-serif;
+  font-size: 30px;
+  letter-spacing: 2px;
+  color: #ffc53a;
+  text-shadow: 0 3px 0 #000, 0 0 18px rgba(255,197,58,.35);
+}
+.rotate-lock-text {
+  margin: 0;
+  max-width: 360px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: rgba(230,238,250,.72);
+  font-weight: 600;
+}
+
 /* ===== In-game portrait warning ===== */
 
 #portrait-warning{position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;pointer-events:none}
@@ -4876,6 +4991,43 @@ html, body {
 .shop-deal-card.sold-out { opacity: 0.4; cursor: default; pointer-events: none; }
 .shop-deal-card.sold-out:hover { transform: none; box-shadow: 3px 3px 0 #000; }
 .shop-deal-image { width: 72px; height: 72px; margin: 0 auto 10px; background-size: contain; background-repeat: no-repeat; background-position: center; }
+/* A PAINT IS A PICTURE, NOT AN ICON. The camo fills a framed rectangle (the
+   invisible box the tank menu uses) and the paint-roller chip overlaps its
+   bottom-left corner IN FRONT of the picture, so a camo is the same object in
+   the store and in the garage. The chip is white-on-cream because the icon is
+   pure black line art and would vanish on a dark paint. */
+.shop-deal-image.has-brush {
+  position: relative;
+  width: 104px;
+  height: 80px;
+  margin: 0 auto 20px;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-color: #e9e6dd;
+  border: 3px solid #000;
+  border-radius: 10px;
+  box-shadow: 2px 2px 0 #000;
+}
+.shop-deal-brush {
+  position: absolute;
+  left: -10px;
+  bottom: -12px;
+  width: 34px;
+  height: 34px;
+  z-index: 2;                       /* in front of the camo */
+  border-radius: 9px;
+  background: linear-gradient(#fff6de, #ffe3ab);
+  border: 3px solid #000;
+  box-shadow: 2px 2px 0 #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: rotate(-8deg);
+  pointer-events: none;
+}
+.shop-deal-brush img { width: 19px; height: 19px; display: block; }
+.shop-deal-card:hover .shop-deal-brush { transform: rotate(-3deg) translateY(-2px); background: linear-gradient(#fffbea, #ffd24a); }
 .shop-deal-amount { font-size: 22px; font-weight: 800; color: #333; margin-bottom: 2px; }
 .shop-deal-label { font-size: 11px; color: #666; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600; }
 .shop-deal-price { font-size: 14px; font-weight: 800; color: #8af; margin-bottom: 4px; }
@@ -10605,6 +10757,9 @@ body.strategic-mode .cam-rotate-btns{ display: none !important; }
   --hud-gap:     calc(var(--hud-bar-h) * 0.17);
   --hud-super:   calc(var(--hud-bar-h) * 1.86);
   --hud-super-gap: calc(var(--hud-super) * 0.60);
+  /* GEAR is a size down from the super it sits beside, and is laid out off the
+     same three numbers so the two slots can never drift apart at a breakpoint. */
+  --hud-gear:    calc(var(--hud-super) * 0.66);
   --hud-strip-w: calc(var(--hud-bar-w) * 0.917);
   --hud-cell-gap: calc(var(--hud-bar-w) * 0.025);
 }
@@ -10703,12 +10858,25 @@ body.strategic-mode .cam-rotate-btns{ display: none !important; }
 .super-label{ font-size: calc(var(--hud-super) * 0.15); }
 #super-hint{ bottom: calc(100% + 6px); }
 
+/* ---- Gear slot: one super-gap further out than the super, on the same line ---- */
+#gear-wrap{
+  width: var(--hud-gear);
+  height: var(--hud-gear);
+  /* Its own gap, not a second super-gap: at 743px wide the super's gap alone is
+     44px, and two of those pushed the gear into the left edge of the window. */
+  left: calc(50% - (var(--hud-bar-w) / 2) - var(--hud-super-gap) - var(--hud-super) - 8px - var(--hud-gear));
+  bottom: max(6px, calc(var(--hud-bottom) + ((var(--hud-bar-h) - var(--hud-gear)) / 2)));
+}
+.gear-icon{ font-size: calc(var(--hud-gear) * 0.34); }
+.gear-label{ font-size: calc(var(--hud-gear) * 0.16); }
+
 /* Very short windows: the bar shrinks and the cluster tightens rather than
    disappearing. The old rules hid #super-wrap outright below 400px tall, which
    took the ability button away mid-battle. */
 @media (max-height:400px){
   :root{ --hud-bar-h: clamp(14px, 4.4vh, 26px); --hud-bottom: 8px; }
   #super-wrap{ display: block; }
+  #gear-wrap{ display: block; }
 }
 
 /* ============================================================
@@ -10734,35 +10902,148 @@ body.strategic-mode .cam-rotate-btns{ display: none !important; }
   gap: 10px;
 }
 .tm-style-card {
-  background: rgba(0,0,0,0.3);
-  border: 1px solid rgba(255,255,255,0.05);
-  border-radius: 6px;
-  padding: 10px;
+  background: #1d2027;
+  border: 3px solid #0d0f14;
+  border-radius: 14px;
+  box-shadow: 0 5px 0 #0d0f14;
+  padding: 10px 10px 12px;
   display: flex;
   flex-direction: column;
   align-items: stretch;
   gap: 8px;
-  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease;
 }
 .tm-style-card:hover {
-  border-color: rgba(255,177,43,0.35);
   transform: translateY(-2px);
+  box-shadow: 0 7px 0 #0d0f14;
+}
+.tm-style-card:active {
+  transform: translateY(2px);
+  box-shadow: 0 2px 0 #0d0f14;
 }
 .tm-style-card.equipped {
-  border-color: #ffb12b;
-  box-shadow: 0 0 14px rgba(255,177,43,0.18);
+  background: #23262e;
+  border-color: #0d0f14;
+  box-shadow: 0 5px 0 #0d0f14, inset 0 0 0 2px rgba(255,210,74,0.55);
+  cursor: default;
 }
-.tm-style-preview {
+/* ------------------------------------------------------------
+   THE STYLE ART TEMPLATE (one per camo, built by TankStyles.artMarkup)
+
+   A CAMO IS A PICTURE OF PAINT, not a swatch. The artist's ragged patch
+   ("camo template.svg", baked into assets/icons by
+   tools/bake-camo-template.js) is a CSS MASK, so the texture is poured
+   into the shape instead of filling a rectangle.
+
+   Three layers, bottom to top:
+     .style-art-ink   the patch's own hand-drawn line, BEHIND the paint —
+                      only the part of the stroke that falls outside the
+                      poured shape shows, so the scribble never crosses
+                      the camo itself,
+     .style-art-camo  the texture, masked to the patch, with the sheen,
+     .style-art-brush the paint-roller chip, pinned to the bottom-left,
+                      slightly outside the patch and in front of it.
+
+   The game's hard offset shadow is thrown by the wrapper's drop-shadow
+   so it follows the ragged silhouette instead of a box, and the gold
+   glow when a paint is the one being worn.
+   ------------------------------------------------------------ */
+.style-art {
+  position: relative;
   width: 100%;
-  height: 64px;
-  border-radius: 4px;
+  height: 96px;
+  /* The brush hangs below the patch; the margin keeps it clear of the
+     name underneath instead of clipping into it. */
+  margin: 0 0 16px;
+}
+.style-art-splat {
+  position: absolute;
+  inset: 0;
+  filter: drop-shadow(0 5px 0 rgba(13,15,20,0.55));
+  transition: transform 0.16s ease, filter 0.16s ease;
+}
+.style-art-ink {
+  position: absolute;
+  /* A hair larger than the mask box: the baked line is centred on the
+     patch's edge, and this lets that half of it read. */
+  inset: -2px;
+  background-size: contain;
+  background-position: center;
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+.style-art-camo {
+  position: absolute;
+  inset: 0;
   background-size: cover;
   background-position: center;
-  border: 1px solid rgba(255,255,255,0.08);
-  transition: transform 0.2s;
+  background-repeat: no-repeat;
+  background-color: #1d2027;
+  -webkit-mask-image: url(../assets/icons/camo-template.svg?v=2);
+  -webkit-mask-size: contain;
+  -webkit-mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-image: url(../assets/icons/camo-template.svg?v=2);
+  mask-size: contain;
+  mask-position: center;
+  mask-repeat: no-repeat;
+  transition: filter 0.16s ease;
 }
-.tm-style-card:hover .tm-style-preview {
-  transform: scale(1.03);
+/* The sheen: a diagonal highlight and a darker foot, so a flat texture
+   reads as a painted, slightly rounded panel rather than a square of
+   wallpaper. Sits above the picture, below the brush. */
+.style-art-camo::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(155deg, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0.04) 34%, rgba(255,255,255,0) 55%),
+    linear-gradient(to top, rgba(0,0,0,0.34), rgba(0,0,0,0) 46%);
+  pointer-events: none;
+}
+.style-art-brush {
+  position: absolute;
+  left: -9px;
+  bottom: -11px;
+  width: 42px;
+  height: 42px;
+  z-index: 2;                       /* IN FRONT of the camo, always */
+  border-radius: 11px;
+  background: linear-gradient(#fff6de, #ffe3ab);
+  border: 3px solid #0d0f14;
+  box-shadow: 0 4px 0 #0d0f14, 0 7px 10px rgba(0,0,0,0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform: rotate(-8deg);
+  transition: transform 0.18s ease, background 0.18s ease;
+  pointer-events: none;
+}
+.style-art-brush img {
+  width: 24px;
+  height: 24px;
+  display: block;
+  image-rendering: auto;
+}
+.tm-style-card:hover .style-art-splat {
+  transform: translateY(-2px);
+  filter: drop-shadow(0 7px 0 rgba(13,15,20,0.55));
+}
+.tm-style-card:hover .style-art-camo {
+  filter: brightness(1.08);
+}
+.tm-style-card:hover .style-art-brush {
+  transform: rotate(-3deg) translateY(-2px);
+  background: linear-gradient(#fffbea, #ffd24a);
+}
+/* Equipped: gold glow around the patch, and the chip flips to the accent
+   colour so the worn paint is obvious at a glance. */
+.style-art.is-equipped .style-art-splat {
+  filter: drop-shadow(0 5px 0 rgba(13,15,20,0.55)) drop-shadow(0 0 12px rgba(255,210,74,0.8));
+}
+.style-art.is-equipped .style-art-brush {
+  background: linear-gradient(#ffe9a8, #ffd24a);
 }
 .tm-style-info {
   display: flex;
@@ -10802,6 +11083,78 @@ body.strategic-mode .cam-rotate-btns{ display: none !important; }
   border: 1px solid rgba(255,255,255,0.16);
 }
 .tm-style-unequip:hover { color:#ef4444; border-color: rgba(239,68,68,0.5); }
+.tm-style-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+/* VIEW — the ghost try-on. Yellow-orange on purpose: it is an ACTION, not a
+   purchase and not a wear. It pours the paint onto the tank in front of you
+   for as long as you are looking at that tab and saves nothing at all. */
+.tm-style-view {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: linear-gradient(135deg, #ffc23d, #f08a12);
+  /* White, bold, with the eye drawn at the same weight: the label is the
+     action, so it has to out-read "Buy in the store" underneath it. The
+     text shadow is what keeps white legible on the bright end of the
+     gradient. */
+  color: #fff;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  text-shadow: 0 1px 0 rgba(0,0,0,0.45);
+  border: 2px solid #0d0f14;
+  box-shadow: 0 3px 0 #0d0f14;
+}
+/* The icon rides the label's colour, so the active state cannot drift from
+   the text. */
+.tm-style-view svg {
+  width: 13px;
+  height: 13px;
+  display: block;
+  flex: 0 0 auto;
+  filter: drop-shadow(0 1px 0 rgba(0,0,0,0.45));
+}
+.tm-style-view:hover { transform: translateY(-1px); box-shadow: 0 4px 0 #0d0f14; filter: brightness(1.06); }
+.tm-style-view:active { transform: translateY(2px); box-shadow: 0 1px 0 #0d0f14; }
+.tm-style-view.is-viewing {
+  background: linear-gradient(135deg, #ffb12b, #e2931a);
+  box-shadow: 0 3px 0 #0d0f14, 0 0 12px rgba(255,177,43,0.8);
+}
+/* THE HONESTY STRIP: the tank in the viewer is wearing a paint you do not own
+   and have not equipped. It sits above the tabs, where it cannot be scrolled
+   away from the tank it is talking about. */
+.tm-style-preview-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(255,177,43,0.18), rgba(255,177,43,0.06));
+  border: 2px solid rgba(255,177,43,0.6);
+  color: #ffd977;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.tm-style-preview-note b { color: #fff; }
+.tm-style-preview-note button {
+  background: #ffb12b;
+  color: #2a1700;
+  border: 2px solid #0d0f14;
+  border-radius: 5px;
+  box-shadow: 0 2px 0 #0d0f14;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  padding: 3px 8px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.tm-style-preview-note button:hover { filter: brightness(1.08); }
 .tm-style-note {
   font-size: 10px;
   color: rgba(255,255,255,0.35);
@@ -13222,7 +13575,14 @@ body.is-mobile #minimap-btn svg,body.is-mobile #menu-btn svg{width:42px!importan
 body.is-mobile #super-wrap:not(.hidden){display:block!important;left:auto!important;right:34px!important;bottom:206px!important;width:92px!important;height:92px!important;touch-action:none}
 body.is-mobile #super-btn{touch-action:none}
 body.is-mobile #super-btn .super-label{font-size:13px}
-@media (max-height:430px){body.is-mobile #super-wrap{bottom:150px!important;right:20px!important;width:76px!important;height:76px!important}}
+/* The gear joins the same right-hand cluster, just inboard of the super stick,
+   so a thumb can flick it without leaving the aim stick. */
+body.is-mobile #gear-wrap:not(.hidden){display:block!important;left:auto!important;right:140px!important;bottom:206px!important;width:72px!important;height:72px!important;touch-action:none}
+body.is-mobile #gear-btn{touch-action:none}
+body.is-mobile #gear-btn .gear-label{font-size:11px}
+body.is-mobile #gear-btn .gear-icon{font-size:22px}
+@media (max-height:430px){body.is-mobile #super-wrap{bottom:150px!important;right:20px!important;width:76px!important;height:76px!important}
+  body.is-mobile #gear-wrap:not(.hidden){bottom:150px!important;right:122px!important;width:62px!important;height:62px!important}}
 
 /* The countdown sits above the pick screen instead of across the tank. */
 body.tkp-open #match-cd:not(.hidden){position:fixed;top:6px;left:50%;right:auto;bottom:auto;transform:translateX(-50%);width:auto;height:auto;background:none}
@@ -13230,82 +13590,98 @@ body.tkp-open .match-cd-box{padding:0;background:none;border:0;box-shadow:none;d
 body.tkp-open .match-cd-num{font-size:44px;line-height:1}
 body.tkp-open #strategic-reticle,body.tkp-open #crosshair{display:none!important}
 
+/* ---- RETIRED: a separate phone-shaped menu ----
+
+   Everything below used to be gated on body.is-mobile and re-flowed every menu
+   into a phone layout: the collection cards, the tank screen as a scrolling
+   column, the store sidebar as a top row, a fullscreen trophy road, a stacked
+   results screen. That is gone on purpose.
+
+   A phone now renders the DESKTOP layout, scaled to fit (the fixed layout
+   viewport in index.html), so there is one UI to design, test and fix instead
+   of two that drift apart. The rules are kept, renamed to .is-phone-layout —
+   a class nothing ever adds — so the old behaviour can be restored by adding
+   that class to <body> if the flattened layout ever needs an escape hatch.
+
+   The rules above this comment that still say body.is-mobile are the touch
+   CONTROLS (joystick buttons, super stick, HUD pads); those are about thumbs,
+   not about layout, and they stay. */
 /* ---- MOBILE: collections fit the screen ---- */
-body.is-mobile .collection-card{padding:8px 10px;gap:6px}
-body.is-mobile .collection-label{font-size:12px;letter-spacing:2px;margin-bottom:0}
-body.is-mobile .tank-row{gap:8px;padding-left:0;justify-content:center}
-body.is-mobile .tank-slot{width:clamp(96px,27vw,170px);height:clamp(84px,27vh,120px);border-radius:12px}
-body.is-mobile .tank-slot .lock-icon{font-size:28px}
-body.is-mobile .tank-slot .lock-icon img,body.is-mobile .tank-slot .lock-icon svg{max-width:36px;max-height:36px}
-body.is-mobile .tank-slot .tank-name{font-size:12px;margin-top:4px;padding:2px 6px}
-body.is-mobile .tank-slot-body{width:60px;height:26px;margin-bottom:4px}
-body.is-mobile .tank-slot-turret{width:30px;height:14px;margin-bottom:3px}
-body.is-mobile .tank-slot-barrel{width:24px;height:5px;margin-bottom:0}
-body.is-mobile #collections-bottom-bar{margin:4px auto;padding:4px 10px}
+body.is-phone-layout .collection-card{padding:8px 10px;gap:6px}
+body.is-phone-layout .collection-label{font-size:12px;letter-spacing:2px;margin-bottom:0}
+body.is-phone-layout .tank-row{gap:8px;padding-left:0;justify-content:center}
+body.is-phone-layout .tank-slot{width:clamp(96px,27vw,170px);height:clamp(84px,27vh,120px);border-radius:12px}
+body.is-phone-layout .tank-slot .lock-icon{font-size:28px}
+body.is-phone-layout .tank-slot .lock-icon img,body.is-phone-layout .tank-slot .lock-icon svg{max-width:36px;max-height:36px}
+body.is-phone-layout .tank-slot .tank-name{font-size:12px;margin-top:4px;padding:2px 6px}
+body.is-phone-layout .tank-slot-body{width:60px;height:26px;margin-bottom:4px}
+body.is-phone-layout .tank-slot-turret{width:30px;height:14px;margin-bottom:3px}
+body.is-phone-layout .tank-slot-barrel{width:24px;height:5px;margin-bottom:0}
+body.is-phone-layout #collections-bottom-bar{margin:4px auto;padding:4px 10px}
 
 /* ---- MOBILE: tank screen. The model on the left stays put, everything else is
    one scrolling column on the right, instead of panels stacked on each other. ---- */
-body.is-mobile #menu-tank:not(.hidden){display:flex!important;flex-direction:column;align-items:stretch;justify-content:flex-start;padding:8px 8px 20px calc(42vw + 8px)!important;overflow-y:auto!important;overflow-x:hidden;box-sizing:border-box;-webkit-overflow-scrolling:touch;touch-action:pan-y}
-body.is-mobile #menu-tank .tm-viewer{position:fixed!important;left:0;top:0;bottom:0;right:auto;width:42vw!important;height:100%!important;touch-action:none}
-body.is-mobile #menu-tank .tm-overlay-top-left{position:fixed!important;left:8px;top:8px;width:calc(42vw - 16px);z-index:3;pointer-events:none}
-body.is-mobile #menu-tank .tm-back{pointer-events:auto;padding:9px 14px}
-body.is-mobile #menu-tank .tm-tank-name{font-size:20px;margin:6px 0 0}
-body.is-mobile #menu-tank .tm-tank-desc{display:none}
-body.is-mobile #menu-tank .tm-overlay-bottom{position:static!important;order:1;height:auto!important;width:auto!important;transform:none!important;flex:none;background:none;padding:0}
-body.is-mobile #menu-tank .tm-overlay-right{position:static!important;order:2;width:auto!important;max-height:none!important;height:auto!important;flex:none;overflow:visible!important;margin-top:8px}
-body.is-mobile #menu-tank .tm-overlay-right .tm-panel{max-height:none!important;overflow:visible!important;margin-bottom:8px}
-body.is-mobile #menu-tank .tm-bottom-actions{display:block;padding:0;height:auto}
-body.is-mobile #menu-tank .tm-left-col{display:grid;grid-template-columns:1fr 1fr;gap:6px;width:auto;margin-bottom:6px}
-body.is-mobile #menu-tank .tm-btn{min-height:46px;width:100%;margin:0;padding:6px;font-size:13px}
-body.is-mobile #menu-tank .tm-xp-col{width:auto;margin:0 0 6px;height:auto}
-body.is-mobile #menu-tank .tm-cosmetics-bar{position:static;height:auto;max-height:none;margin-top:4px;border-radius:10px}
-body.is-mobile #menu-tank .tm-cosmo-tab{min-height:40px;padding:4px;font-size:12px}
-body.is-mobile #menu-tank .tm-cosmo-body{height:auto;max-height:none;overflow:visible}
-body.is-mobile #menu-tank .tm-tooltip{display:none!important}
+body.is-phone-layout #menu-tank:not(.hidden){display:flex!important;flex-direction:column;align-items:stretch;justify-content:flex-start;padding:8px 8px 20px calc(42vw + 8px)!important;overflow-y:auto!important;overflow-x:hidden;box-sizing:border-box;-webkit-overflow-scrolling:touch;touch-action:pan-y}
+body.is-phone-layout #menu-tank .tm-viewer{position:fixed!important;left:0;top:0;bottom:0;right:auto;width:42vw!important;height:100%!important;touch-action:none}
+body.is-phone-layout #menu-tank .tm-overlay-top-left{position:fixed!important;left:8px;top:8px;width:calc(42vw - 16px);z-index:3;pointer-events:none}
+body.is-phone-layout #menu-tank .tm-back{pointer-events:auto;padding:9px 14px}
+body.is-phone-layout #menu-tank .tm-tank-name{font-size:20px;margin:6px 0 0}
+body.is-phone-layout #menu-tank .tm-tank-desc{display:none}
+body.is-phone-layout #menu-tank .tm-overlay-bottom{position:static!important;order:1;height:auto!important;width:auto!important;transform:none!important;flex:none;background:none;padding:0}
+body.is-phone-layout #menu-tank .tm-overlay-right{position:static!important;order:2;width:auto!important;max-height:none!important;height:auto!important;flex:none;overflow:visible!important;margin-top:8px}
+body.is-phone-layout #menu-tank .tm-overlay-right .tm-panel{max-height:none!important;overflow:visible!important;margin-bottom:8px}
+body.is-phone-layout #menu-tank .tm-bottom-actions{display:block;padding:0;height:auto}
+body.is-phone-layout #menu-tank .tm-left-col{display:grid;grid-template-columns:1fr 1fr;gap:6px;width:auto;margin-bottom:6px}
+body.is-phone-layout #menu-tank .tm-btn{min-height:46px;width:100%;margin:0;padding:6px;font-size:13px}
+body.is-phone-layout #menu-tank .tm-xp-col{width:auto;margin:0 0 6px;height:auto}
+body.is-phone-layout #menu-tank .tm-cosmetics-bar{position:static;height:auto;max-height:none;margin-top:4px;border-radius:10px}
+body.is-phone-layout #menu-tank .tm-cosmo-tab{min-height:40px;padding:4px;font-size:12px}
+body.is-phone-layout #menu-tank .tm-cosmo-body{height:auto;max-height:none;overflow:visible}
+body.is-phone-layout #menu-tank .tm-tooltip{display:none!important}
 @media (orientation:portrait){
-  body.is-mobile #menu-tank{padding:calc(36vh + 8px) 8px 20px 8px!important}
-  body.is-mobile #menu-tank .tm-viewer{width:100%!important;right:0;bottom:auto;height:36vh!important}
-  body.is-mobile #menu-tank .tm-overlay-top-left{width:calc(100% - 16px)}
+  body.is-phone-layout #menu-tank{padding:calc(36vh + 8px) 8px 20px 8px!important}
+  body.is-phone-layout #menu-tank .tm-viewer{width:100%!important;right:0;bottom:auto;height:36vh!important}
+  body.is-phone-layout #menu-tank .tm-overlay-top-left{width:calc(100% - 16px)}
 }
 
 /* ---- MOBILE: upgrade research ---- */
-body.is-mobile .tm-research .tr-head{padding:4px 8px;gap:6px;flex-wrap:wrap;min-height:0}
-body.is-mobile .tm-research .tr-titlewrap{display:none}
-body.is-mobile .tm-research .tr-meta{flex:1;min-width:0}
-body.is-mobile .tm-research .tr-chips{flex-wrap:wrap;gap:4px;justify-content:flex-end}
-body.is-mobile .tm-research .tr-chip{font-size:10px;padding:3px 6px}
-body.is-mobile .tm-research .tr-super,body.is-mobile .tm-research .tr-foot,body.is-mobile .tm-research .tr-ribbon{display:none}
-body.is-mobile .tm-research .tr-back{padding:8px 12px;min-height:38px}
-body.is-mobile .tm-research .tr-refund{min-height:32px;padding:3px 8px;font-size:11px}
-body.is-mobile .tm-research .tr-rows{overflow:auto!important;touch-action:pan-x pan-y;-webkit-overflow-scrolling:touch;flex:1;min-height:0}
-body.is-mobile .tm-research .tp-buy{min-height:36px}
+body.is-phone-layout .tm-research .tr-head{padding:4px 8px;gap:6px;flex-wrap:wrap;min-height:0}
+body.is-phone-layout .tm-research .tr-titlewrap{display:none}
+body.is-phone-layout .tm-research .tr-meta{flex:1;min-width:0}
+body.is-phone-layout .tm-research .tr-chips{flex-wrap:wrap;gap:4px;justify-content:flex-end}
+body.is-phone-layout .tm-research .tr-chip{font-size:10px;padding:3px 6px}
+body.is-phone-layout .tm-research .tr-super,body.is-phone-layout .tm-research .tr-foot,body.is-phone-layout .tm-research .tr-ribbon{display:none}
+body.is-phone-layout .tm-research .tr-back{padding:8px 12px;min-height:38px}
+body.is-phone-layout .tm-research .tr-refund{min-height:32px;padding:3px 8px;font-size:11px}
+body.is-phone-layout .tm-research .tr-rows{overflow:auto!important;touch-action:pan-x pan-y;-webkit-overflow-scrolling:touch;flex:1;min-height:0}
+body.is-phone-layout .tm-research .tp-buy{min-height:36px}
 
 /* ---- MOBILE: results ---- */
-body.is-mobile #results-overlay{overflow-y:auto!important;-webkit-overflow-scrolling:touch;touch-action:pan-y}
+body.is-phone-layout #results-overlay{overflow-y:auto!important;-webkit-overflow-scrolling:touch;touch-action:pan-y}
 
-body.is-mobile .tm-research{position:fixed!important;inset:0}
+body.is-phone-layout .tm-research{position:fixed!important;inset:0}
 
 /* Phone results: one readable scrolling column over a dimmed scene, the boards
    below the summary, and CONTINUE always on screen. */
-body.is-mobile #results-overlay:not(.hidden){display:flex!important;flex-direction:column;padding:6px 8px 64px;box-sizing:border-box}
-body.is-mobile #results-overlay .res-backdrop,body.is-mobile #results-overlay .res-canvas{position:fixed!important;inset:0;width:100%!important;height:100%!important}
-body.is-mobile #results-overlay .res-canvas{opacity:.28;pointer-events:none}
-body.is-mobile #results-overlay .res-fog,body.is-mobile #results-overlay .res-floats,body.is-mobile #results-overlay .res-hint{display:none!important}
-body.is-mobile #results-overlay .res-centre{position:relative!important;order:1;display:flex;flex-direction:column;align-items:stretch;height:auto!important;min-height:0;flex:none;z-index:2;padding:0!important;margin:0!important;transform:none!important}
-body.is-mobile #results-overlay .res-banner{width:auto!important;min-height:0;height:auto;margin:0 0 6px!important;padding:6px 10px!important;transform:none!important}
-body.is-mobile #results-overlay .res-mainrow{width:auto!important;margin:0!important;display:block}
-body.is-mobile #results-overlay .res-stats{width:auto!important;margin:0 0 6px!important;gap:6px}
-body.is-mobile #results-overlay .res-rewards{width:auto!important;margin:0 0 6px!important}
-body.is-mobile #results-overlay .res-foot{position:fixed!important;right:8px;bottom:6px;left:auto;margin:0!important;width:auto!important;z-index:6;padding:0!important}
-body.is-mobile #results-overlay .res-continue{min-height:48px;min-width:170px;margin:0!important}
-body.is-mobile #results-overlay .res-top{position:relative!important;order:2;inset:auto;width:auto!important;height:auto!important;display:grid;grid-template-columns:1fr 1fr;gap:6px;flex:none;z-index:2;margin:0;padding:0}
-body.is-mobile #results-overlay .res-board{position:relative!important;left:auto;right:auto;top:auto;width:auto!important;height:auto!important;max-height:none!important;overflow:visible!important;margin:0!important}
-body.is-mobile #results-overlay .res-board-title,body.is-mobile #results-overlay .res-row-head{position:static!important}
-@media (orientation:portrait){body.is-mobile #results-overlay .res-top{grid-template-columns:1fr}}
+body.is-phone-layout #results-overlay:not(.hidden){display:flex!important;flex-direction:column;padding:6px 8px 64px;box-sizing:border-box}
+body.is-phone-layout #results-overlay .res-backdrop,body.is-phone-layout #results-overlay .res-canvas{position:fixed!important;inset:0;width:100%!important;height:100%!important}
+body.is-phone-layout #results-overlay .res-canvas{opacity:.28;pointer-events:none}
+body.is-phone-layout #results-overlay .res-fog,body.is-phone-layout #results-overlay .res-floats,body.is-phone-layout #results-overlay .res-hint{display:none!important}
+body.is-phone-layout #results-overlay .res-centre{position:relative!important;order:1;display:flex;flex-direction:column;align-items:stretch;height:auto!important;min-height:0;flex:none;z-index:2;padding:0!important;margin:0!important;transform:none!important}
+body.is-phone-layout #results-overlay .res-banner{width:auto!important;min-height:0;height:auto;margin:0 0 6px!important;padding:6px 10px!important;transform:none!important}
+body.is-phone-layout #results-overlay .res-mainrow{width:auto!important;margin:0!important;display:block}
+body.is-phone-layout #results-overlay .res-stats{width:auto!important;margin:0 0 6px!important;gap:6px}
+body.is-phone-layout #results-overlay .res-rewards{width:auto!important;margin:0 0 6px!important}
+body.is-phone-layout #results-overlay .res-foot{position:fixed!important;right:8px;bottom:6px;left:auto;margin:0!important;width:auto!important;z-index:6;padding:0!important}
+body.is-phone-layout #results-overlay .res-continue{min-height:48px;min-width:170px;margin:0!important}
+body.is-phone-layout #results-overlay .res-top{position:relative!important;order:2;inset:auto;width:auto!important;height:auto!important;display:grid;grid-template-columns:1fr 1fr;gap:6px;flex:none;z-index:2;margin:0;padding:0}
+body.is-phone-layout #results-overlay .res-board{position:relative!important;left:auto;right:auto;top:auto;width:auto!important;height:auto!important;max-height:none!important;overflow:visible!important;margin:0!important}
+body.is-phone-layout #results-overlay .res-board-title,body.is-phone-layout #results-overlay .res-row-head{position:static!important}
+@media (orientation:portrait){body.is-phone-layout #results-overlay .res-top{grid-template-columns:1fr}}
 
 body.tkp-open .joystick-container{display:none!important}
-body.is-mobile #results-overlay .res-centre{left:0!important;top:0!important;right:auto!important;bottom:auto!important;width:auto!important}
-body.is-mobile #results-overlay .res-backdrop{background:rgba(9,11,15,.9)!important}
+body.is-phone-layout #results-overlay .res-centre{left:0!important;top:0!important;right:auto!important;bottom:auto!important;width:auto!important}
+body.is-phone-layout #results-overlay .res-backdrop{background:rgba(9,11,15,.9)!important}
 
 .tkp-super{font-size:12px;margin-top:10px;opacity:.9;line-height:1.3}
 .tkp-super b{display:block;color:#ffc94a;font-size:13px;margin-bottom:2px}
@@ -13331,69 +13707,69 @@ body:has(.menu:not(.hidden)) #impact-reticle,body.tkp-open #impact-reticle{displ
 /* ---------- PHONE NAVIGATION + SCREENS ----------
    One way out everywhere: #mobile-back-btn is always top-left on every screen
    but the main menu, so each screen's own back button is hidden on phones. */
-body.is-mobile .menu .btn-back,
-body.is-mobile .menu .gm-back,
-body.is-mobile .menu .shop-sidebar-back,
-body.is-mobile .menu .shop-buy-back,
-body.is-mobile .menu .shop-receive-back { display: none !important; }
+body.is-phone-layout .menu .btn-back,
+body.is-phone-layout .menu .gm-back,
+body.is-phone-layout .menu .shop-sidebar-back,
+body.is-phone-layout .menu .shop-buy-back,
+body.is-phone-layout .menu .shop-receive-back { display: none !important; }
 #mobile-back-btn { z-index: 10001; }
 
 /* Store: the sidebar becomes a row of tabs along the top. */
-body.is-mobile .shop-sidebar {
+body.is-phone-layout .shop-sidebar {
   left: 0; right: 0; top: 0; bottom: auto; width: auto; height: 56px;
   flex-direction: row; align-items: center; gap: 8px;
   padding: 6px 10px 6px 62px;
   overflow-x: auto; overflow-y: hidden;
   border-right: 0; border-bottom: 3px solid #000; box-shadow: none;
 }
-body.is-mobile .shop-store-logo { display: none; }
-body.is-mobile .shop-sidebar-section {
+body.is-phone-layout .shop-store-logo { display: none; }
+body.is-phone-layout .shop-sidebar-section {
   flex: 0 0 auto; margin: 0; padding: 7px 14px; font-size: 13px;
   transform: none; white-space: nowrap;
 }
-body.is-mobile .shop-header { margin-top: 56px; padding: 4px 12px; min-height: 0; }
-body.is-mobile .shop-body { margin-left: 0; }
-body.is-mobile .shop-content { padding: 8px 12px 16px; }
+body.is-phone-layout .shop-header { margin-top: 56px; padding: 4px 12px; min-height: 0; }
+body.is-phone-layout .shop-body { margin-left: 0; }
+body.is-phone-layout .shop-content { padding: 8px 12px 16px; }
 
 /* Trophy road: full screen, X always in the corner, only the road scrolls. */
-body.is-mobile .trophy-roadmap-card {
+body.is-phone-layout .trophy-roadmap-card {
   width: 100vw; height: 100dvh; max-height: none; margin: 0;
   padding: 8px 0 6px; border-radius: 0; outline: 0; border: 0;
   display: flex; flex-direction: column; overflow: hidden;
 }
-body.is-mobile .trophy-roadmap-head { min-width: 0; flex: none; padding: 0 64px 0 16px; margin: 0; }
-body.is-mobile .trophy-roadmap-title { font-size: 20px; margin: 0; line-height: 36px; }
-body.is-mobile .trophy-roadmap-close {
+body.is-phone-layout .trophy-roadmap-head { min-width: 0; flex: none; padding: 0 64px 0 16px; margin: 0; }
+body.is-phone-layout .trophy-roadmap-title { font-size: 20px; margin: 0; line-height: 36px; }
+body.is-phone-layout .trophy-roadmap-close {
   position: fixed;
   top: max(8px, env(safe-area-inset-top));
   right: max(10px, env(safe-area-inset-right));
   z-index: 3;
 }
-body.is-mobile .trophy-roadmap-scroll {
+body.is-phone-layout .trophy-roadmap-scroll {
   flex: 1; min-height: 0; overflow-x: auto; overflow-y: hidden;
   -webkit-overflow-scrolling: touch; touch-action: pan-x;
 }
-body.is-mobile .trophy-roadmap-track {
+body.is-phone-layout .trophy-roadmap-track {
   min-width: 940px; height: 100%; margin: 0;
   --tr-h: 100%;
 }
-body.is-mobile .trophy-roadmap-foot { flex: none; min-width: 0; padding: 0 16px; margin: 0; font-size: 12px; }
+body.is-phone-layout .trophy-roadmap-foot { flex: none; min-width: 0; padding: 0 16px; margin: 0; font-size: 12px; }
 
 /* Gamemode cards fit side by side and the header leaves room for back. */
-body.is-mobile #menu-gamemode-select .gm-header { padding: 8px 12px 4px 66px; text-align: left; }
-body.is-mobile #menu-gamemode-select .gm-header::before,
-body.is-mobile #menu-gamemode-select .gm-header::after { display: none; }
-body.is-mobile #menu-gamemode-select .gm-title { font-size: 22px; letter-spacing: 2px; margin: 0; }
-body.is-mobile #menu-gamemode-select .gm-cards {
+body.is-phone-layout #menu-gamemode-select .gm-header { padding: 8px 12px 4px 66px; text-align: left; }
+body.is-phone-layout #menu-gamemode-select .gm-header::before,
+body.is-phone-layout #menu-gamemode-select .gm-header::after { display: none; }
+body.is-phone-layout #menu-gamemode-select .gm-title { font-size: 22px; letter-spacing: 2px; margin: 0; }
+body.is-phone-layout #menu-gamemode-select .gm-cards {
   gap: 12px; padding: 6px 12px 10px; place-content: center;
   grid-auto-flow: column; overflow-x: auto; flex: 1; min-height: 0;
 }
-body.is-mobile #menu-gamemode-select .gm-card {
+body.is-phone-layout #menu-gamemode-select .gm-card {
   width: min(44vw, 340px); height: calc(100dvh - 70px); min-height: 0; max-height: 300px; transform: none;
 }
-body.is-mobile #menu-gamemode-select .gm-card-icon { transform: scale(.7); transform-origin: left top; margin-bottom: 0; }
-body.is-mobile #menu-gamemode-select .gm-card-name { font-size: 18px; }
-body.is-mobile #menu-gamemode-select .gm-card-desc { font-size: 12px; }
+body.is-phone-layout #menu-gamemode-select .gm-card-icon { transform: scale(.7); transform-origin: left top; margin-bottom: 0; }
+body.is-phone-layout #menu-gamemode-select .gm-card-name { font-size: 18px; }
+body.is-phone-layout #menu-gamemode-select .gm-card-desc { font-size: 12px; }
 
 /* Super aim stick: appears under the thumb when the super button is pressed. */
 .super-stick-ui {
@@ -13409,14 +13785,14 @@ body.is-mobile #menu-gamemode-select .gm-card-desc { font-size: 12px; }
 .super-stick-ui.cancel { border-color: #ff4a3a; background: rgba(160,20,10,.35); }
 .super-stick-ui.cancel .super-stick-knob { background: #ff4a3a; }
 
-body.is-mobile .trophy-roadmap-track { zoom: .8; --tr-h: calc((100dvh - 72px) / .8); height: var(--tr-h); }
-body.is-mobile .trophy-roadmap-scroll,
-body.is-mobile #menu-gamemode-select .gm-cards,
-body.is-mobile .shop-sidebar { scrollbar-width: none; }
-body.is-mobile #menu-gamemode-select .gm-cards { justify-content: start; place-content: center start; }
-body.is-mobile #menu-profile:not(.hidden) { display: block !important; overflow-y: auto; }
-body.is-mobile #menu-profile > * { height: auto !important; max-height: none !important; min-height: 0 !important; }
-body.is-mobile #menu-profile .profile-card { margin: 8px auto 16px; max-height: none; transform: none; }
+body.is-phone-layout .trophy-roadmap-track { zoom: .8; --tr-h: calc((100dvh - 72px) / .8); height: var(--tr-h); }
+body.is-phone-layout .trophy-roadmap-scroll,
+body.is-phone-layout #menu-gamemode-select .gm-cards,
+body.is-phone-layout .shop-sidebar { scrollbar-width: none; }
+body.is-phone-layout #menu-gamemode-select .gm-cards { justify-content: start; place-content: center start; }
+body.is-phone-layout #menu-profile:not(.hidden) { display: block !important; overflow-y: auto; }
+body.is-phone-layout #menu-profile > * { height: auto !important; max-height: none !important; min-height: 0 !important; }
+body.is-phone-layout #menu-profile .profile-card { margin: 8px auto 16px; max-height: none; transform: none; }
 
 /* ============================================================
    PLAY BUTTON HOVER DOT PATTERN
@@ -16758,6 +17134,45 @@ body.rs-lock #mtl-back-slot{ display:none !important; }
 
 #menu-tank .tm-cosmo-body{ padding: 0 14px 12px; }
 
+/* THE PAINT SHELF NEVER GROWS PAST THE WINDOW.
+
+   The bottom block is anchored to the bottom of the screen and grows with its
+   content, so fourteen style cards used to push its top edge off a 720px-tall
+   window — the first row of camos was simply unreachable, with no scrollbar to
+   suggest it was there. The shelf now scrolls inside itself instead: the tabs
+   and the actions stay put, the cards move.
+
+   300px is the tabs + the action strip + the bottom bar + breathing room; what
+   is left of the window is the shelf. On a tall window the whole grid still
+   fits and no scrollbar appears. */
+#menu-tank .tm-overlay-bottom{
+  /* Never taller than the window: the block is bottom-anchored, so anything
+     past the top edge used to be clipped with no way to reach it. */
+  max-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+#menu-tank .tm-overlay-bottom .tm-bottom-actions{ flex: none; }
+#menu-tank .tm-cosmetics-bar{
+  display: flex;
+  flex-direction: column;
+  min-height: 0;                    /* lets the shelf below be the part that gives */
+}
+#menu-tank .tm-cosmo-tabs{ flex: none; }
+#menu-tank .tm-cosmo-body{
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.18) transparent;
+}
+#menu-tank .tm-cosmo-body::-webkit-scrollbar{ width: 8px; }
+#menu-tank .tm-cosmo-body::-webkit-scrollbar-thumb{
+  background: rgba(255,255,255,0.18);
+  border-radius: 4px;
+}
+
 #menu-tank .tm-sprays-section{
   flex: 1 1 240px;
   background: #1d2027;
@@ -16988,9 +17403,14 @@ body:not(.is-mobile) #menu-tank .tm-overlay-top-left{
   align-items: center;
   gap: 3px;
 }
+/* The icons in the roster are real renders of each player's tank (see
+   Game._paintTankIcons), not a flat silhouette, so they keep their own
+   colours - the old `brightness(0) invert(1)` here turned every tank into the
+   same white blob, and before that into a broken-image glyph because the file
+   it pointed at did not exist. A wreck is drained and dimmed instead. */
 .th-tank{
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -16998,16 +17418,16 @@ body:not(.is-mobile) #menu-tank .tm-overlay-top-left{
   transition: opacity .12s, filter .12s;
 }
 .th-tank img{
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   object-fit: contain;
-  filter: brightness(0) invert(1);
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,.8));
 }
 .th-tank.dead{
-  opacity: 0.22;
+  opacity: 0.55;
   filter: none;
 }
-.th-tank.dead img{ filter: brightness(0) invert(1); }
+.th-tank.dead img{ filter: grayscale(1) brightness(.45); }
 .th-tank.local{
   filter: drop-shadow(0 0 3px #ffd24a) drop-shadow(0 2px 0 rgba(0,0,0,0.55));
 }
@@ -17102,8 +17522,8 @@ body:not(.is-mobile) #menu-tank .tm-overlay-top-left{
     -1px  1px 0 #0b0c0e, 1px  1px 0 #0b0c0e,
      0    3px 0 #0b0c0e;
 }
-#top-hud .th-tank{ width: 24px; height: 24px; }
-#top-hud .th-tank img{ width: 24px; height: 24px; }
+#top-hud .th-tank{ width: 25px; height: 25px; }
+#top-hud .th-tank img{ width: 25px; height: 25px; }
 /* Free-for-all puts ten icons on the bar; tighten them so the row still fits
    without a second line on a 1280-wide screen. */
 #top-hud .th-side{ gap: 2px; }
@@ -17540,97 +17960,1187 @@ body:not(.is-mobile) #menu-tank .tm-overlay-top-left{
   }
 }
 
+
+/* ============================================================================
+   WORKSHOP — THE GAME-STYLE PASS (see GAME_STYLE.md)
+   ----------------------------------------------------------------------------
+   The Foundry was built as a glass showroom: hairline borders, blurred cards,
+   dashed turntables, a 3px "shelf" road. The rest of the game is a cartoon
+   sticker on a dark workbench — thick ink outlines, chunky yellow slabs with a
+   hard shadow, no glass, no hairlines. These rules bring the workshop onto the
+   same workbench without moving a single model, label or step.
+
+   Two deletions are deliberate, and the user asked for them by name:
+
+     * the faint circles under every tank (the "void floor pad" ellipses and the
+       dashed hover turntable), and
+     * the dashed yellow line that ran between the two tanks of an OR step.
+
+   Both read as UI scaffolding rather than game art, and the models are already
+   grounded by the stage's own soft contact shadow.
+   ========================================================================== */
+
+/* --- the road: wider, taller, and readable at a glance -------------------- */
+#research-overlay .rs-path{ --rs-dot:18px; }
+
+#research-overlay .rs-rail{
+  height:11px;
+  border-radius:7px;
+  background:#0b0c0e;
+  box-shadow:0 1px 0 rgba(255,255,255,.16), inset 0 2px 0 rgba(0,0,0,.7);
+}
+#research-overlay .rs-rail::after{
+  left:6px; right:6px; top:50%;
+  height:4px; margin-top:-2px; border-radius:4px;
+  background:repeating-linear-gradient(90deg, rgba(255,255,255,.30) 0 16px, transparent 16px 30px);
+}
+#research-overlay .rs-rail-fill{
+  border-radius:7px;
+  box-shadow:0 0 0 2px #0b0c0e, 0 0 18px rgba(255,210,74,.55);
+}
+#research-overlay .rs-rail-fill::after{
+  width:15px; height:15px; right:-8px;
+  border:3px solid #0b0c0e; border-radius:3px;
+}
+
+/* --- dots: chunky ink rings, gold when done, white when ready ------------- */
+#research-overlay .rs-dot{
+  border:3px solid #0b0c0e;
+  background:#2a2f38;
+  box-shadow:0 0 0 3px rgba(10,11,14,.75), 0 2px 0 rgba(0,0,0,.55);
+}
+#research-overlay .rs-node.claimed .rs-dot{
+  background:#ffd24a;
+  border-color:#0b0c0e;
+  box-shadow:0 0 0 3px rgba(10,11,14,.75), 0 0 14px rgba(255,210,74,.65);
+}
+#research-overlay .rs-node.next .rs-dot{
+  background:#ffffff;
+  border-color:#0b0c0e;
+}
+@media (max-width:900px){
+  #research-overlay .rs-path{ --rs-dot:20px; }
+}
+
+/* --- gone: the floor pads, the hover turntable, the OR's dashed line ------ */
+#research-overlay .rs-model::before,
+#research-overlay .rs-node.next .rs-model::before,
+#research-overlay .rs-model-pair::before,
+#research-overlay .rs-ring,
+#research-overlay .rs-model-pair .rs-ring,
+#research-overlay .rs-choice-slot::before{
+  display:none !important;
+  content:none !important;
+  border:0 !important;
+  background:none !important;
+  box-shadow:none !important;
+}
+
+/* --- the STATS pill, as a real game button -------------------------------- */
+#research-overlay .rs-pill{
+  padding:10px 13px 10px 15px;
+  border:3px solid #0b0c0e;
+  border-radius:12px;
+  background:#ffd24a;
+  color:#101216;
+  font-family:'Fredoka', system-ui, sans-serif;
+  font-weight:700;
+  font-size:12px;
+  letter-spacing:1.2px;
+  box-shadow:0 5px 0 #0b0c0e, 0 16px 28px rgba(0,0,0,.5);
+}
+#research-overlay .rs-pill:hover{ border-color:#0b0c0e; filter:brightness(1.06); }
+#research-overlay .rs-pill:active{ box-shadow:0 1px 0 #0b0c0e, 0 8px 16px rgba(0,0,0,.45); }
+/* the glass nub does not belong on a slab */
+#research-overlay .rs-pill::after{ display:none !important; }
+#research-overlay .rs-pill-q{
+  width:20px; height:20px;
+  border:2px solid #0b0c0e;
+  border-radius:7px;
+  background:#2a2f38;
+  color:#ffd24a;
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-size:12px;
+  animation:none;
+}
+
+/* --- the tank sheet: a workbench panel, not a frosted card ---------------- */
+#research-overlay .rs-detail{
+  background:#1d2027;
+  border:3px solid #0b0c0e;
+  border-radius:16px;
+  box-shadow:0 8px 0 rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.06);
+  backdrop-filter:none;
+  -webkit-backdrop-filter:none;
+}
+#research-overlay .rs-detail::before,
+#research-overlay .rs-detail::after{ display:none !important; }
+
+/* --- every control on the sheet, the guide and the picker ----------------- */
+#research-overlay .rs-cta{
+  border:3px solid #0b0c0e;
+  border-radius:12px;
+  background:#ffd24a;
+  color:#101216;
+  font-family:'Fredoka', system-ui, sans-serif;
+  font-weight:700;
+  letter-spacing:1.2px;
+  box-shadow:0 5px 0 #0b0c0e;
+  transition:transform .08s, box-shadow .08s, filter .15s;
+}
+#research-overlay .rs-cta:hover{ filter:brightness(1.06); }
+#research-overlay .rs-cta:active{ transform:translateY(4px); box-shadow:0 1px 0 #0b0c0e; }
+
+#research-overlay .rs-tool,
+#research-overlay .rs-tank-x,
+#research-overlay .rs-help-btn,
+#research-overlay .rs-close{
+  border:2px solid #0b0c0e;
+  border-radius:10px;
+  background:#2a2f38;
+  color:#ffffff;
+  box-shadow:0 3px 0 #0b0c0e;
+}
+#research-overlay .rs-tool:hover,
+#research-overlay .rs-tank-x:hover,
+#research-overlay .rs-help-btn:hover,
+#research-overlay .rs-close:hover{
+  color:#ffd24a;
+  border-color:#0b0c0e;
+  background:#333944;
+}
+#research-overlay .rs-tool:active,
+#research-overlay .rs-tank-x:active,
+#research-overlay .rs-help-btn:active,
+#research-overlay .rs-close:active{
+  transform:translateY(3px);
+  box-shadow:0 0 0 #0b0c0e;
+}
+
+#research-overlay .rs-help-card{
+  background:#1d2027;
+  border:3px solid #0b0c0e;
+  border-radius:16px;
+  box-shadow:0 8px 0 rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.06);
+}
+#research-overlay .rs-help-go,
+#research-overlay .rs-choice-cancel{
+  border:3px solid #0b0c0e;
+  border-radius:12px;
+  background:#ffd24a;
+  color:#101216;
+  font-family:'Fredoka', system-ui, sans-serif;
+  font-weight:700;
+  letter-spacing:1.2px;
+  box-shadow:0 5px 0 #0b0c0e;
+}
+#research-overlay .rs-help-go:active,
+#research-overlay .rs-choice-cancel:active{ transform:translateY(4px); box-shadow:0 1px 0 #0b0c0e; }
+
+/* --- the footer's own Research door --------------------------------------- */
+#research-overlay .rs-claim{
+  flex:0 0 auto;
+  display:inline-flex; align-items:center; justify-content:center;
+  padding:11px 20px;
+  border:3px solid #0b0c0e;
+  border-radius:12px;
+  background:#ffd24a;
+  color:#101216;
+  font-family:'Fredoka', system-ui, sans-serif;
+  font-weight:700;
+  font-size:12px;
+  letter-spacing:1.2px;
+  text-transform:uppercase;
+  box-shadow:0 5px 0 #0b0c0e;
+  cursor:pointer;
+  transition:transform .08s, box-shadow .08s, filter .15s;
+}
+#research-overlay .rs-claim:hover{ filter:brightness(1.06); transform:translateY(-1px); box-shadow:0 6px 0 #0b0c0e; }
+#research-overlay .rs-claim:active{ transform:translateY(4px); box-shadow:0 1px 0 #0b0c0e; }
+
+/* --- THE OTHER ONE: two silhouettes sharing one seat ---------------------- */
+#research-overlay .rs-model-mystery{ position:relative; }
+#research-overlay .rs-model-mystery .rs-shadow-slot{
+  position:absolute; inset:0;
+  width:100%; height:100%;
+  flex:none;
+}
+#research-overlay .rs-shadow-off{ pointer-events:none; }
+#research-overlay .rs-mystery-q{
+  position:absolute; left:50%; top:2px;
+  transform:translate(-50%,-100%) rotate(-7deg);
+  z-index:6;
+  font-family:'Lilita One','Fredoka',sans-serif;
+  font-size:clamp(56px,6.2vw,104px);
+  line-height:.9;
+  color:#ffd24a;
+  -webkit-text-stroke:4px #0b0c0e;
+  paint-order:stroke fill;
+  text-shadow:0 7px 0 rgba(0,0,0,.5), 0 0 30px rgba(255,210,74,.35);
+  pointer-events:none;
+  animation:rsMysteryQ 3s ease-in-out infinite;
+}
+@keyframes rsMysteryQ{
+  0%,100%{ transform:translate(-50%,-100%) rotate(-7deg) scale(.94); opacity:.75; }
+  50%    { transform:translate(-50%,-100%) rotate(4deg) scale(1.06); opacity:1; }
+}
+@media (prefers-reduced-motion: reduce){
+  #research-overlay .rs-mystery-q{ animation:none; }
+}
+
 /* ============================================================
-   TANK PICKER — TOURNAMENT + CARTOON RESTYLE (appended)
-   Bright, chunky, bouncy: a tournament lobby that reads like a
-   Saturday-morning cartoon. Overrides the dark gray selector above.
+   TANK MENU — ONE SHELF, ONE HEIGHT, EVERYTHING SIDEWAYS
+
+   THE COMPLAINT. The bottom block grew with its content, so the tank
+   screen was a different height on every tab: the Sprays tab sat at
+   ~242px, the Style tab had fourteen cards stacked in a grid and ran
+   the block to the full 720px window. Switching tabs moved the whole
+   screen under the pointer.
+
+   THE RULE NOW. The shelf is the height the Sprays tab always was,
+   on every tab. The cards inside do not wrap and do not stack: they
+   are one row that scrolls sideways, exactly like the sprays. One
+   scrollbar (the shelf's own), always in the same place at the same
+   height, whatever is loaded into it.
+
+   Scoped to body:not(.is-phone-layout) on purpose. The phone layout
+   deliberately turns the shelf into a static, auto-height column
+   (see the rule near the mobile block) because a horizontal strip on
+   a 400px portrait screen hides half of every card.
+   ============================================================ */
+/* THE SHELF IS AS TALL AS ITS TAB, NOT A FIXED 190px.
+
+   190px was measured on the Sprays tab and then forced on all three. But the
+   three tabs are not the same height: Style is a title, a one-line blurb and a
+   180px card, and Paint is a part switch plus its own card row. Measured in the
+   browser at 743x799: Sprays 190px, Paint 265px, Style 268px.
+
+   With `height: 190px; overflow-y: hidden`, the extra 78px was simply cut off
+   at the bottom of the screen — and it is the BOTTOM of a style card that
+   carries its View / Equip buttons. They rendered at y = 811..836 in a 799px
+   window: off-screen, unclickable, and invisible, so the cards looked like dead
+   artwork. Paint cards are clickable across their whole face, which is why they
+   merely looked cropped.
+
+   So the shelf now takes its content's height, the bottom-anchored block grows
+   upward to match (which is why the tab row does not move), and 190px is only a
+   FLOOR so the short Sprays tab does not shrink and make the bar jump. The
+   viewport cap and the vertical scroll are the safety net for a short window:
+   content is never clipped away, it is scrolled to. */
+body:not(.is-phone-layout) #menu-tank .tm-cosmo-body{
+  flex: 0 1 auto;          /* content height; may shrink when the window is short */
+  height: auto;
+  /* A floor that yields. 190px is what the Sprays tab has always been, and the
+     floor stops that tab from collapsing to its ~120px of content and making the
+     bar jump every time you switch tabs. It is capped by 30vh so on a very short
+     window the floor cannot win the fight with flex-shrink and push the shelf —
+     buttons and all — past the bottom of the screen (that is exactly what a flat
+     `min-height: 190px` did at 420px tall). */
+  min-height: min(190px, 30vh);
+  max-height: 46vh;        /* never let the cosmetics take more than half the window */
+  overflow-x: hidden;
+  overflow-y: auto;        /* only ever scrolls when the cap above bites */
+  padding-bottom: 4px;
+}
+
+/* ONE PANEL, VIEWPORT-WIDE, AND THE CARD ROW INSIDE IT DOES THE SCROLLING.
+
+   The scrolling has to live on the row rather than on the shelf: a shelf
+   that is `max-content` wide would also make the section header (and its
+   one-line explanation) as wide as all fourteen cards, which parks the text
+   thousands of pixels off the right edge. Keeping the panel at 100% and
+   scrolling only the cards keeps the header readable and the scrollbar in
+   one predictable place. */
+body:not(.is-phone-layout) #menu-tank .tm-sprays-container,
+body:not(.is-phone-layout) #menu-tank .tm-styles-container{
+  flex-wrap: nowrap;
+  align-items: stretch;
+  height: 100%;
+  width: 100%;
+  min-width: 0;
+}
+body:not(.is-phone-layout) #menu-tank .tm-sprays-section{
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 8px 10px 10px;
+}
+body:not(.is-phone-layout) #menu-tank .tm-sprays-section-title{
+  flex: none;
+  margin-bottom: 6px;
+  padding-bottom: 5px;
+}
+/* The styles blurb was two lines of paragraph on top of the cards, and on a
+   190px shelf those two lines are the difference between a card that fits
+   its description and one that does not. It is one clipped line now: the
+   sentence is still readable, and the cards still fit. */
+body:not(.is-phone-layout) #menu-tank .tm-style-hint{
+  flex: none;
+  margin-bottom: 5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ONE ROW. `width:max-content` is what stops the flex container from
+   squeezing the cards to fit -- without it, fourteen cards would shrink
+   into fourteen slivers instead of scrolling. The row scrolls, the shelf
+   does not, so there is always exactly one scrollbar. */
+body:not(.is-phone-layout) #menu-tank .tm-sprays-grid,
+body:not(.is-phone-layout) #menu-tank .tm-styles-grid{
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-height: 0;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.22) transparent;
+}
+body:not(.is-phone-layout) #menu-tank .tm-sprays-grid::-webkit-scrollbar,
+body:not(.is-phone-layout) #menu-tank .tm-styles-grid::-webkit-scrollbar{ height: 8px; width: 0; }
+body:not(.is-phone-layout) #menu-tank .tm-sprays-grid::-webkit-scrollbar-thumb,
+body:not(.is-phone-layout) #menu-tank .tm-styles-grid::-webkit-scrollbar-thumb{
+  background: rgba(255,255,255,0.22);
+  border-radius: 4px;
+}
+body:not(.is-phone-layout) #menu-tank .tm-spray-card{ flex: 0 0 252px; }
+
+/* Style cards carry a View button below the name/desc; the shelf must be
+   tall enough to show it instead of clipping it (overflow:hidden). */
+body:not(.is-phone-layout) #menu-tank .tm-styles-grid{ min-height: 185px; }
+body:not(.is-phone-layout) #menu-tank .tm-style-card{ min-height: 180px; height: 180px; }
+/* The card row must not be the thing that shrinks: it is the shelf around it
+   that gives when the window is short (the shelf scrolls). Without this the
+   cards would be squeezed under their own buttons before the shelf scrolled. */
+body:not(.is-phone-layout) #menu-tank .tm-styles-grid,
+body:not(.is-phone-layout) #menu-tank .tm-paints-grid,
+body:not(.is-phone-layout) #menu-tank .tm-sprays-grid{
+  flex: 0 0 auto;
+}
+
+/* THE OLD CARD LAYOUT, BACK — INSIDE THE SAME FIXED SHELF.
+
+   The landscape pass squeezed this card into a list row: art on the left, a
+   name and a blurb on the right. It fitted 190px, but a paint is a PICTURE
+   of a colour and the picture was the smallest thing on the card.
+
+   So the tall arrangement is back: art on top, name, blurb, action at the
+   bottom. Only the art tile shrinks (96px -> 72px) to stay inside the shelf,
+   which keeps the promise that switching tabs never moves the window. */
+body:not(.is-phone-layout) #menu-tank .tm-style-card{
+  flex: 0 0 186px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  padding: 7px 8px 8px;
+  overflow: hidden;
+}
+body:not(.is-phone-layout) #menu-tank .tm-style-card .style-art{
+  width: 100%;
+  height: 72px;
+  flex: 0 0 72px;
+  margin: 0 0 3px;
+  align-self: stretch;
+}
+body:not(.is-phone-layout) #menu-tank .tm-style-card .style-art-brush{
+  width: 26px;
+  height: 26px;
+  left: -5px;
+  bottom: -6px;
+  border-width: 2px;
+  border-radius: 7px;
+}
+body:not(.is-phone-layout) #menu-tank .tm-style-card .style-art-brush img{
+  width: 14px;
+  height: 14px;
+}
+body:not(.is-phone-layout) #menu-tank .tm-style-card .tm-style-info{
+  flex: 1 1 auto;
+  justify-content: flex-start;
+  gap: 2px;
+}
+body:not(.is-phone-layout) #menu-tank .tm-style-card .tm-style-desc{
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+body:not(.is-phone-layout) #menu-tank .tm-style-card .tm-style-actions{
+  margin-top: auto;
+  gap: 4px;
+}
+body:not(.is-phone-layout) #menu-tank .tm-style-card .tm-style-btn{
+  padding: 4px 8px;
+  font-size: 9px;
+}
+body:not(.is-phone-layout) #menu-tank .tm-style-card .tm-style-note{
+  display: none;          /* the tag is on the button; the note does not fit 190px */
+}
+
+/* ---- PAINTS: the shelf, the part switch, the colour cards ---- */
+
+/* The paint row scrolls sideways exactly like the styles and the sprays: same
+   fixed shelf, same one scrollbar, same place on screen. */
+body:not(.is-phone-layout) #menu-tank .tm-paints-grid{
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-height: 140px;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.22) transparent;
+}
+body:not(.is-phone-layout) #menu-tank .tm-paints-grid::-webkit-scrollbar{ height: 8px; width: 0; }
+body:not(.is-phone-layout) #menu-tank .tm-paints-grid::-webkit-scrollbar-thumb{
+  background: rgba(255,255,255,0.22);
+  border-radius: 4px;
+}
+
+/* HULL / TURRET. Two buttons, a colour dot each, and the name of what that
+   part is wearing right now — the shelf below always paints whichever one is
+   lit, so this row has to be impossible to miss. */
+.tm-paint-parts{
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  flex: none;
+}
+.tm-paint-part{
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 4px 8px;
+  background: #1b1e25;
+  border: 2px solid #0b0c0e;
+  border-radius: 9px;
+  box-shadow: 0 3px 0 #0b0c0e;
+  color: #cfd6e2;
+  font: 800 10px/1 'Fredoka', 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform .08s, background .15s, color .15s;
+}
+.tm-paint-part:hover{ background: #2a2f38; color: #fff; }
+.tm-paint-part.on{ background: #ffd24a; color: #101216; }
+.tm-paint-part:active{ transform: translateY(2px); box-shadow: 0 1px 0 #0b0c0e; }
+.tm-paint-part-dot{
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  border: 2px solid rgba(0,0,0,0.55);
+  display: block;
+}
+.tm-paint-part-state{
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  opacity: .62;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tm-paint-clear{
+  margin-left: auto;
+  padding: 4px 10px;
+  background: transparent;
+  border: 2px solid rgba(255,255,255,0.16);
+  border-radius: 9px;
+  color: #93a3b4;
+  font: 800 10px/1 'Fredoka', 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: .6px;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+.tm-paint-clear:hover{ color: #ef4444; border-color: rgba(239,68,68,.5); }
+.tm-paint-clear[disabled]{ opacity: .35; pointer-events: none; }
+
+.tm-paint-card{
+  flex: 0 0 128px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 7px 7px;
+  min-height: 136px;
+  background: #1d2027;
+  border: 3px solid #0d0f14;
+  border-radius: 10px;
+  box-shadow: 0 4px 0 #0d0f14;
+  cursor: pointer;
+  overflow: hidden;
+  transition: transform .12s, box-shadow .12s;
+}
+.tm-paint-card:hover{ transform: translateY(-2px); box-shadow: 0 6px 0 #0d0f14; }
+.tm-paint-card:active{ transform: translateY(1px); box-shadow: 0 2px 0 #0d0f14; }
+.tm-paint-card.on{
+  box-shadow: 0 4px 0 #0d0f14, inset 0 0 0 2px rgba(255,210,74,.65);
+}
+.tm-paint-card.locked{ opacity: .55; }
+.tm-paint-swatch{
+  width: 100%;
+  height: 52px;
+  flex: 0 0 52px;
+  border-radius: 7px;
+  border: 2px solid #0b0c0e;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.18);
+}
+.tm-paint-swatch.is-anim{ background-size: 84px 84px; background-position: center; }
+.tm-paint-name{
+  font-size: 10px;
+  font-weight: 800;
+  color: #e0e8f0;
+  letter-spacing: .2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tm-paint-anim{ color: #7fd4ff; }
+.tm-paint-desc{
+  font-size: 9px;
+  line-height: 1.3;
+  color: rgba(255,255,255,.4);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.tm-paint-tag{
+  margin-top: auto;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: .4px;
+  color: rgba(255,255,255,.45);
+  text-transform: uppercase;
+}
+.tm-paint-tag.on{ color: #ffd24a; }
+
+/* ============================================================
+   TESTGROUNDS — THE LESSON LAYER
+
+   The tutorial is diegetic on purpose: no modal for the teaching
+   itself. A camera shot moves, a stage direction names the move, one
+   line of narration sits at the bottom, and the objective is a card
+   in the corner. The only full-screen modals are the two decisions —
+   "start the tutorial?" and "here is your starter pack".
+
+   Ink outlines, hard offset shadows, one yellow accent: the same
+   vocabulary GAME_STYLE.md uses for every other control, so the
+   lesson looks like the game rather than like a tutorial bolted on.
+   ============================================================ */
+.tut-layer{
+  position: fixed;
+  inset: 0;
+  z-index: 200000;
+  pointer-events: none;
+  font-family: 'Fredoka', 'Segoe UI', system-ui, sans-serif;
+  color: #fff;
+}
+.tut-layer.hidden{ display: none; }
+
+/* Letterbox: the cheapest honest signal that the camera is no longer yours.
+   Two bars slide in during a shot and slide out when the tank gets the camera
+   back. */
+.tut-lb{
+  position: absolute;
+  left: 0; right: 0;
+  height: 0;
+  background: #05070a;
+  transition: height .45s cubic-bezier(.2,.8,.2,1);
+}
+.tut-lb-top{ top: 0; }
+.tut-lb-bottom{ bottom: 0; }
+.tut-layer.tut-cine .tut-lb{ height: 46px; }
+
+.tut-topbar{
+  position: absolute;
+  top: 52px;           /* clear of the letterbox bar */
+  left: 0; right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+}
+.tut-stepno{
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: rgba(255,255,255,.55);
+  text-shadow: 0 2px 0 rgba(0,0,0,.55);
+}
+.tut-skipall{
+  pointer-events: auto;
+  padding: 8px 14px;
+  font: 800 11px/1 'Fredoka', 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: 1px;
+  color: #cfd6e2;
+  background: rgba(18,20,26,.86);
+  border: 2px solid #0b0c0e;
+  border-radius: 9px;
+  box-shadow: 0 3px 0 #0b0c0e;
+  cursor: pointer;
+}
+.tut-skipall:hover{ color: #fff; background: #2a2f38; }
+.tut-skipall:active{ transform: translateY(2px); box-shadow: 0 1px 0 #0b0c0e; }
+
+/* The camera's stage direction. Small, spaced, and above the subject rather
+   than over it, so it reads as a caption on the shot. */
+.tut-beat{
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 7px 16px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  color: #ffd24a;
+  background: rgba(10,12,16,.62);
+  border: 1px solid rgba(255,210,74,.35);
+  border-radius: 999px;
+  white-space: nowrap;
+  animation: tut-beat-in .35s ease-out;
+}
+.tut-beat.hidden{ display: none; }
+@keyframes tut-beat-in{
+  from{ opacity: 0; transform: translate(-50%, -6px); }
+  to  { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* ---- objective card ---- */
+.tut-objective{
+  position: absolute;
+  left: 18px;
+  top: 96px;
+  width: 300px;
+  padding: 12px 14px 12px;
+  background: linear-gradient(180deg, rgba(29,32,39,.96), rgba(16,18,22,.97));
+  border: 3px solid #0b0c0e;
+  border-radius: 12px;
+  box-shadow: 0 5px 0 #0b0c0e, inset 0 1px 0 rgba(255,255,255,.06);
+  pointer-events: auto;
+  animation: tut-card-in .35s ease-out;
+}
+.tut-objective.hidden{ display: none; }
+@keyframes tut-card-in{
+  from{ opacity: 0; transform: translateX(-10px); }
+  to  { opacity: 1; transform: translateX(0); }
+}
+.tut-obj-kicker{
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: #ffd24a;
+  margin-bottom: 4px;
+}
+.tut-obj-title{
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: .5px;
+  margin-bottom: 5px;
+}
+.tut-obj-line{
+  font-size: 11px;
+  line-height: 1.45;
+  color: rgba(255,255,255,.66);
+  margin-bottom: 9px;
+}
+.tut-obj-bar{
+  height: 9px;
+  background: rgba(0,0,0,.55);
+  border: 2px solid #0b0c0e;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+.tut-obj-bar i{
+  display: block;
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #ffc23d, #ffd24a);
+  transition: width .25s ease;
+}
+.tut-obj-progress{
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 1.2px;
+  color: #cfd6e2;
+  margin-bottom: 10px;
+}
+.tut-objective.done .tut-obj-bar i{ background: linear-gradient(90deg,#5ad06a,#9af08a); }
+.tut-objective.done .tut-obj-progress{ color: #9af08a; }
+.tut-skipstep{
+  width: 100%;
+  padding: 7px 0;
+  font: 800 10px/1 'Fredoka', 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: 1.4px;
+  color: #cfd6e2;
+  background: #2a2f38;
+  border: 2px solid #0b0c0e;
+  border-radius: 8px;
+  box-shadow: 0 3px 0 #0b0c0e;
+  cursor: pointer;
+}
+.tut-skipstep:hover{ background: #353b46; color: #fff; }
+.tut-skipstep:active{ transform: translateY(2px); box-shadow: 0 1px 0 #0b0c0e; }
+
+/* The same button, in the top bar, where it has to work for every part of the
+   lesson — including the narration blocks that hide the objective card it used
+   to live inside. */
+.tut-topbar-btns{
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: auto;
+}
+.tut-topbar-btns .tut-skipstep{
+  width: auto;
+  padding: 8px 14px;
+  font-size: 11px;
+}
+
+/* ---- subtitles ---- */
+.tut-subtitle{
+  position: absolute;
+  left: 50%;
+  bottom: 132px;
+  transform: translateX(-50%);
+  width: min(760px, calc(100vw - 60px));
+  padding: 12px 16px 10px;
+  background: linear-gradient(180deg, rgba(20,23,29,.96), rgba(10,12,16,.97));
+  border: 3px solid #0b0c0e;
+  border-left: 5px solid #ffd24a;
+  border-radius: 12px;
+  box-shadow: 0 6px 0 rgba(0,0,0,.55), 0 12px 30px rgba(0,0,0,.45);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.tut-subtitle.hidden{ display: none; }
+.tut-subtitle.tip{ border-left-color: #6fd2ff; }
+.tut-sub-speaker{
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 2.4px;
+  color: #ffd24a;
+  margin-bottom: 4px;
+}
+.tut-subtitle.tip .tut-sub-speaker{ color: #6fd2ff; }
+.tut-sub-text{
+  font-size: 14px;
+  line-height: 1.45;
+  color: #f2f5f9;
+  min-height: 40px;
+}
+.tut-sub-hint{
+  margin-top: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1.6px;
+  color: rgba(255,255,255,.32);
+  text-align: right;
+}
+.tut-caret{
+  display: inline-block;
+  width: 8px;
+  height: 15px;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: #ffd24a;
+  animation: tut-caret .7s steps(1) infinite;
+}
+@keyframes tut-caret{ 50%{ opacity: 0; } }
+
+/* ---- step dots ---- */
+.tut-dots{
+  position: absolute;
+  right: 18px;
+  bottom: 118px;
+  display: flex;
+  gap: 6px;
+}
+.tut-dots i{
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.18);
+  border: 1px solid rgba(0,0,0,.6);
+}
+.tut-dots i.on{ background: #ffd24a; box-shadow: 0 0 0 2px rgba(255,210,74,.25); }
+.tut-dots i.done{ background: rgba(255,210,74,.45); }
+
+/* ============================================================
+   THE TWO MODALS
+   ============================================================ */
+.tut-modal{
+  position: fixed;
+  inset: 0;
+  z-index: 260000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: radial-gradient(120% 90% at 50% 40%, rgba(10,12,16,.62), rgba(5,6,9,.9));
+  backdrop-filter: blur(5px);
+  font-family: 'Fredoka', 'Segoe UI', system-ui, sans-serif;
+  color: #fff;
+}
+.tut-modal.hidden{ display: none; }
+.tut-card{
+  width: min(560px, 100%);
+  padding: 22px 24px 20px;
+  background: linear-gradient(180deg, #23262d, #14161b);
+  border: 4px solid #0b0c0e;
+  border-radius: 18px;
+  box-shadow: 0 10px 0 #0b0c0e, 0 30px 70px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.08);
+  animation: tut-modal-in .28s cubic-bezier(.2,.9,.3,1.2);
+}
+@keyframes tut-modal-in{
+  from{ opacity: 0; transform: translateY(14px) scale(.97); }
+  to  { opacity: 1; transform: translateY(0) scale(1); }
+}
+.tut-kicker{
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 3px;
+  color: #ffd24a;
+  margin-bottom: 6px;
+}
+.tut-title{
+  margin: 0 0 10px;
+  font-size: 30px;
+  line-height: 1.05;
+  font-weight: 800;
+  letter-spacing: .5px;
+}
+.tut-copy{
+  margin: 0 0 10px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: rgba(255,255,255,.72);
+}
+.tut-copy b{ color: #ffd24a; }
+.tut-copy-dim{ font-size: 12px; color: rgba(255,255,255,.5); }
+.tut-pack{
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 4px 0 16px;
+  padding: 10px 12px;
+  background: rgba(0,0,0,.3);
+  border: 2px solid #0b0c0e;
+  border-radius: 10px;
+}
+.tut-pack-label{
+  width: 100%;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  color: rgba(255,255,255,.45);
+}
+.tut-pack-item{
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #fff;
+}
+.tut-pack-item img{ width: 20px; height: 20px; display: block; }
+.tut-pack-camo{ position: relative; padding-right: 44px; }
+.tut-pack-dot{
+  width: 14px; height: 14px;
+  border-radius: 4px;
+  background: linear-gradient(135deg,#4a5334,#7a8450 45%,#3b4029);
+  border: 1px solid rgba(0,0,0,.6);
+}
+.tut-pack-art{
+  position: absolute !important;
+  right: -6px;
+  top: 50%;
+  width: 40px !important;
+  height: 40px !important;
+  margin: 0 !important;
+  transform: translateY(-50%) !important;
+}
+.tut-pack-art .style-art-brush{ display: none; }
+.tut-actions{
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+.tut-btn{
+  padding: 12px 18px;
+  font: 800 12px/1 'Fredoka', 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: 1.2px;
+  color: #e6ecf4;
+  background: #2a2f38;
+  border: 3px solid #0b0c0e;
+  border-radius: 10px;
+  box-shadow: 0 4px 0 #0b0c0e;
+  cursor: pointer;
+  transition: transform .08s, box-shadow .08s, filter .15s;
+}
+.tut-btn:hover{ filter: brightness(1.12); transform: translateY(-1px); box-shadow: 0 5px 0 #0b0c0e; }
+.tut-btn:active{ transform: translateY(3px); box-shadow: 0 1px 0 #0b0c0e; }
+.tut-btn-primary{
+  color: #141002;
+  background: linear-gradient(180deg, #ffd95a, #ffc23d);
+  box-shadow: 0 4px 0 #0b0c0e, inset 0 1px 0 rgba(255,255,255,.5);
+}
+
+/* Phone: the card shrinks, the subtitle sits above the touch controls, and
+   the objective moves out of the way of the joystick. */
+body.is-mobile .tut-objective{ width: 240px; top: 76px; left: 12px; padding: 10px 12px; }
+body.is-mobile .tut-obj-title{ font-size: 14px; }
+body.is-mobile .tut-subtitle{ bottom: 178px; width: calc(100vw - 32px); }
+body.is-mobile .tut-sub-text{ font-size: 13px; }
+body.is-mobile .tut-dots{ bottom: 160px; right: 12px; }
+body.is-mobile .tut-topbar{ top: 44px; }
+body.is-mobile .tut-beat{ top: 50px; font-size: 9px; letter-spacing: 2px; }
+body.is-mobile .tut-card{ padding: 18px 18px 16px; }
+body.is-mobile .tut-title{ font-size: 23px; }
+body.is-mobile .tut-actions{ flex-direction: column-reverse; }
+body.is-mobile .tut-btn{ width: 100%; }
+
+/* ============================================================
+   PRE-BATTLE TANK PICKER — THE ROSTER RAIL
+
+   Replaces the 2x10 grid + arrow buttons that used to sit here. The
+   shape is Brawl Stars' brawler row (a single scrolling line of cards
+   with the picked one lifted out of it), the paint is ours: dark
+   workbench panel, 3px ink on every edge, hard offset shadows, and
+   yellow for the thing that is yours.
+
+   Each card's picture is a real render of the real model, drawn at the
+   roster angle by TankPick.thumb() — that is why the art can sit on a
+   transparent card with its own drop shadow instead of needing a
+   framed thumbnail.
+
+   The element still has id="tank-switch-grid" because Game and the
+   countdown code look it up by that id; the CLASS tells the truth.
    ============================================================ */
 .tank-switch-panel{
-  background: linear-gradient(180deg, #2b6bff 0%, #5a2fd6 55%, #1a1033 100%) !important;
-  border: 4px solid #000 !important;
-  border-radius: 22px !important;
-  clip-path: none !important;
-  box-shadow: 0 12px 0 #000, 0 24px 60px rgba(0,0,0,.6), inset 0 2px 0 rgba(255,255,255,.35) !important;
-  padding: 16px 20px 18px !important;
+  width: min(96vw, 1120px);
+  padding: 12px 16px 10px;
+  background: linear-gradient(165deg, #22262d 0%, #12141a 62%, #0c0e12 100%);
 }
-.tank-switch-header{
-  border-bottom: 3px solid #000 !important;
-  padding-bottom: 10px !important;
-  margin-bottom: 12px !important;
-  background: linear-gradient(90deg, rgba(255,215,0,.25), rgba(255,255,255,.05)) !important;
-  border-radius: 12px 12px 0 0 !important;
-  padding: 6px 10px 10px !important;
+.tank-switch-panel .tank-switch-header{
+  margin-bottom: 2px;
+  padding: 0 4px 6px;
+  border-bottom: 2px solid rgba(0,0,0,.85);
 }
-.tank-switch-header .ts-label{
-  font-size: 18px !important;
-  letter-spacing: 2px !important;
-  color: #fff !important;
-  text-shadow: 0 3px 0 #000, 0 0 12px rgba(255,215,0,.6) !important;
-  font-weight: 900 !important;
+.tank-switch-panel .tank-switch-header .ts-label{
+  font-family: 'Lilita One', 'Fredoka', system-ui, sans-serif;
+  font-size: 14px;
+  letter-spacing: 3.5px;
+  text-shadow: 0 2px 0 #000;
 }
-.tank-switch-header .ts-count{
-  background: #ffd23f !important;
-  color: #1a1a1a !important;
-  border: 3px solid #000 !important;
-  border-radius: 12px !important;
-  clip-path: none !important;
-  box-shadow: 0 4px 0 #000 !important;
-  padding: 4px 12px !important;
-  font-size: 12px !important;
+.tank-switch-panel .tank-switch-header .ts-count{
+  font-variant-numeric: tabular-nums;
+  background: #0e1015;
+  color: #ffd24a;
 }
-.ts-btn{
-  border: 3px solid #000 !important;
-  border-radius: 16px !important;
-  clip-path: none !important;
-  background: linear-gradient(180deg, #ff7a59 0%, #e04020 100%) !important;
-  box-shadow: 0 6px 0 #000, inset 0 2px 0 rgba(255,255,255,.4) !important;
-  color: #fff !important;
-  transition: transform .18s cubic-bezier(.3,1.6,.4,1), box-shadow .18s, filter .18s !important;
+
+/* ---- the scrolling line ---- */
+.tank-switch-panel .ts-rail{
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  height: 186px;
+  width: 100%;
+  margin: 0;
+  padding: 16px 10px 12px;
+  box-sizing: border-box;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-snap-type: x proximity;
+  scroll-padding: 0 10px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  cursor: grab;
+  touch-action: pan-x;
+  user-select: none;
+  -webkit-user-select: none;
+  /* Fade the ends so a cut-off card reads as "there is more that way",
+     which is what the arrow buttons used to say. */
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 34px, #000 calc(100% - 34px), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 34px, #000 calc(100% - 34px), transparent 100%);
 }
-.ts-btn::before{ display: none !important; }
-.ts-btn:hover{
-  transform: translateY(-6px) scale(1.08) rotate(-1deg) !important;
-  background: linear-gradient(180deg, #ff9a7a 0%, #ff5a30 100%) !important;
-  box-shadow: 0 10px 0 #000, 0 0 24px rgba(255,120,60,.6), inset 0 2px 0 rgba(255,255,255,.5) !important;
-  filter: brightness(1.15) !important;
+.tank-switch-panel .ts-rail::-webkit-scrollbar{ display: none; }
+.tank-switch-panel .ts-rail.dragging{ cursor: grabbing; scroll-snap-type: none; }
+.tank-switch-panel .ts-rail:focus-visible{ outline: 3px solid #ffd24a; outline-offset: 2px; }
+
+/* ---- one card ---- */
+.ts-card{
+  position: relative;
+  flex: 0 0 118px;
+  width: 118px;
+  height: 150px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  scroll-snap-align: center;
+  clip-path: polygon(12px 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%, 0 12px);
+  background: linear-gradient(180deg, #343b46 0%, #1c2027 55%, #14171c 100%);
+  box-shadow: inset 0 0 0 3px #0b0c0e, inset 0 2px 0 rgba(255,255,255,.07), 0 5px 0 #0b0c0e;
+  cursor: pointer;
+  transition: transform .16s cubic-bezier(.2,.85,.25,1), filter .16s ease, box-shadow .16s ease;
+  /* The card is a slab sitting on the panel, so it must not be see-through
+     when a hover lift moves it over the rail's edge. */
+  isolation: isolate;
 }
-.ts-btn.active{
-  background: linear-gradient(180deg, #ffd23f 0%, #ff9f1a 100%) !important;
-  color: #1a1a1a !important;
-  border-color: #000 !important;
-  box-shadow: 0 6px 0 #000, 0 0 30px rgba(255,210,63,.8), inset 0 2px 0 rgba(255,255,255,.6) !important;
-  transform: translateY(-4px) scale(1.1) !important;
+
+/* The picked tank: lifted, ringed in yellow, plate turned to yellow. This
+   is the one state a player has to be able to spot from across the room. */
+.ts-card.on{
+  transform: translateY(-9px);
+  background: linear-gradient(180deg, #4a5260 0%, #262b34 55%, #191d24 100%);
+  box-shadow: inset 0 0 0 3px #ffd24a, inset 0 2px 0 rgba(255,255,255,.16), 0 8px 0 #0b0c0e, 0 0 18px rgba(255,210,74,.32);
 }
-.ts-btn.active::after{
-  border-color: #000 !important;
-  border-width: 3px !important;
-  border-style: solid !important;
-  clip-path: none !important;
-  border-radius: 16px !important;
-  inset: -4px !important;
+.ts-card:not(.on):hover{
+  transform: translateY(-4px);
+  filter: brightness(1.1);
+  box-shadow: inset 0 0 0 3px #0b0c0e, inset 0 2px 0 rgba(255,255,255,.12), 0 8px 0 #0b0c0e;
 }
-.ts-btn.active .ts-name{ color: #1a1a1a !important; text-shadow: none !important; font-weight: 900 !important; }
-.ts-btn img{ filter: drop-shadow(0 4px 6px rgba(0,0,0,.6)) !important; }
-.ts-btn:hover img{ transform: scale(1.18) translateY(-3px) !important; }
-.ts-btn .ts-name{
-  color: #fff !important;
-  text-shadow: 0 2px 0 #000 !important;
-  font-weight: 800 !important;
-  font-size: 11px !important;
+
+/* art well: a soft spotlight so a dark olive hull still separates from the
+   card, and so a card whose render has not arrived yet is not an empty
+   black hole. */
+.ts-card .ts-art{
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: block;
+  background: radial-gradient(circle at 50% 62%, rgba(255,210,74,.20) 0%, rgba(255,210,74,.06) 42%, transparent 68%);
 }
-.ts-star{ color: rgba(255,255,255,.5) !important; }
-.ts-star.on{ color: #ffd23f !important; text-shadow: 0 0 10px rgba(255,210,63,.9), 0 2px 0 #000 !important; }
-.ts-nav-btn{
-  background: linear-gradient(180deg, #4dd0e1 0%, #0097a7 100%) !important;
-  border: 3px solid #000 !important;
-  border-radius: 50% !important;
-  clip-path: none !important;
-  color: #fff !important;
-  box-shadow: 0 5px 0 #000, inset 0 2px 0 rgba(255,255,255,.4) !important;
-  font-size: 18px !important;
-  width: 44px !important; height: 44px !important;
+.ts-card .ts-art img{
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  /* Only a whisker bigger than the box: the icon is a 4:3 frame drawn to fit
+     the card's width, so anything past ~1.06 starts clipping the tracks on
+     the wide hulls. The render already leaves its own margin - the tank does
+     not need to be zoomed to fill the card. */
+  transform: scale(1.04);
+  transform-origin: 50% 55%;
+  opacity: 0;
+  transition: opacity .22s ease, transform .16s ease;
+  filter: drop-shadow(0 5px 4px rgba(0,0,0,.55));
+  pointer-events: none;
 }
-.ts-nav-btn:hover{ filter: brightness(1.2) !important; transform: scale(1.1) !important; }
-@keyframes tsActivePulse{ 0%,100%{ opacity:.5 } 50%{ opacity:1 } }
-.tank-switch-panel:not(.hidden){ animation: tsPanelIn .4s cubic-bezier(.2,1.6,.4,1) both !important; }
-@keyframes tsPanelIn{ from{ opacity:0; transform: translateX(-50%) translateY(60px) scale(.85) rotate(-2deg) } to{ opacity:1; transform: translateX(-50%) translateY(0) scale(1) rotate(0) } }
+.ts-card.has-art .ts-art img{ opacity: 1; }
+.ts-card.on .ts-art img{ transform: scale(1.07); }
+.ts-card:hover .ts-art img{ transform: scale(1.09) translateY(-2px); }
+
+/* name plate along the bottom, the way a roster card is captioned */
+.ts-card .ts-plate{
+  flex: none;
+  display: block;
+  padding: 6px 4px 7px;
+  background: linear-gradient(180deg, rgba(8,9,12,.92), rgba(8,9,12,.98));
+  border-top: 2px solid #0b0c0e;
+  color: #eef2f7;
+  font: 800 9.5px/1.1 'Fredoka', 'Segoe UI', system-ui, sans-serif;
+  letter-spacing: .8px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 0 #000;
+}
+.ts-card.on .ts-plate{
+  background: linear-gradient(180deg, #ffd95a, #ffc23d);
+  color: #141002;
+  text-shadow: none;
+}
+
+/* tier + favourite, small enough not to fight the tank */
+.ts-card .ts-tier{
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  z-index: 2;
+  padding: 2px 5px;
+  background: rgba(10,12,16,.82);
+  border: 2px solid #0b0c0e;
+  color: #9aa3b2;
+  font: 800 8px/1 'Fredoka', system-ui, sans-serif;
+  letter-spacing: .6px;
+  pointer-events: none;
+}
+.ts-card.on .ts-tier{ color: #ffd24a; }
+.ts-card .ts-star{
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  z-index: 3;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  line-height: 1;
+  color: rgba(255,255,255,.28);
+  text-shadow: 0 1px 0 #000;
+  cursor: pointer;
+  transition: transform .14s ease, color .14s ease;
+}
+.ts-card .ts-star:hover{ color: #fff; transform: scale(1.25); }
+.ts-card .ts-star.on{ color: #ffd24a; text-shadow: 0 0 8px rgba(255,210,74,.75), 0 1px 0 #000; }
+
+/* ---- the strip under the rail ---- */
+.tank-switch-panel .ts-foot{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 6px 0;
+  font: 800 10px/1 'Fredoka', system-ui, sans-serif;
+  letter-spacing: 1.3px;
+  text-transform: uppercase;
+}
+.tank-switch-panel .ts-picked{
+  color: #ffd24a;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tank-switch-panel .ts-hint{ color: rgba(255,255,255,.38); white-space: nowrap; }
+
+/* ---- small screens: fewer, tighter cards, no hint line ---- */
+@media (max-width: 900px), (max-height: 560px){
+  .tank-switch-panel{ padding: 8px 10px 7px; }
+  .tank-switch-panel .tank-switch-header .ts-label{ font-size: 11px; letter-spacing: 2px; }
+  .tank-switch-panel .ts-rail{ height: 146px; padding: 12px 6px 8px; gap: 8px; }
+  .ts-card{ flex-basis: 86px; width: 86px; height: 118px; }
+  .ts-card .ts-plate{ font-size: 8px; padding: 5px 3px 6px; letter-spacing: .5px; }
+  .ts-card .ts-tier{ font-size: 7px; padding: 1px 4px; }
+  .tank-switch-panel .ts-hint{ display: none; }
+  .tank-switch-panel .ts-foot{ font-size: 9px; }
+}
+
+@media (prefers-reduced-motion: reduce){
+  .ts-card, .ts-card .ts-art img, .ts-card .ts-star{ transition: none !important; }
+}

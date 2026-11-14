@@ -82,10 +82,71 @@ function _webgpuUsable(){
       const ad = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
       if (!ad) return false;
       if (ad.isFallbackAdapter === true) return false;
+      /* AN ADAPTER IS NOT A DEVICE.
+
+         requestAdapter() answers "is there a GPU WebGPU could talk to", and on
+         some hardware it answers yes while the game can still never draw a
+         frame: the DEVICE is a second handshake, and it is the one that fails
+         on a driver Chrome has not allowlisted, on a machine where D3D12 device
+         creation is refused, or where WebGPU is exposed but not enabled for
+         this GPU. Measured on an AMD Vega M GH: the old probe said "WebGPU:
+         yes" while every launch fell back to WebGL 2 inside three, so the
+         settings screen offered a backend that could never start.
+
+         So the device is requested here, once, and handed straight back. A
+         timeout because a device request that never settles must not hold boot
+         at "Initializing...". */
+      if (typeof ad.requestDevice !== 'function') return false;
+      const dev = await Promise.race([
+        ad.requestDevice(),
+        new Promise((resolve) => setTimeout(() => resolve(null), 3000)),
+      ]);
+      if (!dev) return false;
+      try { if (dev.destroy) dev.destroy(); } catch(e2){}
       return true;
     } catch(e){ return false; }
   })().then(v => { _webgpuProbeResult = !!v; return _webgpuProbeResult; });
   return _webgpuProbe;
+}
+
+/* HOW MANY REAL PIXELS THE GAME MAY DRAW.
+
+   This is the single biggest performance lever in the game, and it was missing.
+
+   The old cap was `Math.min(devicePixelRatio, 1.5)` (2 on Fancy, 3 on Ultra).
+   That number is a SCALE, not a cost, so the same setting asks for wildly
+   different work depending on the panel: on a 1920x1080 window at dpr 2 it is
+   4.7 megapixels per frame, while the exact same install on a 1366x768 laptop
+   at dpr 1 draws 1.0 megapixel. Same game, same shaders, nearly 5x the GPU work
+   — which is why a WEAKER computer can run this game more smoothly than a
+   stronger one, and why "it lags even on the smallest map" survived every map
+   optimisation: the map was never the cost, the fill rate was.
+
+   A budget in MEGAPIXELS is the honest unit. The drawing buffer is allowed to
+   be as sharp as the display wants until it costs more than the budget, and
+   then the ratio comes down to fit. Nothing gets blurrier on a normal dpr-1
+   screen (min() with dpr means we never supersample), and a 4K panel stops
+   paying for four times the pixels of a 1080p one.
+
+   The adaptive scaler further down the render loop can still go BELOW these
+   numbers when frames are actually heavy; this is only the ceiling. */
+const PIXEL_BUDGET = {
+  default: 3.6e6,
+  fancy:   4.8e6,
+  ultra:   6.0e6,
+  mobile:  2.6e6,
+};
+const PIXEL_RATIO_MIN = 0.6;
+
+/** The pixel-ratio ceiling for the current quality tier and window size. */
+function _fitPixelRatio(tier, dpr, w, h){
+  const budget = PIXEL_BUDGET[tier] || PIXEL_BUDGET.default;
+  /* Area is in CSS pixels; the ratio multiplies BOTH dimensions, so the pixels
+     actually drawn are w * h * ratio^2 — hence the square root. */
+  const byArea = Math.sqrt(budget / Math.max(1, w * h));
+  const cap = tier === 'ultra' ? 2 : (tier === 'fancy' ? 1.75 : 1.5);
+  const d = (typeof dpr === 'number' && dpr > 0) ? dpr : 1;
+  return Math.max(PIXEL_RATIO_MIN, Math.min(d, cap, byArea));
 }
 
 /* How many frames a bot may go between decisions. Four at 60fps is 66ms of
@@ -329,11 +390,17 @@ class Game {
     // the device really has it; anything less falls back to WebGL 2 (and then
     // WebGL 1 / experimental-webgl) exactly as before. The choice comes from
     // Settings > Other and defaults to "auto".
+    /* Answer "does this device really do WebGPU?" on EVERY boot, not only when
+       the player has already chosen it. The Settings screen reads this answer to
+       decide whether the WebGPU option is available — and without a boot-time
+       probe that flag stayed false forever, so a phone that fully supports
+       WebGPU was told "this device reports no WebGPU support". */
+    this._startWebGPUProbe();
     if(!await this._createRenderer()){
       this._showNoWebGL();
       return;
     }
-    this._maxPixelRatio = Math.min(devicePixelRatio, 1.5);
+    this._maxPixelRatio = _fitPixelRatio(this._pixelTier(), devicePixelRatio, innerWidth, innerHeight);
     this.renderer.setPixelRatio(this._maxPixelRatio);
     this.renderer.setSize(innerWidth, innerHeight);
     this.renderer.shadowMap.enabled = true;
@@ -371,6 +438,29 @@ class Game {
     try {
       const _loadGLB = this.world.loadGLBModel.bind(this.world);
       this.world.loadGLBModel = (...a) => _loadGLB(...a).then((grp) => {
+        /* EVERY MAP GETS PHYSICS, FROM ONE PLACE.
+
+           The trimesh used to be built by each mode's own load callback, and
+           two of them never did: startSingleplayer() and startGladiator() both
+           load a VOTED map and then go straight to spawning, with no
+           _sandboxBuildTrimesh() call anywhere in either. So a solo match or a
+           battle-royale match started on a voted map had no map collision at
+           all -- only the flat default ground slab under the terrain, so tanks
+           fell through hills, drove through buildings and shells passed
+           through walls. Reproduced live on Signal Map: map loaded, 23 tanks
+           running, _sandboxTrimeshBody null.
+
+           Building it here means the answer cannot depend on which mode forgot.
+           _sandboxBuildTrimesh() is idempotent per map group, so the mode
+           callbacks that still call it are no-ops rather than a second full
+           vertex merge. */
+        try { this._sandboxBuildTrimesh(grp); } catch(e){ console.warn('map physics:', e); }
+        /* The map just took the arena, and hideDefaults() emptied the default
+           arena's wall list on the way in. Its static Rapier boxes have to go
+           with it or they stay solid, invisible, in the middle of the new
+           map. Doing it here rather than in the mode starters is the same
+           reason the outline rebuild lives here: one hook covers every mode. */
+        try { this._rebuildWallColliders(); } catch(e){}
         /* Only the Ctrl+M debug view rebuilds here. Wrapping the loader in a
            hook that fires on every map load cost a full scene rebuild for a
            view that is off. */
@@ -586,6 +676,47 @@ class Game {
     });
   }
 
+  /* Kicked off once per page load. Resolves the module-level probe in game.js
+     and mirrors the answer onto the game object, where the Settings UI and the
+     boot banner read it. Never rejects: a browser without WebGPU is a normal
+     answer, not an error. */
+  _startWebGPUProbe(){
+    if(this._webgpuProbeRunning) return this._webgpuProbeRunning;
+    this._webgpuProbeRunning = _webgpuUsable().then(ok => {
+      this._webgpuAvailable = !!ok;
+      this._webgpuProbeDone = true;
+      return !!ok;
+    }).catch(() => { this._webgpuAvailable = false; this._webgpuProbeDone = true; return false; });
+    return this._webgpuProbeRunning;
+  }
+
+  /* IS THIS A PHONE OR TABLET?
+
+     NOT `document.body.classList.contains('is-mobile')` alone, because that
+     class is added by Menu.init() and Menu's DOMContentLoaded handler runs
+     AFTER this game's — so at the moment the renderer is chosen (and the pixel
+     budget computed) the class does not exist yet, and every phone would be
+     judged a desktop. Menu._detectPlatform() is defined at parse time, so it
+     can be asked before Menu has initialised. */
+  _isMobileDevice(){
+    try {
+      if(typeof Menu !== 'undefined' && Menu && typeof Menu._detectPlatform === 'function'){
+        return Menu._detectPlatform() !== 'desktop';
+      }
+    } catch(e){}
+    try {
+      if(document.body && document.body.classList.contains('is-mobile')) return true;
+      return /iPhone|iPad|iPod|Android/i.test(navigator.userAgent || '');
+    } catch(e){ return false; }
+  }
+
+  /** The quality tier the pixel budget should use for this device. */
+  _pixelTier(){
+    if(this._isMobileDevice()) return 'mobile';
+    const q = (this.settings && this.settings.graphicsQuality) || 'default';
+    return (q === 'ultra' || q === 'fancy') ? q : 'default';
+  }
+
   /** Which backend the player asked for: 'auto' | 'webgpu' | 'webgl2'. */
   _rendererPref(){
     let p = 'auto';
@@ -596,12 +727,22 @@ class Game {
     if (['auto','webgpu','webgl2'].indexOf(p) < 0) p = 'auto';
     /* AUTO MEANS "THE FASTER ONE", NOT "THE NEWER ONE".
        Auto used to pick WebGPU whenever the machine merely *supported* it, on
-       the assumption that the modern backend is the faster one. Measured on
-       this machine's own hardware (an older AMD GCN-4 card) that is backwards:
-       WebGPU ran at about 44 fps where WebGL 2 ran at about 59 on the same
-       scene. "Newer" is not a proxy for "faster", so Auto now picks WebGL 2,
-       which is the one that actually measured faster. WebGPU is still one click
-       away in Settings if it wins on different hardware. */
+       the assumption that the modern backend is the faster one. Measured on a
+       desktop GPU (an older AMD GCN-4 card) that is backwards: WebGPU ran at
+       about 44 fps where WebGL 2 ran at about 59 on the same scene. "Newer" is
+       not a proxy for "faster", so Auto stays on WebGL 2 — the backend that
+       actually measured faster.
+
+       WEBGPU IS STILL ONE CLICK AWAY, AND THAT CLICK NOW WORKS.
+       The option used to be dimmed and labelled "this device reports no WebGPU
+       support" even on hardware that has it, because the support probe only ran
+       once WebGPU had already been chosen. It runs on every boot now (see
+       _startWebGPUProbe) and the three.js WebGPU build is served from our own
+       origin instead of a CDN, so selecting WebGPU in Settings actually starts
+       the WebGPU renderer, and an init failure falls back to WebGL 2 cleanly
+       rather than leaving node materials in a WebGL scene. Deliberately NOT
+       auto-selected on phones: that path is newer than WebGL 2 here and this
+       project's rule is that Auto must never make a working device worse. */
     if(p === 'auto') p = 'webgl2';
     this.rendererPref = p;
     return p;
@@ -623,21 +764,50 @@ class Game {
       thrown away and the WebGL 2 renderer is built instead. */
   async _createWebGPURenderer(){
     let mods = null;
-    try { mods = await window.loadTSL(); } catch(e){ return false; }
+    try { mods = await window.loadTSL(); } catch(e){
+      console.warn('[renderer] three/webgpu could not be loaded:', e);
+      return false;
+    }
     const WGPU = mods && mods.WebGPU;
-    if (!WGPU || !WGPU.WebGPURenderer) return false;
+    if (!WGPU || !WGPU.WebGPURenderer){
+      console.warn('[renderer] three/webgpu loaded without WebGPURenderer');
+      return false;
+    }
     const canvas = document.createElement('canvas');
     canvas.id = 'game-canvas';
     let r = null;
     try {
-      r = new WGPU.WebGPURenderer({ canvas, antialias: devicePixelRatio <= 1, alpha: false });
-      await r.init();
+      r = new WGPU.WebGPURenderer({
+        canvas,
+        antialias: devicePixelRatio <= 1,
+        alpha: false,
+        /* Ask the browser for the discrete/dedicated GPU rather than whatever
+           it defaults to. On phones and hybrid-graphics laptops the default is
+           frequently the low-power adapter, which is a slower game with the
+           same settings. */
+        powerPreference: 'high-performance',
+      });
+      /* A device request that never settles must not hold the whole game at
+         "Initializing..." — that is the one failure mode with no way out of it.
+         Eight seconds is many times a real adapter handshake; past it, WebGL 2
+         is the answer and the player gets a game. */
+      await Promise.race([
+        r.init(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('WebGPU init timed out')), 8000)),
+      ]);
     } catch(e){
       console.warn('[renderer] WebGPU init failed:', e);
+      try { r && r.dispose && r.dispose(); } catch(e2){}
+      try { canvas.remove(); } catch(e2){}
       return false;
     }
+    /* three silently swaps in its WebGL backend when no WebGPU device came back
+       (getFallback), which would leave the game claiming WebGPU while drawing
+       through WebGL. Check the real backend and refuse the impostor. */
     if (!r.backend || r.backend.isWebGPUBackend !== true){
+      console.warn('[renderer] WebGPU unavailable at init — falling back to WebGL 2');
       try { r.dispose && r.dispose(); } catch(e){}
+      try { canvas.remove(); } catch(e){}
       return false;
     }
     this.renderer = r;
@@ -738,6 +908,43 @@ class Game {
     } catch(e){ /* no canvas events: the notice simply never appears */ }
   }
 
+  /* THE WEBGPU BACKEND DIED MID-MATCH.
+
+     Rare, but it has no other way of telling the player anything: the canvas
+     simply stops updating. When the player was on Auto, WebGL 2 is written to
+     their settings so the NEXT load is a working game instead of the same
+     crash — an explicit 'webgpu' choice is left alone, because that was a
+     deliberate decision and they may be testing it. */
+  _showWebGPUUnavailable(){
+    this._webgpuDeadNoticeShown = true;
+    try {
+      if(this.rendererPref === 'auto' && window.Menu && Menu.settings){
+        Menu.settings.rendererBackend = 'webgl2';
+        if(typeof saveSettings === 'function') saveSettings(Menu.settings);
+      }
+    } catch(e){}
+    try { if(window.__mtlMark) window.__mtlMark('renderer:webgpu-draw-failed'); } catch(e){}
+    let el = document.getElementById('gpu-fallback-notice');
+    if(!el){
+      el = document.createElement('div');
+      el.id = 'gpu-fallback-notice';
+      el.style.cssText = 'position:fixed;left:50%;top:22px;transform:translateX(-50%);z-index:999998;' +
+        'background:#2a2312;border:2px solid #ffc35c;border-radius:10px;color:#ffe9c2;' +
+        'font:13px/1.6 Consolas,Monaco,monospace;padding:12px 16px;max-width:min(92vw,520px);' +
+        'box-shadow:0 10px 40px rgba(0,0,0,.6);text-align:center';
+      el.innerHTML = '<b>WEBGPU STOPPED RESPONDING</b><br>' +
+        '<span style="color:#e8d4a8">The game could not draw another frame on the WebGPU backend. ' +
+        'Reload to continue on WebGL 2 — it is already selected for you' +
+        (this.rendererPref === 'auto' ? '.' : ', if you were on Auto.') + '</span><br>' +
+        '<button id="gpu-fallback-reload" style="margin-top:10px;padding:6px 18px;border-radius:8px;' +
+        'border:2px solid #000;background:#ffd08a;color:#1a1408;font:inherit;font-weight:bold;cursor:pointer">RELOAD</button>';
+      try { (document.body || document.documentElement).appendChild(el); } catch(e){}
+      const b = document.getElementById('gpu-fallback-reload');
+      if(b) b.onclick = () => { try { location.reload(); } catch(e){} };
+    }
+    el.style.display = 'block';
+  }
+
   _showContextLostNotice(on){
     let el = document.getElementById('gl-lost-notice');
     if(on){
@@ -807,6 +1014,8 @@ class Game {
       '<div id="perf-row-gpu" style="color:#8af"></div>' +
       '<div id="perf-row-fps"></div>' +
       '<div id="perf-row-frametime"></div>' +
+      '<div id="perf-row-stability"></div>' +
+      '<div id="perf-row-budget"></div>' +
       '<div id="perf-row-draws"></div>' +
       '<div id="perf-row-tris"></div>' +
       '<div id="perf-row-ping"></div>' +
@@ -889,6 +1098,28 @@ class Game {
       'FPS        ' + fps.toFixed(1) + (fps >= 55 ? '  ?' : fps >= 30 ? '  ?' : '  ?');
     document.getElementById('perf-row-frametime').textContent =
       'Frame time ' + frt.toFixed(1) + ' ms';
+    /* THE DISTRIBUTION, not just the last frame.
+       p95 is the number that describes stutter and the one to watch: a game can
+       read 60 fps and still feel broken if every eighth frame is 30 ms. "Miss"
+       is the share of frames that actually dropped, which is what the governor
+       reacts to. */
+    (function(self){
+      var st = document.getElementById('perf-row-stability');
+      var bg = document.getElementById('perf-row-budget');
+      if(st){
+        st.textContent = (typeof self._perfP50 === 'number')
+          ? 'p50 ' + self._perfP50.toFixed(1) + '   p95 ' + self._perfP95.toFixed(1) +
+            '   p99 ' + self._perfP99.toFixed(1) + ' ms'
+          : 'p50 --   p95 --   p99 --';
+      }
+      if(bg){
+        var miss = (typeof self._perfMissRate === 'number') ? Math.round(self._perfMissRate * 100) : 0;
+        bg.textContent = 'Missed ' + miss + '%   Budget ' +
+          ((typeof self._perfBudget === 'number') ? self._perfBudget.toFixed(1) : '16.7') +
+          ' ms   Px ' + (self.renderer ? self.renderer.getPixelRatio().toFixed(2) : '-') +
+          (self._perfHeavy ? '   [shadow-throttled]' : '');
+      }
+    })(this);
 
     /* WHAT IS ACTUALLY BEING SUBMITTED, not a guess about it.
 
@@ -978,9 +1209,111 @@ class Game {
     }
   }
 
+  /* ONE SNAPSHOT OF EVERYTHING THAT DECIDES THE FRAME TIME.
+
+     Reading "it lags" off a video is guesswork; every number that can explain
+     it is already collected here but was spread over five objects and two DOM
+     rows. This gathers them into one call so a report can be reproduced exactly
+     instead of described:
+
+         __perfStats()
+
+     Draw calls and triangle counts say whether the frame is submission-bound
+     or fill-bound; the p50/p95/p99 triple says whether it is slow or merely
+     uneven; programs and textures say whether anything is compiling mid-match.
+     Nothing here allocates or renders -- it is safe to call during a fight. */
+  _perfStats(){
+    const info = (this.renderer && this.renderer.info) ? this.renderer.info : null;
+    const hist = this._perfFpsHistory || [];
+    let avgFps = 0;
+    if(hist.length > 1){
+      let sum = 0, n = 0;
+      for(let i = 1; i < hist.length; i++){
+        const d = hist[i] - hist[i-1];
+        if(d > 0.5 && d < 200){ sum += d; n++; }
+      }
+      if(n) avgFps = 1000 / (sum / n);
+    }
+    let mats = 0;
+    try { if(this.scene) this.scene.traverse(o => { if(o.isMesh || o.isSprite) mats++; }); } catch(e){}
+    return {
+      fps: +avgFps.toFixed(1),
+      budgetMs: this._perfBudget ? +this._perfBudget.toFixed(2) : null,
+      p50: this._perfP50 ? +this._perfP50.toFixed(2) : null,
+      p95: this._perfP95 ? +this._perfP95.toFixed(2) : null,
+      p99: this._perfP99 ? +this._perfP99.toFixed(2) : null,
+      missRate: (typeof this._perfMissRate === 'number') ? +this._perfMissRate.toFixed(3) : null,
+      heavy: !!this._perfHeavy,
+      pixelRatio: this.renderer ? +this.renderer.getPixelRatio().toFixed(2) : null,
+      maxPixelRatio: this._maxPixelRatio ? +this._maxPixelRatio.toFixed(2) : null,
+      drawCalls: info ? info.render.calls : null,
+      triangles: info ? info.render.triangles : null,
+      programs: info ? info.programs.length : null,
+      geometries: info ? info.memory.geometries : null,
+      textures: info ? info.memory.textures : null,
+      drawables: mats,
+      tanks: (this.tanks || []).length,
+      backend: this._backend || null,
+    };
+  }
+
+  /* LATE PHYSICS.
+
+     Called from the boot retry loop when the engine only became available
+     after the game (and possibly a map) already existed. Every piece below is
+     the piece that silently did nothing while RAPIER was undefined:
+
+       * _initPhysics() never created a world, so this creates it.
+       * the map's trimesh was never built (_sandboxBuildTrimesh() bailed on the
+         missing world, before setting its per-group flag, so the group is
+         clean -- the flag is cleared anyway, because a flag without a body
+         behind it is exactly the state that would skip the rebuild).
+       * tanks made before the world existed have no _physWorld, so Tank never
+         built their body; they are wearing a visual model that cannot collide.
+     Idempotent: with a healthy world and bodies this does nothing. */
+  _attachPhysicsAfterBoot(){
+    if(typeof RAPIER === 'undefined') return false;
+    if(!this.physicsWorld){
+      this._initPhysics();
+      if(!this.physicsWorld) return false;
+    }
+    const grp = this.world && this.world._glbGroup;
+    if(grp && !this._sandboxTrimeshBody){
+      try { if(grp.userData) grp.userData.__physTrimesh = false; } catch(e){}
+      try { this._sandboxBuildTrimesh(grp); }
+      catch(e){ console.warn('[physics] map trimesh after a late load:', e); }
+    }
+    this._rebuildWallColliders();
+    for(const t of (this.tanks || [])){
+      if(!t || t._physBody || t._physWorld) continue;
+      const prevStartY = t._startY;
+      try {
+        /* Start the body at the altitude the tank is already drawn at. Tank's
+           own default for a falling body is 50 units up (its spawn drop), and
+           replaying that mid-match would lift every tank into the sky. _startY
+           is also the RESPAWN altitude, so it is put back afterwards -- a body
+           built at the current height must not move where the next respawn
+           happens. */
+        if(t.root) t._startY = t.root.position.y;
+        t._physWorld = this.physicsWorld;
+        t._createPhysBody();
+      } catch(e){} finally { t._startY = prevStartY; }
+    }
+    return true;
+  }
+
   _initPhysics(){
     try {
-      if(typeof RAPIER === 'undefined') return;
+      if(typeof RAPIER === 'undefined'){
+        /* Naming the cause once, with a stack, beats a match that silently has
+           no collision. The boot flow normally covers this (local engine first,
+           banner + retry after); this is for anything that reaches here first. */
+        if(!this._warnedNoRapier){
+          this._warnedNoRapier = true;
+          console.error('[physics] _initPhysics() with no RAPIER loaded -- the match will have NO collision. See the boot physics note in js/game.js.');
+        }
+        return;
+      }
       this.physicsWorld = new RAPIER.World({x:0, y:-20, z:0});
       this._eventQueue = new RAPIER.EventQueue(false);
       // Ground body
@@ -991,20 +1324,109 @@ class Game {
       if(gCol && typeof gCol.setActiveEvents === 'function') gCol.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
       gCol.userData = {type:'ground'};
       this._physBodies.push(gBody);
-      // Wall colliders
-      if(this.world && this.world.walls){
-        for(const w of this.world.walls){
-          try {
-            var wDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(w.x, 0.5, w.z);
-            var wBody = this.physicsWorld.createRigidBody(wDesc);
-            var wCol = this.physicsWorld.createCollider(RAPIER.ColliderDesc.cuboid(w.w/2, 5.0, w.d/2), wBody);
-            if(wCol && typeof wCol.setActiveEvents === 'function') wCol.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
-            wCol.userData = {type:'wall'};
-            this._physBodies.push(wBody);
-          } catch(e2){}
-        }
-      }
+      /* Wall bodies are built by _rebuildWallColliders(), NOT inline here.
+         _initPhysics() runs from the constructor and from _resetPhysics() on
+         every battle, and both of those moments see whatever `world.walls`
+         happens to hold -- which after a map load is that map's cover list, and
+         before one is the default arena's. Creating static boxes for those
+         lists blindly is how matches ended up with solid, invisible blocks in
+         the middle of the field. See the note on the rebuild below. */
+      this._rebuildWallColliders();
     } catch(e){ console.warn('Rapier init:', e); }
+  }
+
+  /* ============================================================================
+     STATIC WALL BODIES BELONG TO ONE ARENA, NOT TO THE RUNNING TAB
+
+     Every tank drives a dynamic Rapier body, so anything solid in the physics
+     world stops it -- whether or not there is anything to see there. Two paths
+     used to leave boxes behind:
+
+       * _initPhysics() built a box for EVERY entry of world.walls, which at
+         construction time is the default arena's wall list: the four perimeter
+         walls, the corner pillars, the four blocks at +/-22 from the lake and
+         the four diagonal blocks at +/-16. A GLB map then calls hideDefaults()
+         (which empties that list) but nothing told Rapier, so the first map of
+         the session kept a ring of invisible solid blocks around its centre --
+         and on a 240-unit map like the Testgrounds they sit right where the
+         player spawns.
+       * _resetPhysics() re-runs _initPhysics() while world.walls still holds
+         the PREVIOUS map's cover entries, so every match after the first
+         started with invisible boxes at the old map's buildings.
+
+     Cover entries (glbCover) are deliberately skipped: the map's own trimesh is
+     already solid, world.collidesWallsOnly() documents that tanks pass cover
+     boxes, and a cover footprint is an axis-aligned rectangle that can reach
+     across a courtyard.
+
+     Called on every physics build and again whenever a GLB map takes the arena
+     (the loader hook in the constructor), which is what removes the default
+     arena's blocks once a map owns the field. */
+  /* REMOVE A STATIC BODY EXACTLY ONCE, AND NEVER LET RAPIER PANIC.
+
+     Rapier throws "unreachable" -- a Rust panic -- when a rigid body is
+     removed twice, and a panic does not just fail that one call: it poisons the
+     whole wasm module. From then on EVERY physics call throws
+
+         Error: recursive use of an object detected which would lead to unsafe
+         aliasing in rust
+
+     including `new RAPIER.World()`, `createRigidBody()` and `step()`, all of
+     which the game catches and logs as a warning. The result is a match that
+     looks completely normal and has no collision: tanks sink to the flat slab,
+     shells pass through the map, and nothing on screen says why.
+
+     That is exactly what happened on a TDM start: the wall bodies are held by
+     BOTH _physBodies and _wallBodies, _resetPhysics() removed them through one
+     list, and the map-load hook then removed the same handles through the
+     other. Measured: 16 panics in a row at _rebuildWallColliders, after which
+     every tank spawned without a body.
+
+     Tagging the wrapper rather than the handle is deliberate. Rapier recycles
+     handles, so "handle N is gone" is not a safe statement; "this object was
+     already removed" is. A body that a caller has already removed is marked
+     here and every later removal is a no-op. */
+  _removeBody(b){
+    if(!b || b.__physRemoved) return false;
+    b.__physRemoved = true;
+    if(!this.physicsWorld) return false;
+    try { this.physicsWorld.removeRigidBody(b); return true; }
+    catch(e){
+      if(!this._warnedBodyRemove){
+        this._warnedBodyRemove = true;
+        console.warn('physics: a body could not be removed (already gone?):', e && e.message);
+      }
+      return false;
+    }
+  }
+
+  _rebuildWallColliders(){
+    if(!this.physicsWorld || typeof RAPIER === 'undefined') return;
+    /* Drop the previous set first -- both from the world and from _physBodies,
+       which _resetPhysics() walks. Stale handles are not kept around: Rapier
+       recycles handles, so removing one later could delete an unrelated body. */
+    if(this._wallBodies && this._wallBodies.length){
+      for(const b of this._wallBodies){
+        this._removeBody(b);
+        const i = this._physBodies.indexOf(b);
+        if(i >= 0) this._physBodies.splice(i, 1);
+      }
+    }
+    this._wallBodies = [];
+    const walls = this.world && this.world.walls;
+    if(!walls || !walls.length) return;
+    for(const w of walls){
+      if(w.glbCover) continue;
+      try {
+        var wDesc = RAPIER.RigidBodyDesc.fixed().setTranslation(w.x, 0.5, w.z);
+        var wBody = this.physicsWorld.createRigidBody(wDesc);
+        var wCol = this.physicsWorld.createCollider(RAPIER.ColliderDesc.cuboid(w.w/2, 5.0, w.d/2), wBody);
+        if(wCol && typeof wCol.setActiveEvents === 'function') wCol.setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS);
+        wCol.userData = {type:'wall'};
+        this._physBodies.push(wBody);
+        this._wallBodies.push(wBody);
+      } catch(e2){}
+    }
   }
 
   /* Rapier collision event handler (compat: drainCollisionEvents gives
@@ -1578,6 +2000,13 @@ class Game {
     const sz = this.renderer.getSize(new THREE.Vector2());
     if(sz.x === innerWidth && sz.y === innerHeight) return;
     this.renderer.setSize(innerWidth, innerHeight);
+    /* The pixel budget depends on the window AREA, so a window that grew needs a
+       lower ratio to stay inside it. Only the ceiling moves here — the adaptive
+       scaler below owns the live ratio, and it is allowed to climb back to the
+       new ceiling once frames are comfortable again. */
+    this._maxPixelRatio = _fitPixelRatio(this._pixelTier(), devicePixelRatio, innerWidth, innerHeight);
+    if(this.renderer.getPixelRatio() > this._maxPixelRatio) this.renderer.setPixelRatio(this._maxPixelRatio);
+    this._adapChanged = 0;
     this.camera.aspect = innerWidth/innerHeight;
     this.camera.updateProjectionMatrix();
     /* The stripe pitch is in device pixels and the drawing buffer just changed
@@ -1627,7 +2056,10 @@ class Game {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
-    this._maxPixelRatio = Math.min(devicePixelRatio, document.body.classList.contains('is-mobile') ? 1.5 : (this.isUltra ? 3 : (this.isFancy ? 2 : 1.5)));
+    /* A budget in megapixels, not a dpr multiplier — see PIXEL_BUDGET above for
+       why the old min(devicePixelRatio, 2) cap was the reason the same build ran
+       smoothly on a weak laptop and badly on a strong one. */
+    this._maxPixelRatio = _fitPixelRatio(this._pixelTier(), devicePixelRatio, innerWidth, innerHeight);
     this.renderer.setPixelRatio(this._maxPixelRatio);
     this._applyParticlePolicy();
     if(this.world) this.world.setQuality(q);
@@ -1822,7 +2254,7 @@ class Game {
         if(grp){
           grp.updateMatrixWorld(true);
           const box = new THREE.Box3().setFromObject(grp);
-          _spawnY = box.min.y + (box.max.y - box.min.y) * 0.65;
+          _spawnY = box.max.y + 5;
           /* Same reason as the two multiplayer modes: a map that declares its
              own boundary has to override the 500 set just above. */
           this._fitWorldToMap(box, voted);
@@ -1837,7 +2269,14 @@ class Game {
         var m = this._useCustomMap ? loadCustomMap() : null;
         if(!m) m = loadMainMap();
         if(!m && typeof DEFAULT_MAP !== 'undefined' && DEFAULT_MAP) m = DEFAULT_MAP;
-        if(m) this.world.loadCustomMapData(m);
+        if(m){
+          this.world.loadCustomMapData(m);
+          /* A custom map is a list of wall boxes, and its walls are created
+             AFTER the physics world was built in _resetArena() — so without
+             this they were scenery a tank drove straight through. Rebuild the
+             static wall bodies now that there is a list to build them from. */
+          try { this._rebuildWallColliders(); } catch(e){}
+        }
         else this.world._disposeGLBGroup();
       } catch(e){ console.warn('Map load error:', e); }
       _finishSP();
@@ -1902,7 +2341,7 @@ class Game {
         if(grp){
           grp.updateMatrixWorld(true);
           const box = new THREE.Box3().setFromObject(grp);
-          _spawnY = box.min.y + (box.max.y - box.min.y) * 0.65;
+          _spawnY = box.max.y + 5;
         }
         _finishGlad();
       }).catch(e => {
@@ -1915,7 +2354,14 @@ class Game {
         if(!m && typeof GLADIATOR_MAP !== 'undefined' && GLADIATOR_MAP) m = GLADIATOR_MAP;
         if(!m) m = loadMainMap();
         if(!m && typeof DEFAULT_MAP !== 'undefined' && DEFAULT_MAP) m = DEFAULT_MAP;
-        if(m) this.world.loadCustomMapData(m);
+        if(m){
+          this.world.loadCustomMapData(m);
+          /* A custom map is a list of wall boxes, and its walls are created
+             AFTER the physics world was built in _resetArena() — so without
+             this they were scenery a tank drove straight through. Rebuild the
+             static wall bodies now that there is a list to build them from. */
+          try { this._rebuildWallColliders(); } catch(e){}
+        }
         else this.world._disposeGLBGroup();
       } catch(e){ console.warn('Map load error:', e); }
       _finishGlad();
@@ -1958,7 +2404,7 @@ class Game {
 
       const box = new THREE.Box3().setFromObject(grp);
       const bottom = box.min.y;
-      this._sandboxSpawnY = bottom + (box.max.y - bottom) * 0.65;
+      this._sandboxSpawnY = box.max.y + 5;
       this._fitWorldToMap(box, map);
     }catch(e){
       console.error('Sandbox map load error:', e);
@@ -2010,7 +2456,7 @@ class Game {
     this._resetArena();
 
     this._physBodies.forEach(b => {
-      try { this.physicsWorld.removeRigidBody(b); } catch(e){}
+      this._removeBody(b);
     });
     this._physBodies = [];
     this.physicsWorld.gravity = {x:0, y:-12, z:0};
@@ -2030,9 +2476,9 @@ class Game {
         Menu.toast('Failed to load sandbox map');
         return;
       }
-      // This mode has always kept the default ground + lake under the test
-      // platform (hideDefaults() used to run before _resetArena() undid it).
-      // loadGLBModel() now hides them once the GLB is ready, so put them back.
+      /* No-op while the GLB map is loaded (World.showDefaults early-returns).
+         The dev test platform now sits in the void like every other map rather
+         than on top of the default arena's grid floor and water disc. */
       this.world.showDefaults();
       this._sandboxBuildTrimesh(grp);
 
@@ -2040,7 +2486,7 @@ class Game {
       const box = new THREE.Box3().setFromObject(grp);
       const center = box.getCenter(new THREE.Vector3());
       const modelBottom = box.min.y;
-      const spawnY = modelBottom + (box.max.y - modelBottom) * 0.65;
+      const spawnY = box.max.y + 5;
       console.log('Sandbox spawn: center='+center.x.toFixed(1)+','+center.y.toFixed(1)+','+center.z.toFixed(1)+' modelBottom='+modelBottom.toFixed(1)+' spawnY='+spawnY.toFixed(1));
 
       this.camAngle = Math.PI + (this.settings.camRotation || 0);
@@ -2428,7 +2874,7 @@ class Game {
     try{ this._tankFavorites = JSON.parse(localStorage.getItem('tankFavorites') || '[]'); }catch(e){ this._tankFavorites = []; }
 
     this._physBodies.forEach(b => {
-      try { this.physicsWorld.removeRigidBody(b); } catch(e){}
+      this._removeBody(b);
     });
     this._physBodies = [];
     this.physicsWorld.gravity = {x:0, y:-12, z:0};
@@ -2479,8 +2925,13 @@ class Game {
       }
       try { if(typeof BootLoading !== 'undefined') BootLoading.set('Placing spawns', 70); } catch(e){}
 
-      // TDM historically rendered on the default ground/lake as well
-      // (hideDefaults() ran before _resetArena() re-showed them). Keep that.
+      /* NO-OP ON PURPOSE, and it must stay that way while a GLB map is loaded:
+         showDefaults() early-returns once the map owns the arena (see
+         World.showDefaults). This call used to re-show the default grid floor
+         and the lake ON TOP of the battle map — the "grid in the void and a
+         circle with a fancy shader" players kept reporting. It is kept because
+         it is the correct call for the case where the map failed to load and
+         the default arena is all there is. */
       this.world.showDefaults();
       this._sandboxBuildTrimesh(grp);
       grp.updateMatrixWorld(true);
@@ -2488,7 +2939,7 @@ class Game {
       const box = new THREE.Box3().setFromObject(grp);
       const center = box.getCenter(new THREE.Vector3());
       const modelBottom = box.min.y;
-      const spawnY = modelBottom + (box.max.y - modelBottom) * 0.65;
+      const spawnY = box.max.y + 5;
       this.world._tdmBox = box;
 
       /* FIT THE WORLD TO THE MAP THAT ACTUALLY LOADED. The map is passed so a
@@ -2680,7 +3131,7 @@ class Game {
     try{ this._tankFavorites = JSON.parse(localStorage.getItem('tankFavorites') || '[]'); }catch(e){ this._tankFavorites = []; }
 
     this._physBodies.forEach(b => {
-      try { this.physicsWorld.removeRigidBody(b); } catch(e){}
+      this._removeBody(b);
     });
     this._physBodies = [];
     this.physicsWorld.gravity = {x:0, y:-12, z:0};
@@ -2761,7 +3212,7 @@ class Game {
       const box = new THREE.Box3().setFromObject(grp);
       const center = box.getCenter(new THREE.Vector3());
       const modelBottom = box.min.y;
-      const spawnY = modelBottom + (box.max.y - modelBottom) * 0.65;
+      const spawnY = box.max.y + 5;
       this.world._tdmBox = box;
 
       /* FIT THE WORLD TO THE MAP THAT ACTUALLY LOADED. The map is passed so a
@@ -2964,7 +3415,7 @@ class Game {
     try{ this._tankFavorites = JSON.parse(localStorage.getItem('tankFavorites') || '[]'); }catch(e){ this._tankFavorites = []; }
 
     this._physBodies.forEach(b => {
-      try { this.physicsWorld.removeRigidBody(b); } catch(e){}
+      this._removeBody(b);
     });
     this._physBodies = [];
     this.physicsWorld.gravity = {x:0, y:-12, z:0};
@@ -3053,7 +3504,7 @@ class Game {
       const box = new THREE.Box3().setFromObject(grp);
       const center = box.getCenter(new THREE.Vector3());
       const modelBottom = box.min.y;
-      const spawnY = modelBottom + (box.max.y - modelBottom) * 0.65;
+      const spawnY = box.max.y + 5;
       this.world._tdmBox = box;
 
       /* Paperland's own boundary, not the voted arena's — see mapForBounds above.
@@ -3256,7 +3707,7 @@ class Game {
     try{ this._tankFavorites = JSON.parse(localStorage.getItem('tankFavorites') || '[]'); }catch(e){ this._tankFavorites = []; }
 
     this._physBodies.forEach(b => {
-      try { this.physicsWorld.removeRigidBody(b); } catch(e){}
+      this._removeBody(b);
     });
     this._physBodies = [];
     this.physicsWorld.gravity = {x:0, y:-12, z:0};
@@ -3317,7 +3768,7 @@ class Game {
       const box = new THREE.Box3().setFromObject(grp);
       const center = box.getCenter(new THREE.Vector3());
       const modelBottom = box.min.y;
-      const spawnY = modelBottom + (box.max.y - modelBottom) * 0.65;
+      const spawnY = box.max.y + 5;
       this.world._tdmBox = box;
       this._fitWorldToMap(box, mapForFit);
 
@@ -3456,6 +3907,279 @@ class Game {
     });
   }
 
+  /* ============================================================================
+     TESTGROUNDS — the training map, and the props the tutorial drives.
+
+     THIS IS A REAL MODE, not a sandbox hack. It loads one GLB, spawns the
+     player on the map's own SPAWN empty, and reads three kinds of marker out
+     of the model by name:
+
+       tank-named empties   coolbudy / ghost / strurmratte
+                            -> parked dummy tanks; each one respawns in the
+                               same spot one second after it dies
+       an empty with 'bot'  -> the live bot: it drives, aims and shoots
+       a mesh with 'bot' +  'detect'
+                            -> the authored cube that bounds the bot. It is
+                               hidden and marked noPhysics, its bounding box
+                               becomes the bot's arena, and the bot is clamped
+                               inside it and cannot fire at anything outside
+       target* meshes       -> shootable targets. NOT tanks: they have no HP,
+                               never die, and only report hits (Tutorial owns
+                               the hit test).
+
+     The map's ground texture is baked bright grass/dirt (see
+     tools/bake-testgrounds-texture.mjs); nothing is painted at runtime.
+
+     The tutorial itself is js/tutorial.js. This file only provides the arena
+     and the three spawn primitives, so the lesson logic has one owner.
+     ============================================================================ */
+  startTutorial(opts){
+    const o = opts || {};
+    /* Reached from the main menu, possibly right after any mode: clear the old
+       arena first so a leftover map, tank or physics body is never drawn behind
+       the new one. _resetArena also clears _tutorialMode, so the flags go back
+       on afterwards -- not before. */
+    if(this.running || (this.tanks && this.tanks.length)) this._resetArena();
+    this.mode = 'sp';
+    this._tutorialMode = true;
+    this._tutorialFreeplay = !o.tutorial;
+    this._tutorialCam = false;
+    this._spWinDone = false;
+    this.world.size = 1000;
+    this.world.half = 118;
+    this.physicsWorld.gravity = {x:0, y:-12, z:0};
+    try { if(window.__mtlMark) window.__mtlMark('battle:load-training'); } catch(e){}
+
+    const glbUrl = 'assets/maps/testgrounds.glb';
+    const modelScale = 120;
+
+    this.world.loadGLBModel(glbUrl, modelScale).then(grp => {
+      if(!grp){
+        console.warn('Training: failed to load testgrounds.glb');
+        if(window.Menu && Menu.toast) Menu.toast('Failed to load the Testgrounds');
+        return;
+      }
+      this.world.showDefaults();
+      grp.updateMatrixWorld(true);
+
+      /* The authored map is 2x2 units, so x120 is a 240x240 field. The
+         boundary sits just inside the ground plane instead of using the
+         500-unit floor in _fitWorldToMap: a tank driven off this plane would
+         fall forever, and the map is small enough that the edge is part of
+         the lesson. */
+      const box = new THREE.Box3().setFromObject(grp);
+      this.world.half = Math.max(40, Math.min(400, (box.max.x - box.min.x) * 0.5 - 4));
+      this._tutSpawnY = box.max.y + 4;
+
+      /* Props first: the parser flags the detection cube noPhysics, and the
+         trimesh must not turn that cube into an invisible wall around the bot. */
+      const props = this._parseTutorialProps(grp);
+      this._sandboxBuildTrimesh(grp);
+
+      const sp = props.spawn || { x: 0, z: 0, ry: 0 };
+      this._spawnLocal(sp.x, sp.z, sp.ry, this._tutSpawnY);
+      this.camAngle = (sp.ry || 0) + Math.PI;
+      /* The training range is a safe place: the lesson is about the controls,
+         and dying to the bot while reading a tip teaches nobody anything. */
+      if(this.localTank){ this.localTank.maxHp = 9999; this.localTank.hp = 9999; }
+
+      this._finalizeTutProps(props);
+
+      this._begin();
+      this._matchStartDelay = 0;
+      if(window.Tutorial && Tutorial.begin){
+        try { Tutorial.begin(this, { tutorial: !!o.tutorial }); }
+        catch(e){ console.warn('[tutorial] begin failed', e); }
+      }
+    }).catch(err => {
+      console.error('Training GLB load error:', err);
+      if(window.Menu && Menu.toast) Menu.toast('Error loading the Testgrounds');
+    });
+  }
+
+  /* Every marker the training map carries, in world coordinates.
+
+     NAMES ARE THE FORMAT. The .blend is authored with plain empties and the
+     tutorial reads them the way every other map reads `blue`/`red`/`flag`:
+     by what the node is called. The one addition is the tank-name rule -- an
+     empty called after a tank id becomes a dummy OF THAT TANK, so the range
+     can show a Ghost next to a Cool Buddy without a table in the code. */
+  _parseTutorialProps(grp){
+    const out = { spawn:null, dummies:[], bot:null, zone:null, targets:[] };
+    grp.updateMatrixWorld(true);
+    const yaw = (o) => {
+      const q = new THREE.Quaternion(); o.getWorldQuaternion(q);
+      return new THREE.Euler().setFromQuaternion(q, 'YXZ').y;
+    };
+    grp.traverse(o => {
+      const nm = (o.name || '').toLowerCase();
+      if(!nm) return;
+      const wp = new THREE.Vector3();
+      o.getWorldPosition(wp);
+
+      if(nm === 'spawn'){ out.spawn = { x: wp.x, z: wp.z, ry: yaw(o) }; return; }
+
+      /* The bot's box. Tested BEFORE the bot itself, because both names
+         contain 'bot' and the cube's name also contains 'detection'. */
+      if(nm.indexOf('bot') !== -1 && nm.indexOf('detect') !== -1){
+        const b = new THREE.Box3().setFromObject(o);
+        out.zone = {
+          minX: b.min.x, maxX: b.max.x, minZ: b.min.z, maxZ: b.max.z,
+          y: b.min.y,
+          cx: (b.min.x + b.max.x) / 2, cz: (b.min.z + b.max.z) / 2,
+        };
+        o.visible = false;
+        o.userData.noPhysics = true;
+        /* A hidden mesh still casts a shadow unless this is off, and an
+           invisible box shadow around the bot looks like a bug. */
+        o.castShadow = false; o.receiveShadow = false;
+        return;
+      }
+      if(nm.indexOf('bot') !== -1){
+        out.bot = { x: wp.x, z: wp.z, ry: yaw(o) };
+        return;
+      }
+      if(nm.indexOf('target') === 0){
+        const b = new THREE.Box3().setFromObject(o);
+        const c = b.getCenter(new THREE.Vector3());
+        const s = b.getSize(new THREE.Vector3());
+        out.targets.push({
+          mesh: o,
+          x: c.x, y: c.y, z: c.z,
+          /* Forgiving on purpose: the authored target is ~5 units across and
+             shells fly at hull height, so the hit sphere is wider than the
+             board to make "aim at it and shoot" feel like it lands. */
+          r: Math.max(5, Math.max(s.x, s.z) * 1.2),
+          baseScale: o.scale.clone(),
+        });
+        return;
+      }
+      /* Tank-named empty -> a parked dummy of that tank. `ghost.001` style
+         copies collapse to the same id, and a near-miss spelling still
+         resolves (see _tutTankIdForName). */
+      const key = this._tutTankIdForName(nm);
+      if(!o.isMesh && key){
+        out.dummies.push({ tankId: key, x: wp.x, z: wp.z, ry: yaw(o) });
+      }
+    });
+    return out;
+  }
+
+  /* WHICH TANK IS THIS MARKER CALLED AFTER?
+
+     The .blend names markers the way a human types a tank, not the way the
+     roster spells it: the shipped map says `coolbudy` and `strurmratte` while
+     the roster says `coolbuddy` and `sturmratte`. An exact lookup silently
+     dropped two of the three dummies from the range -- no error, no warning,
+     just an empty patch of grass where a tank should be.
+
+     So: exact id first, then the nearest roster id by edit distance, and only
+     if it is within a couple of characters (one slip of the finger, doubled
+     letter, missing vowel). Beyond that the marker is not a tank name at all
+     -- an empty called `bush` must not become a tank because it is two edits
+     from some id. */
+  _tutTankIdForName(name){
+    if(typeof TANKS === 'undefined') return null;
+    const squash = (s) => String(s || '').toLowerCase().split('.')[0].replace(/[\s_-]+/g, '');
+    const key = squash(name);
+    if(!key) return null;
+    if(TANKS[key]) return key;
+    let best = null, bestD = 99;
+    Object.keys(TANKS).forEach(id => {
+      const d = Game.editDistance(key, squash(id));
+      if(d < bestD){ bestD = d; best = id; }
+    });
+    /* Two edits covers a doubled letter plus a slipped vowel; three starts to
+       reach unrelated short ids (`m5`, `t34`) from ordinary words. */
+    return (best && bestD <= 2) ? best : null;
+  }
+
+  static editDistance(a, b){
+    a = String(a); b = String(b);
+    if(a === b) return 0;
+    if(!a.length) return b.length;
+    if(!b.length) return a.length;
+    let prev = new Array(b.length + 1);
+    let cur = new Array(b.length + 1);
+    for(let j = 0; j <= b.length; j++) prev[j] = j;
+    for(let i = 1; i <= a.length; i++){
+      cur[0] = i;
+      for(let j = 1; j <= b.length; j++){
+        const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);
+      }
+      const t = prev; prev = cur; cur = t;
+    }
+    return prev[b.length];
+  }
+
+  _finalizeTutProps(props){
+    this._tutState = { dummies: [], bot: null, zone: props.zone, targets: props.targets || [] };
+    (props.dummies || []).forEach(d => {
+      const entry = { tankId: d.tankId, x: d.x, z: d.z, ry: d.ry, tank: null, respawnAt: 0 };
+      entry.tank = this._tutSpawnDummy(entry.tankId, entry.x, entry.z, entry.ry);
+      this._tutState.dummies.push(entry);
+    });
+    if(props.bot){
+      const b = { x: props.bot.x, z: props.bot.z, ry: props.bot.ry, tank: null, respawnAt: 0 };
+      b.tank = this._tutSpawnBot(b.x, b.z, b.ry, props.zone);
+      this._tutState.bot = b;
+    }
+  }
+
+  _tutSpawnDummy(tankId, x, z, heading){
+    const def = TANKS[tankId] || TANKS[this._tutTankIdForName(tankId)];
+    if(!def) return null;
+    const t = new Tank(def, {
+      id: 'tut-dummy-' + tankId,
+      name: def.name || tankId,
+      x, z,
+      heading: heading || 0,
+      physicsWorld: this.physicsWorld, allowFall: true,
+      startY: (this._tutSpawnY != null ? this._tutSpawnY : 5),
+    });
+    t.isDummy = true;
+    t.isTutorialDummy = true;
+    /* Short for a training target: a dummy should fall in two or three good
+       hits, not after a full match's worth of shooting. */
+    t.maxHp = 150; t.hp = 150;
+    this._finalizeTank(t);
+    this.tanks.push(t);
+    return t;
+  }
+
+  _tutSpawnBot(x, z, heading, zone){
+    const def = TANKS.coolbuddy;
+    const t = new Tank(def, {
+      id: 'tut-bot',
+      name: 'Test Bot',
+      isBot: true,
+      x, z,
+      heading: heading || 0,
+      physicsWorld: this.physicsWorld, allowFall: true,
+      startY: (this._tutSpawnY != null ? this._tutSpawnY : 5),
+    });
+    t.maxHp = 220; t.hp = 220;
+    t.isTutorialBot = true;
+    t.brain = new BotBrain(t, { iq: 'medium', personality: 'veteran' });
+    /* No team, so BotBrain's solo order applies and the player is an enemy. */
+    t.team = null;
+    this._finalizeTank(t);
+    this.tanks.push(t);
+    return t;
+  }
+
+  /* Remove a training tank completely, wreck and all. Respawning by adding a
+     new tank next to a 48-second-old wreck would fill the range with burnt
+     hulls; the arena is a lesson, not a scrapyard. */
+  _tutDisposeTank(t){
+    if(!t) return;
+    const i = this.tanks.indexOf(t);
+    if(i >= 0) this.tanks.splice(i, 1);
+    try { t.detach(); } catch(e){}
+    try { t.dispose(); } catch(e){}
+  }
+
   _parseGLBSpawns(grp, scale){
     const spawns = [];
     grp.traverse(obj => {
@@ -3494,7 +4218,7 @@ class Game {
          Six units of clearance turns that into an ordinary short drop onto the
          surface. It is applied to every map because every map authored its
          markers the same way, and a six-unit fall at spawn is imperceptible. */
-      const SPAWN_LIFT = 6;
+      const SPAWN_LIFT = 2;
       spawns.push({ name:obj.name, team, pos:{x:worldPos.x, y:worldPos.y + SPAWN_LIFT, z:worldPos.z}, ry });
     });
     return spawns;
@@ -3753,6 +4477,27 @@ class Game {
       tank.turretAngle = tank.heading;
       tank.hp = tank.maxHp; tank.alive = true; tank.dying = false; tank.deathT = 0;
       tank.speed = 0; tank.vx = 0; tank.vz = 0; tank.reloadLeft = 0;
+      /* UN-BLACKEN THE WRECK. _startDeath() paints every material on the tank
+         black and keeps the originals in _deathColorBackup; Tank.respawn()
+         puts them back, but this round reset revives by hand and never did.
+         So every player and bot wrecked in the previous round spawned into the
+         next one as a black silhouette -- "you respawn black" -- and stayed
+         that way until something else recoloured them. Restored here, first,
+         so the fresh round starts from the tank's real paint.
+
+         Before anything touches root or the body: a wreck collected at the
+         ten-second mark is out of the scene and out of physics, and rounds are
+         two minutes long, so most wrecks ARE collected by the time a round
+         ends. Restore first, then this block positions what exists. */
+      try { tank._restoreDeathColors(); } catch(e){}
+      /* ...and take off what death hung on the hull: the fire plume and the
+         scorch star decal. respawn() has always done this; this reset did not,
+         so a wrecked tank came back into the new round wearing a black star. */
+      try { tank._stripWreckDressing(); } catch(e){}
+      /* ...and clear the state death interrupted (a super, a heat lock, a
+         drowning timer) instead of letting it leak into the fresh round. */
+      try { tank._resetPostDeathState(); } catch(e){}
+      try { if(tank._wreckGone) tank._restoreFromGarbage(this); } catch(e){}
       tank.root.visible = true;
       if(tank._physBody){
         try {
@@ -4014,7 +4759,7 @@ class Game {
         const cz = (box.max.z + box.min.z) / 2;
         bot.x = cx + (bot.team === 'blue' ? -10 : 10) + (Math.random()-0.5)*10;
         bot.z = cz + (Math.random()-0.5)*20;
-        respawnY = box.min.y + (box.max.y - box.min.y) * 0.65;
+        respawnY = box.max.y + 5;
       } else {
         bot.x = (Math.random()-0.5)*40;
         bot.z = (Math.random()-0.5)*40;
@@ -4024,6 +4769,13 @@ class Game {
     bot.turretAngle = bot.heading;
     bot.hp = bot.maxHp; bot.alive = true; bot.dying = false; bot.deathT = 0;
     bot.speed = 0; bot.vx = 0; bot.vz = 0; bot.reloadLeft = 0;
+    /* Same reason as _tdmStartRound: this revive is hand-written, so the death
+       black, the wreck dressing and the interrupted combat state all have to be
+       undone here too or every respawning bot is a black silhouette wearing a
+       scorch decal for the rest of the match. See Tank._restoreDeathColors. */
+    try { bot._restoreDeathColors(); } catch(e){}
+    try { bot._stripWreckDressing(); } catch(e){}
+    try { bot._resetPostDeathState(); } catch(e){}
     bot.root.visible = true;
     if(bot._physBody){
       try {
@@ -4242,12 +4994,31 @@ class Game {
   }
 
   _sandboxBuildTrimesh(grp){
-    if(!this.physicsWorld || typeof RAPIER === 'undefined') return;
+    if(!grp) return;
+    if(!this.physicsWorld || typeof RAPIER === 'undefined'){
+      /* THE MAP CANNOT BE SOLID WITHOUT A WORLD. Returning here is correct --
+         there is nothing to add the collider to -- but it has to be visible:
+         this is the line that used to turn "Rapier never loaded" into "this map
+         has no collision", with the terrain left as pure decoration. */
+      if(!this._warnedNoMapPhys){
+        this._warnedNoMapPhys = true;
+        console.error('[physics] map collision skipped: no physics world' + (typeof RAPIER === 'undefined' ? ' (RAPIER not loaded)' : '') + '. _attachPhysicsAfterBoot() rebuilds it if the engine turns up later.');
+      }
+      return;
+    }
+    /* IDEMPOTENT PER MAP. The loader hook now builds every map's collision the
+       moment it arrives, and the mode callbacks still call this straight after
+       for their own reasons. Merging every vertex of a 20MB map twice is a
+       visible hitch for nothing. The flag lives on the group and is only
+       trusted while the body it produced is still in the physics world —
+       _resetPhysics() drops the body, so a group that outlives its arena is
+       rebuilt rather than skipped. */
+    if(grp.userData && grp.userData.__physTrimesh && this._sandboxTrimeshBody) return;
     try {
       /* Clean up the previous map's trimesh body + box colliders so they
          don't leak across map loads. */
-      if(this._sandboxTrimeshBody){ try { this.physicsWorld.removeRigidBody(this._sandboxTrimeshBody); } catch(e){} this._sandboxTrimeshBody = null; }
-      if(this._sandboxColliders){ for(const b of this._sandboxColliders){ try { this.physicsWorld.removeRigidBody(b); } catch(e){} } this._sandboxColliders = []; }
+      if(this._sandboxTrimeshBody){ this._removeBody(this._sandboxTrimeshBody); this._sandboxTrimeshBody = null; }
+      if(this._sandboxColliders){ for(const b of this._sandboxColliders){ this._removeBody(b); } this._sandboxColliders = []; }
       else { this._sandboxColliders = []; }
       this.scene.updateMatrixWorld(true);
       /* Register SIMPLE BOX COLLIDERS for meshes named collider/hitbox/collision
@@ -4260,6 +5031,13 @@ class Game {
       grp.traverse(o => {
         if(!o.isMesh) return;
         if(!(o.userData && o.userData.isCollider)) return;
+        /* noPhysics wins over isCollider. A mesh can be flagged both -- the map
+           loader flags its barrier/zone helpers that way, and the tutorial
+           flags its bot-detection cube -- and "no physics" is the more
+           specific statement. Honouring it here is what keeps an authoring
+           helper from becoming a solid invisible block at the arena centre;
+           see the note in World.loadGLBModel. */
+        if(o.userData.noPhysics) return;
         const box = new THREE.Box3().setFromObject(o);
         const cx = (box.min.x + box.max.x) / 2;
         const cy = (box.min.y + box.max.y) / 2;
@@ -4279,6 +5057,15 @@ class Game {
       const mergedIdx = [];
       let vertCount = 0;
       let meshCount = 0;
+      /* Map Y range, used below to tell a ceiling (downward-facing triangle
+         in the UPPER half of the map) from a mis-wound floor (downward-
+         facing triangle near the BOTTOM). Ceilings used to be made solid by
+         the double-sided trimesh, which caught falling tanks mid-air and
+         left them hovering on an "invisible floor". Skipping those triangles
+         keeps the floor (and mis-wound floors) solid while letting tanks
+         drop through ceilings to the ground. */
+      const _grpBox = new THREE.Box3().setFromObject(grp);
+      const _mapMidY = (_grpBox.min.y + _grpBox.max.y) / 2;
       grp.traverse(o => {
         if(!o.isMesh) return;
         const nameLower = (o.name || '').toLowerCase();
@@ -4299,11 +5086,25 @@ class Game {
             mergedVerts.push(pos.getX(i), pos.getY(i), pos.getZ(i));
           }
           for(let i = 0; i < idx.count; i += 3){
-            let a = idx.getX(i) + vertCount;
-            let b = idx.getX(i+1) + vertCount;
-            let c = idx.getX(i+2) + vertCount;
+            const ia = idx.getX(i), ib = idx.getX(i+1), ic = idx.getX(i+2);
+            let a = ia + vertCount;
+            let b = ib + vertCount;
+            let c = ic + vertCount;
             if(hasNegScale){ var tmp = a; a = c; c = tmp; }
-            mergedIdx.push(a, b, c);
+            /* Skip ceiling triangles: downward-facing, in the upper half. */
+            const p0x = pos.getX(ia), p0y = pos.getY(ia), p0z = pos.getZ(ia);
+            const p1x = pos.getX(ib), p1y = pos.getY(ib), p1z = pos.getZ(ib);
+            const p2x = pos.getX(ic), p2y = pos.getY(ic), p2z = pos.getZ(ic);
+            const triCx = (p0x + p1x + p2x) / 3;
+            const triCy = (p0y + p1y + p2y) / 3;
+            const e1x = p1x - p0x, e1y = p1y - p0y, e1z = p1z - p0z;
+            const e2x = p2x - p0x, e2y = p2y - p0y, e2z = p2z - p0z;
+            const nx = e1y * e2z - e1z * e2y;
+            const ny = e1z * e2x - e1x * e2z;
+            const nz = e1x * e2y - e1y * e2x;
+            const nlen = Math.hypot(nx, ny, nz) || 1;
+            if (ny / nlen < -0.35 && triCy > _mapMidY) continue;
+            mergedIdx.push(a, b, c, a, c, b);
           }
           vertCount += pos.count;
         } else {
@@ -4315,7 +5116,18 @@ class Game {
             let b = i+1 + vertCount;
             let c = i+2 + vertCount;
             if(hasNegScale){ var tmp2 = a; a = c; c = tmp2; }
-            mergedIdx.push(a, b, c);
+            const p0x = pos.getX(i), p0y = pos.getY(i), p0z = pos.getZ(i);
+            const p1x = pos.getX(i+1), p1y = pos.getY(i+1), p1z = pos.getZ(i+1);
+            const p2x = pos.getX(i+2), p2y = pos.getY(i+2), p2z = pos.getZ(i+2);
+            const triCy = (p0y + p1y + p2y) / 3;
+            const e1x = p1x - p0x, e1y = p1y - p0y, e1z = p1z - p0z;
+            const e2x = p2x - p0x, e2y = p2y - p0y, e2z = p2z - p0z;
+            const ny = e1z * e2x - e1x * e2z;
+            const nx = e1y * e2z - e1z * e2y;
+            const nz = e1x * e2y - e1y * e2x;
+            const nlen = Math.hypot(nx, ny, nz) || 1;
+            if (ny / nlen < -0.35 && triCy > _mapMidY) continue;
+            mergedIdx.push(a, b, c, a, c, b);
           }
           vertCount += pos.count;
         }
@@ -4356,6 +5168,10 @@ class Game {
       collider.userData = { type: 'wall' };
       this._physBodies.push(body);
       this._sandboxTrimeshBody = body;
+      /* Remembered on the GROUP, so a second call for the same map is a no-op.
+         Cleared with the body by _resetPhysics(), which nulls the reference. */
+      grp.userData = grp.userData || {};
+      grp.userData.__physTrimesh = true;
       console.log('Sandbox trimesh created, physBodies after:', this._physBodies.length);
     } catch(e){
       console.warn('Sandbox trimesh build error:', e);
@@ -5872,7 +6688,10 @@ _gladZoneNotice(text){
       if(!m && cfg.gamemode === 'gladiator' && typeof GLADIATOR_MAP !== 'undefined' && GLADIATOR_MAP) m = GLADIATOR_MAP;
       if(!m) m = loadMainMap();
       if(!m && typeof DEFAULT_MAP !== 'undefined' && DEFAULT_MAP) m = DEFAULT_MAP;
-      if(m) this.world.loadCustomMapData(m);
+      if(m){
+        this.world.loadCustomMapData(m);
+        try { this._rebuildWallColliders(); } catch(e){}
+      }
       else this.world._disposeGLBGroup();
     } catch(e){ console.warn('Map load error:', e); }
     if(cfg.gamemode === 'gladiator'){
@@ -6968,6 +7787,14 @@ Net.sendJoinInfo(
   }
 
   _resetArenaInner(){
+    /* Training state belongs to the arena being torn down. Left set, the
+       victory guard below would silence the NEXT battle's win condition, and
+       a tutorial overlay would stay up over the main menu. */
+    this._tutorialMode = false;
+    this._tutorialFreeplay = false;
+    this._tutorialCam = false;
+    this._tutState = null;
+    try { if(window.Tutorial && Tutorial.shutdown) Tutorial.shutdown(); } catch(e){}
     /* A respawn shot belongs to the battle it was filmed in. Left running it
        would keep the camera and a full-screen letterbox over the main menu,
        and keep ticking a corpse that the reset is about to delete. */
@@ -7096,6 +7923,11 @@ Net.sendJoinInfo(
       this.world._glbBushes = [];
       this.world._glbPines = [];
       this.world._defaultsLockedHidden = false;
+      /* The next mode starts from a clean arena, so the "a GLB map owns this
+         battle" flag has to be cleared BEFORE showDefaults(): the flag exists to
+         stop showDefaults() re-showing the grid plane and the lake on top of a
+         loaded map, not to keep the daylight arena away forever. */
+      this.world._glbMapActive = false;
       this.world.showDefaults();
     }
     // A fresh match must never inherit spectator state from a previous one
@@ -7214,13 +8046,17 @@ Net.sendJoinInfo(
 
   _resetPhysics(){
     try { if(window.__mtlMark) window.__mtlMark('battle:reset-arena'); } catch(e){}
-    this._physBodies.forEach(b=>{ try{ this.physicsWorld.removeRigidBody(b); }catch(e){} });
+    this._physBodies.forEach(b=>{ this._removeBody(b); });
     this._physBodies = [];
     this._eventQueue = null;
     /* These belong to the world being thrown away. Removing an old world's body from
        the new one panics inside Rapier and wedges it, so the next match had no physics. */
     this._sandboxTrimeshBody = null;
     this._sandboxColliders = [];
+    /* Same reason: the wall bodies were just removed with _physBodies, and a
+       stale handle left in this list would be "removed" again later -- possibly
+       hitting a body Rapier handed the recycled handle to. */
+    this._wallBodies = [];
     /* THE TWO TRAIL MANAGERS ARE GONE.
 
        They pre-allocated 200 trail meshes EACH in their constructor -- 400
@@ -7528,6 +8364,27 @@ Net.sendJoinInfo(
        Idempotent (tryPlaceTrees has its own one-shot guard) and cheap when the
        trees are already there, so calling it on every match start is safe. */
     if(this.world && !this.world.treesPlaced) this.world.tryPlaceTrees();
+
+    /* THE LAST LINE OF DEFENCE AGAINST A MAP WITH NO COLLISION.
+
+       A loaded map without a trimesh in the physics world is a map where the
+       ground, the buildings and the walls are all decoration: tanks sink to the
+       flat default slab under the terrain, drive through cover, and shells hit
+       nothing. Every start path is supposed to have built it — the loader hook
+       now does it for every map — but this is the one point in a match start
+       where the map, the physics world and the spawns all exist, so it is where
+       a missing trimesh can still be noticed and repaired before a shot is
+       fired. Cheap: when the body is there, it does nothing. */
+    if(this.world && this.world._glbGroup && !this._sandboxTrimeshBody){
+      try { this._sandboxBuildTrimesh(this.world._glbGroup); } catch(e){ console.warn('map physics at start:', e); }
+    }
+    /* ...and say so out loud when there is no world at all, because "the map
+       has no collision" and "the engine never loaded" look identical in play and
+       are very different bugs. */
+    if(!this.physicsWorld && !this._warnedNoWorldAtStart){
+      this._warnedNoWorldAtStart = true;
+      console.error('[physics] starting a match with no physics world -- collision is OFF for this battle.');
+    }
 
     /* TELL THE FREEZE WATCHDOG WHERE WE ARE.
 
@@ -7938,6 +8795,11 @@ Net.sendJoinInfo(
 
   leaveToMenu(){
     this._noteSceneAssets();
+    /* The lesson UI is not part of the menu. Every way out of the arena goes
+       through here, so this is the one place that guarantees the objective
+       card and subtitles come down with the HUD instead of hanging over the
+       garage. */
+    try { if(window.Tutorial && Tutorial.shutdown) Tutorial.shutdown(); } catch(e){}
     // Hide touch joysticks FIRST — nothing below may run (throws, early
     // returns, async) while leaving the joysticks visible over the menus.
     if(this.input && this.input.setJoysticksVisible){
@@ -8608,27 +9470,97 @@ Net.sendJoinInfo(
     // Resizing the drawing buffer is itself a visible hitch, so this only runs
     // every 3s, needs a full 60-frame sample, and is rate-limited so the
     // resolution can't oscillate during a firefight.
-    if(now - this._adapT > 3000){
+    /* WHY THIS RAN ZERO TIMES SINCE IT WAS WRITTEN.
+
+       `_perfFpsHistory` is capped at 60 entries by the push at the top of this
+       loop (`if(length > 60) shift()`), so its length is never greater than 60
+       — and this block tested `hist.length > 60`. The condition could never be
+       true, so the adaptive resolution scaler, the one system whose entire job
+       was to keep a heavy scene smooth, was dead code. The game has been
+       rendering at its full pixel-ratio ceiling forever, on every machine.
+
+       Fixed by testing `>= 30` (half a second of frames at 60 Hz) and by
+       averaging only REAL frame deltas: a tab that was backgrounded leaves one
+       enormous gap in the list, which used to drag the average to ~0 fps and
+       would now make the game blur itself for no reason.
+
+       The floor drops from 0.75 to 0.6 as well. 0.75 of a 1440p window is still
+       ~1.6 megapixels, which is more than a weak integrated GPU can fill; 0.6
+       is the point where the picture is soft but the game is playable, and the
+       scaler climbs back automatically once frames recover. */
+    /* ---- FRAME-BUDGET GOVERNOR -------------------------------------------
+
+       The previous version of this block reacted to the AVERAGE frame rate and
+       to nothing else. An average is the wrong statistic for a game: 60 fps of
+       which every eighth frame takes 30 ms reads as "60 fps" and plays as
+       stutter, which is exactly the report this exists to fix -- "it shows 60
+       but it does not FEEL like 60". Averaging also cannot distinguish a
+       machine that is genuinely overloaded from one that is merely unlucky.
+
+       So: sample the frame-time DISTRIBUTION instead of its mean.
+
+         * p50 tells us what a normal frame costs.
+         * missRate is the fraction of frames that took longer than one and a
+           third refresh intervals -- i.e. frames that actually dropped. A
+           healthy game is under 10%; a machine that cannot hold its refreshrate
+           sits far above that.
+         * p95/p99 are published for the overlay and for __perfStats(), because
+           those are the numbers that describe stutter and they were simply
+           missing from the readout before.
+
+       Resolution only comes down when BOTH the median frame is already missing
+       the budget AND a meaningful share of frames dropped. Requiring both is
+       what keeps this from blurring the screen for a single hitch -- the old
+       rule dropped a whole 0.2 of pixel ratio for one bad second and then took
+       ten seconds to climb back.
+
+       The budget floor is one 60 Hz interval, never lower: a 144 Hz panel is
+       welcome to run this at 144, but it is not a reason to blur the game for
+       falling short of 144 while it is comfortably holding 60. */
+    if(now - this._adapT > 900){
       this._adapT = now;
       const hist = this._perfFpsHistory;
-      if(hist.length > 60){
-        let s = 0;
-        for(let i = hist.length - 60; i < hist.length; i++){
-          const d = hist[i] - hist[i-1];
-          s += (1000 / (d > 0 ? d : 16.7));
+      if(hist.length >= 24){
+        const d = this._frameDtBuf || (this._frameDtBuf = []);
+        d.length = 0;
+        for(let i = 1; i < hist.length; i++){
+          const v = hist[i] - hist[i-1];
+          /* Below half a millisecond is a burst of callbacks from one frame;
+             over 200 ms is a backgrounded tab. Neither describes the game. */
+          if(v > 0.5 && v < 200) d.push(v);
         }
-        const fps60 = s / 59;
-        const cur = this.renderer.getPixelRatio();
-        const since = now - (this._adapChanged || 0);
-        /* Drop resolution as soon as a fight costs frames, not only once the game
-           is already below 32 fps: a crowd on a weaker GPU sat at 35-45 fps for
-           good before. Steps are small and rate-limited. */
-        if(fps60 < 48 && cur > 0.75 && since > 4000){
-          this._adapChanged = now;
-          this.renderer.setPixelRatio(Math.max(0.75, cur - 0.15));
-        } else if(fps60 > 55 && cur < this._maxPixelRatio && since > 12000){
-          this._adapChanged = now;
-          this.renderer.setPixelRatio(Math.min(this._maxPixelRatio, cur + 0.15));
+        if(d.length >= 20){
+          const sorted = d.slice().sort((a, b) => a - b);
+          const at = (q) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * q))];
+          /* WHAT THE DISPLAY IS ASKING FOR, measured rather than assumed.
+             The fastest ten percent of frames is the best this machine can do
+             on this scene, and never slower than 60 Hz: see the floor below. */
+          const budget = Math.max(16.7, at(0.10));
+          const p50 = at(0.50), p95 = at(0.92), p99 = at(0.98);
+          let miss = 0;
+          for(let i = 0; i < d.length; i++) if(d[i] > budget * 1.35) miss++;
+          const missRate = miss / d.length;
+          this._perfBudget = budget;
+          this._perfP50 = p50; this._perfP95 = p95; this._perfP99 = p99;
+          this._perfMissRate = missRate;
+          /* The shadow lever: a crowded, struggling frame gets its shadow map
+             refreshed every fifth or sixth frame instead of every third. A
+             shadow 80 ms old is invisible under a moving tank; a dropped frame
+             is not. Set from measurements, cleared the moment they recover. */
+          this._perfHeavy = (missRate > 0.22) || (p95 > budget * 2.2);
+          const cur = this.renderer.getPixelRatio();
+          const since = now - (this._adapChanged || 0);
+          const overloaded = missRate > 0.12 && p50 > budget * 1.02;
+          if(overloaded && cur > PIXEL_RATIO_MIN && since > 1200){
+            this._adapChanged = now;
+            this.renderer.setPixelRatio(Math.max(PIXEL_RATIO_MIN, cur - 0.15));
+          } else if(!overloaded && missRate < 0.05 && p50 <= budget * 1.02 &&
+                    cur < this._maxPixelRatio - 0.001 && since > 8000){
+            /* Climb back slowly and only from a clean report: going up is the
+               step that costs a hitch, and it is the one that can oscillate. */
+            this._adapChanged = now;
+            this.renderer.setPixelRatio(Math.min(this._maxPixelRatio, cur + 0.1));
+          }
         }
       }
     }
@@ -8671,7 +9603,14 @@ Net.sendJoinInfo(
         for(const c of this.tanks) if(c && c.alive && Math.hypot(c.x - this.localTank.x, c.z - this.localTank.z) < 70) near++;
         this._tanksNear = near;
       }
-      const shadowEvery = 3 + ((this._tanksNear || 0) >= 5 ? 1 : 0);
+      /* SHADOW RATE, DRIVEN BY MEASUREMENT.
+         Three frames between rebuilds is the default (a shadow 50 ms old is
+         invisible at tank speed); a crowd pushes it to four; and a frame budget
+         the governor has just reported as blown pushes it one step further
+         again. The extra step only ever appears while frames are actually being
+         dropped, and disappears on its own when they are not -- so the picture
+         is identical whenever the game is comfortable. */
+      const shadowEvery = Math.min(6, 3 + ((this._tanksNear || 0) >= 5 ? 1 : 0) + (this._perfHeavy ? 1 : 0));
       if(this._shadowDirty || this._shadowFrame <= 2 || (this._shadowFrame % shadowEvery) === 0){
         _rsm.needsUpdate = true;
         this._shadowDirty = false;
@@ -8689,7 +9628,27 @@ Net.sendJoinInfo(
     if(typeof Xray !== 'undefined' && Xray.sync){
       try { Xray.sync(this.tanks, this.settings, now / 1000, this.localTank ? this.localTank.team : null); } catch(e){}
     }
-    if(this.running) this.renderer.render(this.scene, this.camera);
+    /* THE DRAW, WITH A WEBGPU SAFETY NET.
+
+       The WebGPU path is a different renderer and a different material system
+       (node materials, not GLSL). If it throws mid-match, the old behaviour was
+       one uncaught exception per frame — the canvas freezes on its last good
+       frame, the loop keeps running, and the player sees a "crashed" game with
+       no explanation. Three failures is enough to conclude it is not a one-off:
+       stop drawing, say so, and let the next load come up on WebGL 2. */
+    if(this.running){
+      if(this._backend === 'WebGPU' && !this._webgpuRenderDead){
+        try { this.renderer.render(this.scene, this.camera); }
+        catch(e){
+          this._webgpuRenderErrors = (this._webgpuRenderErrors | 0) + 1;
+          if(this._webgpuRenderErrors <= 3) console.error('[renderer] WebGPU draw failed:', e);
+          if(this._webgpuRenderErrors >= 3) this._webgpuRenderDead = true;
+        }
+      } else {
+        this.renderer.render(this.scene, this.camera);
+      }
+    }
+    if(this._webgpuRenderDead && !this._webgpuDeadNoticeShown) this._showWebGPUUnavailable();
     /* Sampled HERE, after the draw, because three zeroes `info.render` at the top
        of every render() -- reading it any earlier in the frame reports the
        PREVIOUS frame's totals, which on a first frame reads as zero and looks
@@ -9093,75 +10052,167 @@ Net.sendJoinInfo(
       overlay.setAttribute('aria-hidden', 'true');
     }, 250);
   }
+  /* ============================================================
+     THE PRE-BATTLE TANK PICKER
+
+     One row of cards you scroll, Brawl-Stars style, instead of a 2x10
+     grid behind arrow buttons. Three things made the grid wrong:
+
+       - the arrows were the only way to reach a tank that fell off the
+         page, so the roster was invisible in chunks;
+       - every card wore the same placeholder icon, so a card told you
+         a tank's NAME and nothing else;
+       - ten columns forced each card down to ~90px, which is too small
+         to show a tank in.
+
+     Now the cards are free to be big: the rail scrolls (drag it, or roll
+     the wheel over it), each card carries a real render of its tank at
+     the roster angle (TankPick.thumb), and the picked one rises out of
+     the row and turns yellow.
+     ============================================================ */
   _populateTankSwitchList(){
-    /* TankPick (friend's pre-battle menus) disabled - the user's tank selector (ts-grid) and the battle-intro (two-rectangle animation) are used instead. */
-      if(false && window.TankPick && this._tdmState){ TankPick.open(this); return; }
     const panel = document.getElementById('tank-switch-panel');
-    const grid = document.getElementById('tank-switch-grid');
+    const rail = document.getElementById('tank-switch-grid');
     const countEl = document.getElementById('ts-count');
-    if(!panel || !grid || !this._tdmState) return;
+    if(!panel || !rail || !this._tdmState) return;
     panel.classList.remove('hidden');
-    grid.innerHTML = '';
+
+    /* Favourites first, then roster order. The order is a stable sort, so
+       starring a tank only ever moves THAT tank - the rest keep their
+       places and the player does not lose their spot in the rail. */
     const favs = this._tankFavorites || [];
-    const ids = TANK_ORDER.filter(id => id !== 'tankdisplay' && id !== 'dummy');
+    const ids = TANK_ORDER.filter(id => id !== 'tankdisplay' && id !== 'dummy' && TANKS[id]);
     ids.sort((a,b) => {
       const af = favs.includes(a) ? 0 : 1;
       const bf = favs.includes(b) ? 0 : 1;
       return af - bf;
     });
+    this._tsIds = ids;
+
+    /* Rebuild the cards only when the SET of tanks changed (a star was
+       tapped). Re-picking a tank must not rebuild the rail: that would
+       drop every rendered icon on the floor and re-scroll it. */
+    const sig = ids.join(',');
+    if(rail.dataset.sig !== sig){
+      rail.dataset.sig = sig;
+      rail.innerHTML = ids.map(id => {
+        const def = TANKS[id];
+        return '<div class="ts-card" data-id="' + id + '">' +
+          '<span class="ts-tier">T' + (def.tier || 1) + '</span>' +
+          '<span class="ts-star" data-star="' + id + '" title="Favourite">\u2605</span>' +
+          '<span class="ts-art"><img alt="" draggable="false"></span>' +
+          '<span class="ts-plate">' + String(def.name || id).toUpperCase() + '</span>' +
+        '</div>';
+      }).join('');
+    }
+
     const currentId = this.localTank ? this.localTank.def.id : this.settings.selectedTank;
     const currentIdx = ids.indexOf(currentId);
-    // Show 2 rows: 10 per row = 20 visible tanks (full width panel)
-    const perRow = 10;
-    const visibleCount = perRow * 2;
-    this._tsIds = ids;
-    this._tsOffset = Math.max(0, Math.min(currentIdx - Math.floor(visibleCount / 2), ids.length - visibleCount));
-    this._tsRenderGrid(currentId, visibleCount);
-    if(countEl) countEl.textContent = (currentIdx + 1) + '/' + ids.length;
-    // Nav buttons
-    const prevBtn = document.getElementById('ts-prev');
-    const nextBtn = document.getElementById('ts-next');
-    if(prevBtn) prevBtn.onclick = () => {
-      this._tsOffset = Math.max(0, this._tsOffset - visibleCount);
-      this._tsRenderGrid(currentId, visibleCount);
-    };
-    if(nextBtn) nextBtn.onclick = () => {
-      this._tsOffset = Math.min(ids.length - visibleCount, this._tsOffset + visibleCount);
-      this._tsRenderGrid(currentId, visibleCount);
-    };
+
+    /* Handlers are re-bound on every populate, not only on a rebuild: the
+       rail lives in index.html and outlives a Game instance, so a handler
+       left over from the previous match would call into a dead Game. */
+    rail.querySelectorAll('.ts-card').forEach(card => {
+      const id = card.dataset.id;
+      card.classList.toggle('on', id === currentId);
+      const star = card.querySelector('.ts-star');
+      if(star){
+        star.classList.toggle('on', favs.includes(id));
+        star.onclick = (e) => { e.stopPropagation(); this._toggleTankFavorite(id); };
+      }
+      card.onclick = () => {
+        /* A drag that ends on a card is a scroll, not a pick. */
+        if(rail._tsDragged) return;
+        this._tsCenterCard(rail, id, true);
+        this._switchLocalTank(id);
+      };
+    });
+
+    this._tsWireRail(rail);
+    this._tsLoadIcons(rail, currentId);
+    if(countEl) countEl.textContent = (currentIdx >= 0 ? currentIdx + 1 : 0) + ' / ' + ids.length;
+
+    const picked = document.getElementById('ts-picked');
+    const cdef = TANKS[currentId];
+    if(picked && cdef){
+      const dmg = Math.max(cdef.damage || 0, cdef.splashDamage || 0, cdef.mineDamage || 0);
+      picked.textContent = String(cdef.name || '').toUpperCase() +
+        '  \u00b7  HP ' + (cdef.hp || 0) + '  \u00b7  DMG ' + dmg;
+    }
+
+    /* Centre the pick when the panel OPENS, not when a card is tapped -
+       tapping already scrolls the tapped card to the middle. */
+    if(!this._tsCentred || this._tsCentredSig !== sig){
+      this._tsCentred = true;
+      this._tsCentredSig = sig;
+      this._tsCenterCard(rail, currentId, false);
+    }
   }
 
-  _tsRenderGrid(currentId, visibleCount){
-    const grid = document.getElementById('tank-switch-grid');
-    const ids = this._tsIds || [];
-    const offset = this._tsOffset || 0;
-    if(!grid) return;
-    grid.innerHTML = '';
-    const favs = this._tankFavorites || [];
-    const visible = ids.slice(offset, offset + visibleCount);
-    visible.forEach(id => {
-      const def = TANKS[id];
-      if(!def) return;
-      const btn = document.createElement('div');
-      btn.className = 'ts-btn' + (id === currentId ? ' active' : '');
-      const star = document.createElement('div');
-      star.className = 'ts-star' + (favs.includes(id) ? ' on' : '');
-      star.textContent = '\u2605';
-      star.onclick = (e) => {
-        e.stopPropagation();
-        this._toggleTankFavorite(id);
-      };
-      btn.appendChild(star);
-      const icon = document.createElement('img');
-      icon.src = 'assets/icons/tank-icon.webp';
-      btn.appendChild(icon);
-      const nm = document.createElement('div');
-      nm.className = 'ts-name';
-      nm.textContent = def.name;
-      btn.appendChild(nm);
-      btn.onclick = () => this._switchLocalTank(id);
-      grid.appendChild(btn);
+  /* Render the roster icons in the background and drop them into the cards
+     as they arrive. The picked tank is drawn FIRST so the card under the
+     player's eyes is never the last one to fill in. */
+  _tsLoadIcons(rail, currentId){
+    if(!window.TankPick || typeof TankPick.thumb !== 'function') return;
+    const cards = Array.prototype.slice.call(rail.querySelectorAll('.ts-card'));
+    cards.sort((a, b) => (a.dataset.id === currentId ? -1 : 0) - (b.dataset.id === currentId ? -1 : 0));
+    cards.forEach(card => {
+      const img = card.querySelector('img');
+      if(!img || img.dataset.for === card.dataset.id) return;
+      img.dataset.for = card.dataset.id;
+      TankPick.thumb(card.dataset.id).then(url => {
+        if(!url) return;
+        img.src = url;
+        card.classList.add('has-art');
+      });
     });
+  }
+
+  _tsCenterCard(rail, id, smooth){
+    const card = rail.querySelector('.ts-card[data-id="' + id + '"]');
+    if(!card) return;
+    const left = Math.max(0, card.offsetLeft - (rail.clientWidth - card.offsetWidth) / 2);
+    try { rail.scrollTo({ left: left, behavior: smooth ? 'smooth' : 'auto' }); }
+    catch(e){ rail.scrollLeft = left; }
+  }
+
+  /* Drag + wheel. Wired ONCE per rail element, and all of the drag state
+     lives on the element rather than on `this`, so the same listeners keep
+     working for the next match's Game. */
+  _tsWireRail(rail){
+    if(rail._tsWired) return;
+    rail._tsWired = true;
+    let down = false, startX = 0, startScroll = 0;
+    rail.addEventListener('pointerdown', (e) => {
+      if(e.target.closest('.ts-star')) return;
+      down = true;
+      startX = e.clientX;
+      startScroll = rail.scrollLeft;
+      rail._tsDragged = false;
+      rail.classList.add('dragging');
+    });
+    document.addEventListener('pointermove', (e) => {
+      if(!down) return;
+      const dx = e.clientX - startX;
+      if(Math.abs(dx) > 6) rail._tsDragged = true;
+      if(rail._tsDragged) rail.scrollLeft = startScroll - dx;
+    });
+    const up = () => {
+      if(!down) return;
+      down = false;
+      rail.classList.remove('dragging');
+      /* Cleared on the NEXT tick so the click that follows this pointerup
+         still sees the drag and declines to pick a tank. */
+      setTimeout(() => { rail._tsDragged = false; }, 0);
+    };
+    document.addEventListener('pointerup', up);
+    document.addEventListener('pointercancel', up);
+    rail.addEventListener('wheel', (e) => {
+      if(rail.scrollWidth <= rail.clientWidth) return;
+      if(Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      e.preventDefault();
+      rail.scrollLeft += e.deltaY;
+    }, { passive: false });
   }
 
   _toggleTankFavorite(id){
@@ -9432,6 +10483,15 @@ Net.sendJoinInfo(
 
   _update(dt){
     this._updateHitMarkers(dt);
+    /* THE TUTORIAL TICKS FROM HERE, before the camera block, so a camera shot
+       it starts this frame is applied this frame. Guarded: a lesson bug must
+       not be able to take the whole battle loop down with it. */
+    if(this._tutorialMode && window.Tutorial){
+      try { Tutorial.tick(dt, this); }
+      catch(e){
+        if(!this._tutTickErr){ this._tutTickErr = 1; console.warn('[tutorial] tick failed', e); }
+      }
+    }
     /* Before anything draws: a tank that has dropped out of the world is put
        back first, so the camera never spends a frame looking for it down there.
        See _recoverFallenTanks. */
@@ -9459,7 +10519,7 @@ Net.sendJoinInfo(
        lives on from the host's first snapshot. Calling update on a disposed
        module would touch freed canvases. */
     if(typeof BaseDefend !== 'undefined' && BaseDefend.getState()) BaseDefend.update(dt);
-    if(this.mode === 'sp' && !this._tdmState && !this.glad && !this._spWinDone){
+    if(this.mode === 'sp' && !this._tdmState && !this.glad && !this._spWinDone && !this._tutorialMode){
       const aliveEnemies = this.tanks.filter(t => t.alive && !t.dying && !t.isDummy && t !== this.localTank);
       if(aliveEnemies.length === 0 && this.localTank && this.localTank.alive){
         this._spWinDone = true;
@@ -9794,6 +10854,14 @@ Net.sendJoinInfo(
       const superPressed = this.input.consumePressed('super');
       if(superPressed && (!this.localTank.superState || this.localTank.superState === 'done')) this.localTank.activateSuper();
       else if(superPressed && this.localTank.superState === 'targeting') this.localTank.cancelSuper();
+    }
+    /* Gear (fire-mode) key. Read for the LOCAL tank only: the same branch used to
+       be inside Tank._step, where it asked game.input for the key and so flipped
+       the mode of every double-barrel bot on the field whenever the player
+       pressed G. Draining the edge here also keeps the HUD and the key on one
+       code path — both end up in toggleGear(). */
+    if(this.localTank && this.localTank.hasGear && this.localTank.hasGear()){
+      if(this.input.consumePressed('gear')) this.localTank.toggleGear();
     }
     // Every tank's active super, bots included -- and on while you are dead.
     this._updateSupers(dt);
@@ -10284,6 +11352,11 @@ Net.sendJoinInfo(
        "hull" and "dynamic" modes which write the camera unconditionally. */
     if(this._endCine){
       // Camera is held by the cinematic. Deliberately empty.
+    } else if(this._tutorialCam && window.Tutorial){
+      /* The tutorial's camera director owns the camera for this shot. Same
+         rule as _endCine above: this has to run before the follow rig, or the
+         rig would overwrite the shot every frame. */
+      Tutorial.cameraTick(dt);
     } else if(this._respawnCine){
       /* The death-to-spawn shot owns the camera for its duration. Same reason
          as _endCine above: every branch below writes camera.position, so the
@@ -13827,6 +14900,58 @@ _initMortarMarker(){
     }
   }
 
+  /* THE GEAR SLOT — a second switch beside the super button, for a tank whose
+     trigger has two behaviours (Burst: SINGLE / SALVO). See Tank.hasGear.
+
+     It is a MODE switch, so the button is not a resource bar: the ring is the
+     one-second cooldown, nothing more, and the label is the mode the trigger is
+     currently in. Clicking during the cooldown does nothing rather than queueing
+     — a queued flip is a flip the player did not see happen.
+
+     Everything is written only when it changes. This runs every frame from the
+     HUD update, and the two DOM writes here (label + a CSS custom property) are
+     the ones that would otherwise dirty layout sixty times a second. */
+  _updateGearSlot(){
+    const wrap = document.getElementById('gear-wrap');
+    const btn = document.getElementById('gear-btn');
+    if(!wrap || !btn) return;
+    const t = this.localTank;
+    const has = !!(t && typeof t.hasGear === 'function' && t.hasGear());
+    _setHidden(wrap, !has);
+    if(!has){
+      /* Reset the cached strings so a later tank with a gear draws fresh. */
+      btn._label = null; btn._cdStr = null; btn._mode = null;
+      return;
+    }
+    if(!btn._wired){
+      btn._wired = true;
+      btn.onclick = () => {
+        if(typeof Audio !== 'undefined' && Audio.click) Audio.click();
+        if(this.localTank && this.localTank.toggleGear && this.localTank.toggleGear()){
+          this._updateGearSlot();
+        }
+      };
+    }
+    const info = t.gearInfo();
+    if(btn._label !== info.label){
+      btn._label = info.label;
+      _setText(btn.querySelector('.gear-label'), info.label);
+    }
+    if(btn._mode !== info.mode){
+      btn._mode = info.mode;
+      btn.classList.toggle('salvo', info.mode === 'salvo');
+    }
+    const frac = info.cdTotal > 0 ? Math.min(1, info.cd / info.cdTotal) : 0;
+    const cdStr = frac.toFixed(3);
+    if(btn._cdStr !== cdStr){
+      btn._cdStr = cdStr;
+      btn.style.setProperty('--cd', cdStr);
+      btn.classList.toggle('cooling', frac > 0);
+    }
+    const title = 'Gear \u2014 ' + info.label + '  (G)';
+    if(btn._title !== title){ btn._title = title; btn.title = title; }
+  }
+
   /* ===========================================================
      WoT-STYLE IN-BATTLE SCOREBOARD (Tab)
      =========================================================== */
@@ -16319,6 +17444,13 @@ spawnExplosion(x, y, z, color, count, style){
 
   onTankKilled(tank, byTank){
     this._killVfx(tank);
+    /* Training is not a match. No victory, no defeat, no results, no cash:
+       a dummy dying three metres from the player's gun must not end the
+       lesson, and the range keeps respawning its props instead. */
+    if(this._tutorialMode){
+      if(window.Tutorial){ try { Tutorial.onTankKilled(this, tank, byTank); } catch(e){} }
+      return;
+    }
     if(this._tdmState && tank.team){
       this._onTDMKill(byTank, tank);
       // Round-based: no respawn during round, round end handled by _onTDMKill
@@ -16845,6 +17977,24 @@ spawnExplosion(x, y, z, color, count, style){
     }
   }
 
+  /* Put a real render of the actual tank in a HUD icon.
+
+     The bar used to point every icon at assets/icons/tank-icon.webp, which is
+     not in the build - so every tank in the top bar was a broken-image glyph,
+     identical for all ten. The pictures are now the same model renders the
+     pre-battle picker uses (TankPick.thumb): same angle, same lighting, same
+     cache. By the time the battle HUD draws, every one of them has already
+     been rendered for the picker, so this costs a map lookup. */
+  _paintTankIcons(box){
+    if(!box || !window.TankPick || typeof TankPick.thumb !== 'function') return;
+    box.querySelectorAll('img[data-tank]').forEach(img => {
+      const id = img.dataset.tank;
+      if(!id || img.dataset.for === id) return;
+      img.dataset.for = id;
+      TankPick.thumb(id).then(url => { if(url) img.src = url; }).catch(() => {});
+    });
+  }
+
   _updateTopHUD(dt){
     const root = document.getElementById('top-hud');
     if(!root) return;
@@ -16871,16 +18021,22 @@ spawnExplosion(x, y, z, color, count, style){
     const paintRoster = (id, list) => {
       const box = document.getElementById(id);
       if(!box) return;
+      /* The tank ID is part of the key, not just alive/dead: switching tanks
+         during the countdown replaces the local Tank object with one of the
+         same slot, so a key built only from liveness would leave the old
+         tank's picture in the bar for the rest of the match. */
       const key = list.map(t =>
-        (t === this.localTank ? 'L' : 'o') + ((t.alive && !t.dying) ? '1' : '0')).join('');
+        (t === this.localTank ? 'L' : 'o') + (t.def ? t.def.id : '?') +
+        ((t.alive && !t.dying) ? '1' : '0')).join('');
       if(box._thKey === key) return;
       box._thKey = key;
       box.innerHTML = list.map(t => {
         const dead = !(t.alive && !t.dying);
         return '<span class="th-tank' + (dead ? ' dead' : '')
           + (t === this.localTank ? ' local' : '') + '">'
-          + '<img src="assets/icons/tank-icon.webp" alt=""></span>';
+          + '<img alt="" data-tank="' + (t.def && t.def.id) + '"></span>';
       }).join('');
+      this._paintTankIcons(box);
     };
     const roster = (team) => this.tanks.filter(t => t && !t.isDummy && !t.isPanzer
       && (team ? t.team === team : true));
@@ -17339,6 +18495,7 @@ if(g.phase === 'grace') txt = 'Zone warning in ' + Math.ceil(g.phaseTimer) + 's'
     }
 
     this._updateSuperSlot();
+    this._updateGearSlot();
   }
 
   /* ---------- Big map ---------- */
@@ -17751,14 +18908,91 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   const paint = () => new Promise(r => setTimeout(r, 16));
   const withTimeout = (p, ms) => Promise.race([p, new Promise(r => setTimeout(() => r(null), ms))]);
 
-  setLoad(5, 'Loading physics engine...');
-  try {
-    var RapierMod = await import('https://cdn.skypack.dev/@dimforge/rapier3d-compat@0.12.0');
-    if(RapierMod.default){
-      await RapierMod.default.init();
-      window.RAPIER = RapierMod.default;
+  /* ---------------------------------------------------------------------------
+     THE PHYSICS ENGINE IS A LOCAL FILE NOW.
+
+     Rapier used to be fetched from exactly one place, cdn.skypack.dev, inside
+     this try/catch. When that import failed -- Skypack having a bad minute, a
+     network or DNS that blocks it, an ad-blocker, an offline install -- the
+     catch logged one console line and the game carried on with window.RAPIER
+     still undefined. Every stage downstream reads a missing Rapier as "this
+     build has no physics": _initPhysics() returns before it creates the world,
+     and _sandboxBuildTrimesh() returns before it adds the map's collision, both
+     of them silently. The match then plays with perfect graphics and NO
+     collision at all: tanks drive through buildings and through each other's
+     cover, shells pass through walls, and everyone slides on the flat invisible
+     slab under the terrain.
+
+     That is the whole of "sometimes a map has no physical collision". It was
+     never the map and never the mode -- it was whether one third-party CDN
+     answered at boot on that particular page load, which is why the same map
+     was solid in one match and a ghost in the next.
+
+     The engine is now shipped with the game (vendor/rapier/rapier.es.js, the
+     same 0.12.0 compat build with the wasm inlined) and imported from our own
+     origin first. The two CDNs stay in the list as fallbacks rather than being
+     the only source. And if all three fail, the player is TOLD -- a banner on
+     screen plus a background retry that repairs the arena -- instead of quietly
+     playing a battle that cannot collide with anything. */
+  const RAPIER_SOURCES = [
+    '/vendor/rapier/rapier.es.js?v=20261114a',
+    'https://cdn.jsdelivr.net/npm/@dimforge/rapier3d-compat@0.12.0/rapier.es.js',
+    'https://cdn.skypack.dev/@dimforge/rapier3d-compat@0.12.0',
+  ];
+  /* One route through the source list, shared by boot and by the retry loop,
+     so a late recovery cannot take a different path than startup did.
+     Resolves true only once window.RAPIER is assigned and init() has run. */
+  async function loadRapier(attempt){
+    if(window.RAPIER) return true;
+    /* A FAILED MODULE IMPORT IS CACHED BY THE BROWSER, PER URL, FOR THE LIFE OF
+       THE DOCUMENT. The module map remembers the rejection, so retrying the
+       exact same specifier throws the same error again without ever touching
+       the network -- verified in this page's console: five retries, one request.
+       Every attempt after the first therefore gets its own token in the query
+       string, which is a different URL for the module map and so a real
+       re-fetch. Without this the retry loop is decoration. */
+    const token = attempt ? ('r=' + attempt + '-' + Date.now()) : '';
+    let lastErr = null;
+    for(const source of RAPIER_SOURCES){
+      const url = token ? source + (source.indexOf('?') >= 0 ? '&' : '?') + token : source;
+      let mod = null;
+      try { mod = await import(/* @vite-ignore */ url); }
+      catch(e){ lastErr = e; continue; }
+      const R = (mod && (mod.default || mod));
+      if(!R || typeof R.init !== 'function'){
+        lastErr = new Error('module has no init(): ' + url);
+        continue;
+      }
+      try { await R.init(); }
+      catch(e){ lastErr = e; continue; }
+      window.RAPIER = R;
+      return true;
     }
-    mark(0, 'rapier done');
+    if(lastErr) console.error('[physics] Rapier failed from every source -- collision is OFF:', lastErr);
+    return false;
+  }
+
+  /* A battle with no collision is not something to find out about by driving
+     through a building. Big, unmissable, and it goes away on its own the moment
+     the engine does load. */
+  function physicsBanner(show){
+    let el = document.getElementById('mtl-physics-warning');
+    if(!show){ if(el) el.remove(); return; }
+    if(el) return;
+    el = document.createElement('div');
+    el.id = 'mtl-physics-warning';
+    el.textContent = 'Physics engine did not load — maps have no collision in this session. Retrying in the background; refreshing the page also fixes it.';
+    el.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:2147483647;padding:10px 14px;' +
+      'background:#7a1d1d;color:#fff;font:600 13px/1.4 system-ui,-apple-system,sans-serif;' +
+      'text-align:center;box-shadow:0 -2px 8px rgba(0,0,0,.45);';
+    (document.body || document.documentElement).appendChild(el);
+  }
+
+  setLoad(5, 'Loading physics engine...');
+  let _physicsOk = false;
+  try {
+    _physicsOk = await loadRapier();
+    mark(0, _physicsOk ? 'rapier done' : 'rapier failed');
   } catch(e){ console.warn('Rapier init failed, physics disabled:', e); mark(0, 'rapier failed'); }
   setLoad(20, 'Creating renderer...');
   let game = null;
@@ -17771,6 +19005,36 @@ window.addEventListener('DOMContentLoaded', async ()=>{
     console.error('BOOTSTRAP ERROR:', e, e.stack);
   }
   mark(0, 'renderer ready');
+
+  /* PHYSICS THAT ARRIVES LATE IS STILL PHYSICS.
+
+     If the engine was not ready at boot, everything downstream is already
+     built: the Game constructed with no physics world, and quite possibly a map
+     loaded with no trimesh. Retrying before the player has even picked a mode
+     is cheap, and when a source finally answers, _attachPhysicsAfterBoot()
+     builds the world, the map's collision and a body for every tank that was
+     spawned without one -- so the battle collides even though it started
+     broken. Backs off, gives up after the list is spent. */
+  if(!_physicsOk){
+    physicsBanner(true);
+    const RETRY_MS = [2000, 5000, 10000, 20000, 30000, 60000, 60000];
+    let attempt = 0;
+    const retryPhysics = async () => {
+      attempt++;
+      let ok = false;
+      try { ok = await loadRapier(attempt); } catch(e){ ok = false; }
+      if(ok){
+        physicsBanner(false);
+        try { if(game) game._attachPhysicsAfterBoot(); }
+        catch(e){ console.warn('[physics] late attach:', e); }
+        try { if(window.Menu && Menu.toast) Menu.toast('Physics engine loaded — collision is back.'); } catch(e){}
+        mark(0, 'rapier recovered');
+        return;
+      }
+      if(attempt < RETRY_MS.length) setTimeout(retryPhysics, RETRY_MS[attempt] || 60000);
+    };
+    setTimeout(retryPhysics, RETRY_MS[0]);
+  }
   await paint();
   setLoad(45, 'Loading map...');
   await paint();
@@ -17856,6 +19120,30 @@ window.addEventListener('DOMContentLoaded', async ()=>{
   } catch(e){ console.warn('shader warmup:', e); }
   await paint();
 
+  /* THE EFFECT PREWARM RUNS HERE, BEHIND THE LOADING SCREEN.
+
+     It used to be fired from _alignSpawns, i.e. the first frame of every match,
+     and it was the single most expensive thing that happened at match start:
+     measured at 135 ms of _update in one frame -- the first explosion of the
+     fight compiled its shaders while the fight was already running. Every other
+     prewarm in this file (shells, casings, sprites, video overlays) had already
+     been moved off the match for exactly this reason; this one was the last
+     holdout.
+
+     It costs the loading screen the same 135 ms the battle used to pay, and a
+     match that starts a tenth of a second later on the loading bar is invisible
+     while a match that starts a tenth of a second late is the first thing the
+     player feels. It runs BEFORE the progress bar reaches 100% on purpose: the
+     bar is still on screen and still says it is working. */
+  setLoad(97, 'Warming effects...');
+  try { if(game && game._prewarmEffects) game._prewarmEffects(); } catch(e){}
+  try {
+    if(game && game.renderer && game.scene && game.camera){
+      game.renderer.compile(game.scene, game.camera);
+    }
+  } catch(e){ console.warn('shader warmup:', e); }
+  await paint();
+
   setLoad(100, 'Ready!');
   mark(0, 'boot work finished at ' + (Date.now() - loadStartTime) + 'ms');
   /* A short floor rather than the old fixed two seconds: the screen is up for
@@ -17863,6 +19151,9 @@ window.addEventListener('DOMContentLoaded', async ()=>{
      slow one still gets a readable progress bar instead of a flash. */
   BootLoading.hide(400);
   window.__game = game;
+  /* One call, every number that decides the frame time. Console-usable so a
+     stutter can be measured where it happened instead of described later. */
+  try { window.__perfStats = () => game._perfStats(); } catch(e){}
 
   /* The session guard needs the game to exist before it can tell whether we were
      in a battle, so this is the first moment it can act. It checks the record

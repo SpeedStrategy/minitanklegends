@@ -1345,6 +1345,10 @@ class BotBrain {
     const allies = [];
     for(const t of game.tanks){
       if(!t.alive || t === me) continue;
+      /* A DUMMY IS NOT A COMBATANT. The training range parks real hulls with no
+         driver on the map; a bot that shoots them clears the range for the
+         player and spends its whole magazine on props. */
+      if(t.isDummy) continue;
       if(me.team && t.team && me.team === t.team){ allies.push(t); continue; }
       if((me.allyId && t.id === me.allyId) || (t.allyId && t.allyId === me.id)){ allies.push(t); continue; }
       const dx = t.x - me.x, dz = t.z - me.z;
@@ -1361,7 +1365,7 @@ class BotBrain {
 
     /* Being shot tells you where someone is, even if you can't see them yet. */
     const atk = me._lastAttacker;
-    if(atk && atk.alive && now - (me._lastHitAt || -99) < 2 && !visible[atk.id] && !(me.team && atk.team === me.team)){
+    if(atk && atk.alive && !atk.isDummy && now - (me._lastHitAt || -99) < 2 && !visible[atk.id] && !(me.team && atk.team === me.team)){
       this._seen = this._seen || {};
       this._seen[atk.id] = { t: atk, x: atk.x, z: atk.z, at: now };
     }

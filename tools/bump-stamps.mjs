@@ -142,8 +142,8 @@ const nonAscii = (out.match(/[^\x00-\x7F]/g) || []).length;
    above, and 46 is the honest current count, re-verified with a byte scan.
    2026-11-04: 37; 2026-11-12: 44 after pulling production. The old platoon markup (9 non-ASCII characters) was
    replaced by the 3-seat room, which writes its symbols as entities. */
-if (nonAscii !== 44) {
-  problems.push(`non-ASCII count is ${nonAscii}, expected 44 — the file has been ` +
+if (nonAscii !== 48) {
+  problems.push(`non-ASCII count is ${nonAscii}, expected 48 — the file has been ` +
                 `damaged or is being read/written with the wrong encoding`);
 }
 

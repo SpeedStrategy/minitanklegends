@@ -156,6 +156,7 @@ const Menu = {
     try { this._wireNightMode(); } catch(e){}
     try { this._initFullscreen(); } catch(e){ console.error('Menu._initFullscreen failed:', e); }
     try { this._initScaling(); } catch(e){ console.error('Menu._initScaling failed:', e); }
+    try { this._initRotateLock(); } catch(e){ console.error('Menu._initRotateLock failed:', e); }
     try { this._loadClanData(); } catch(e){}
     // Tab: instantly return to the main menu from any screen (ignored during a match)
     window.addEventListener('keydown', (e) => {
@@ -355,6 +356,35 @@ const Menu = {
     update();
     window.addEventListener('resize', update);
     window.addEventListener('orientationchange', () => setTimeout(update, 200));
+  },
+
+  /* --- landscape only, on phones ---
+
+     The game is a landscape game: the HUD, the joysticks and the menus are all
+     laid out for a wide window. Rather than invent a portrait layout, a phone
+     held upright gets a screen that asks it to turn.
+
+     Only PHONES, never a desktop window somebody dragged tall — and never the
+     hub (tanklg.pages.dev/hub), which is a separate page with its own CSS and
+     is perfectly readable in portrait. */
+  _initRotateLock(){
+    const el = document.getElementById('rotate-lock');
+    if(!el) return;
+    const isPhone = this._detectPlatform() !== 'desktop';
+    const update = () => {
+      /* The layout viewport is a fixed 1280 wide on a phone, so "portrait" here
+         means the window is taller than it is wide, whatever the CSS scale. */
+      const portrait = window.innerHeight > window.innerWidth + 40;
+      const on = isPhone && portrait;
+      el.classList.toggle('hidden', !on);
+      document.body.classList.toggle('rotate-locked', on);
+    };
+    this._updateRotateLock = update;
+    update();
+    window.addEventListener('resize', update);
+    window.addEventListener('orientationchange', () => setTimeout(update, 250));
+    /* `resize` can arrive before the metrics settle on iOS. */
+    setTimeout(update, 600);
   },
 
 /* --- Init: entry point --- */
@@ -987,6 +1017,14 @@ const Menu = {
     const profileEl = document.getElementById('profile');
     if(profileEl) profileEl.onclick = (e) => {
       if(e.target.closest('.profile-name')) return;
+      /* CONTROLS INSIDE THE HEADER OWN THEIR CLICK.
+         This handler opens the profile card for any click that bubbles out of
+         #profile, and the gear, the trophy roadmap button and the avatar are
+         all INSIDE #profile. Their handlers run first, then this one ran last
+         and replaced whatever they had just opened - which is why the settings
+         gear on the main menu showed the profile card. A target that has its
+         own screen (or its own data-open) must not fall through to here. */
+      if(e.target.closest('.profile-strip-avatar, .trophy-menu-btn, [data-open]')) return;
       Audio.click();
       this.show('menu-profile');
       this._renderProfileCard();
@@ -1294,6 +1332,19 @@ const Menu = {
       b.onclick = ()=>{
         const t = b.dataset.open;
         if(t==='singleplayer'){ this.game.startSingleplayer(); return; }
+        /* TRAINING starts a mode on the Testgrounds map, exactly like
+           singleplayer starts one on the voted map. It is not a .menu panel,
+           so falling through to show('menu-training') would hide every screen
+           and reveal nothing. js/tutorial.js owns the lesson; it starts it on
+           the first run and leaves free practice once it is finished. */
+        if(t==='training'){
+          if(typeof Tutorial !== 'undefined' && Tutorial.startTraining){
+            /* Unfinished -> the lesson. Finished -> free practice, because a
+               player who has passed it asked for the range, not the course. */
+            Tutorial.startTraining(!Tutorial.isDone());
+          }
+          return;
+        }
         /* FOUNDRY IS AN OVERLAY, NOT A PANEL. There is no #menu-foundry for
            show() to reveal: js/research.js owns that screen (its own back
            control, its own Escape handling, its own scroll). Falling through
@@ -3025,6 +3076,16 @@ const Menu = {
         document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
         const content = document.getElementById('tab-' + tab.dataset.tab);
         if(content) content.classList.add('active');
+        /* THE OTHER PANEL IS REBUILT ON ENTRY.
+
+           It was drawn once at page load, which was fine while everything on it
+           was a stored preference. It now also names the tank the Tutorial
+           button will spawn — and that is chosen in the garage, before the
+           settings screen exists, so a load-time snapshot would keep
+           announcing whichever tank was selected when the page booted. */
+        if(tab.dataset.tab === 'other'){
+          try { this._renderOtherSettings(); } catch(e){ console.warn('[settings] other panel:', e); }
+        }
       };
     });
   },
@@ -3187,7 +3248,7 @@ const Menu = {
         saveSettings(this.settings);
         if(this.game) this.game.applySettings(this.settings);
         if(pick === 'ultra'){
-          const gpu = window._game ? !!window._game._webgpuAvailable : !!(navigator && navigator.gpu);
+          const gpu = !!(navigator && navigator.gpu) && !(window._game && window._game._webgpuProbeDone && !window._game._webgpuAvailable);
           const msg = 'ULTRA graphics is very recommended — your device runs it very well with ' +
             (gpu ? 'WebGPU.' : 'WebGL 2 (this device reports no WebGPU support, so Ultra will still work).') +
             '\n\nUltra needs the game to reload before it takes effect. Reload now?';
@@ -3243,10 +3304,30 @@ const Menu = {
     const nmi = localStorage.getItem('nightModeStrong') === '1';
     // Graphics backend: what is running, and whether this device can do WebGPU.
     const rb = ['auto','webgpu','webgl2'].indexOf(this.settings.rendererBackend) >= 0 ? this.settings.rendererBackend : 'auto';
-    const gpuOk = !!(window._game ? window._game._webgpuAvailable : (typeof navigator !== 'undefined' && navigator.gpu));
+    /* THREE STATES, NOT TWO. "No WebGPU API at all" is a hard no; "API present
+       but the adapter probe said no" is a soft no; "API present, probe still
+       running" is UNKNOWN. Treating unknown as no is what greyed the WebGPU
+       option out on phones that fully support it — the probe only used to run
+       when WebGPU had already been chosen, so on Auto it never ran at all. */
+    const gpuApi = !!(typeof navigator !== 'undefined' && navigator.gpu);
+    const gpuProbed = !!(window._game && window._game._webgpuProbeDone);
+    const gpuOk = gpuProbed ? !!window._game._webgpuAvailable : gpuApi;
+    const gpuWhy = !gpuApi
+      ? 'This browser exposes no WebGPU API at all (needs Chrome/Edge 113+ or Safari 26+).'
+      : (gpuProbed && !gpuOk ? 'WebGPU is advertised here but no GPU device could be opened.' : '');
     const curBackend = (window._game && window._game._backend) ? window._game._backend : 'not started yet';
+    /* The tank the lesson will spawn. _spawnLocal already reads the same
+       setting, so naming it here is a promise the code keeps by itself. */
+    const selDef = (typeof TANKS !== 'undefined') ? (TANKS[this.settings.selectedTank] || TANKS.coolbuddy) : null;
+    const selName = selDef ? selDef.name : 'your selected tank';
     wrap.innerHTML = `
-      <label>Camera sensitivity: <span id="camsen-val">${camSen}%</span></label>
+      <label>Tutorial</label>
+      <div class="settings-action-row">
+        <div class="hint" style="margin:0">Replays the Testgrounds lesson — look, drive, fire, targets, dummies and the live bot — with <b>${selName}</b>.
+          The range stays open afterwards; nothing is paid out a second time.</div>
+        <div class="settings-btn settings-btn-primary" id="btn-settings-tutorial" role="button" tabindex="0">Play tutorial</div>
+      </div>
+      <label style="margin-top:18px">Camera sensitivity: <span id="camsen-val">${camSen}%</span></label>
       <input type="range" id="camsen-op" min="10" max="300" value="${camSen}">
       <label style="margin-top:18px">Screen shake strength: <span id="shake-val">${sh}%</span></label>
       <input type="range" id="shake-op" min="0" max="100" value="${sh}">
@@ -3279,9 +3360,25 @@ const Menu = {
         <div class="seg-opt${rb==='webgpu'?' active':''}" data-backend="webgpu"${gpuOk?'':' style="opacity:.45"'}>WebGPU</div>
         <div class="seg-opt${rb==='webgl2'?' active':''}" data-backend="webgl2">WebGL 2</div>
       </div>
-      <div class="hint">Auto uses WebGPU when this device really supports it, and WebGL 2 when it does not.
-        ${gpuOk?'':'This browser/device reports no WebGPU support, so WebGL 2 will be used either way.'}
+      <div class="hint">Auto uses WebGL 2 — it measured faster than WebGPU on this game's shaders.
+        WebGPU is here if you want to try it: pick it, reload, and the game starts on the WebGPU renderer.
+        If the device cannot start it, the game falls back to WebGL 2 by itself. ${gpuOk?'':'<br>' + gpuWhy}
         Running now: <b>${curBackend}</b>. A new choice is used the next time the game loads.</div>`;
+    /* START THE LESSON FROM HERE. It always plays the COURSE (true), not free
+       practice: a button labelled Tutorial that quietly dropped you into an
+       empty range after you had finished it once would be lying. The settings
+       screen is closed first, because startTutorial starts a battle and a
+       panel left open would sit on top of the tank. */
+    const tutBtn = document.getElementById('btn-settings-tutorial');
+    if(tutBtn) tutBtn.onclick = ()=>{
+      Audio.click();
+      if(window.Tutorial && Tutorial.startTraining){
+        this.show('menu-main');
+        Tutorial.startTraining(true);
+      } else {
+        this.toast('Tutorial is not available');
+      }
+    };
     document.getElementById('camsen-op').oninput = e=>{
       this.settings.cameraSensitivity = +e.target.value;
       document.getElementById('camsen-val').textContent = e.target.value+'%';
@@ -4231,12 +4328,27 @@ const Menu = {
        daily rotation must not be able to hide a permanent product. Already-
        owned styles are dropped from the picks below the same way. */
     const ownedStylesSet = new Set(window.TankStyles ? TankStyles.LIST.filter(id => TankStyles.ownsStyle(id)) : []);
-    const STYLE_OFFERS = {
-      style_woodland_camo: { amount:1, price:1200, currency:'gold', name:'Woodland Camo', desc:'Olive-drab military woodland pattern for your tank.' },
-      style_desert_camo:   { amount:1, price:1200, currency:'gold', name:'Desert Storm',  desc:'Sandy desert pattern with brown blotches.' },
-      style_tiger_stripes: { amount:1, price:1800, currency:'gold', name:'Tiger Stripes',  desc:'Loud orange paint job with black stripes.' },
-      style_glitch:        { amount:1, price:2500, currency:'gold', name:'Glitch',         desc:'A rendering bug, kept on purpose: white x-ray stripes and a torn signal.' },
-    };
+    /* THE SHELF IS THE CATALOG.
+
+       Every style the game has is built into an offer here, from the same table
+       the tank menu renders: name, description and price all come off the style
+       definition, so a new camo is priced in ONE place and can never be missing
+       from the store, mispriced against the menu, or described differently in
+       the two. */
+    const STYLE_OFFERS = {};
+    if(window.TankStyles){
+      TankStyles.LIST.forEach(id => {
+        const d = TankStyles.DEFS[id];
+        if(!d) return;
+        STYLE_OFFERS['style_' + id] = {
+          amount: 1,
+          price: d.price || 1200,
+          currency: d.currency || 'gold',
+          name: d.name || id,
+          desc: d.desc || '',
+        };
+      });
+    }
     const prependedStyles = new Set();
     Object.keys(STYLE_OFFERS).forEach(reward => {
       const styleId = reward.slice('style_'.length);
@@ -4245,6 +4357,28 @@ const Menu = {
         prependedStyles.add(reward);
       }
     });
+    /* PAINT PACKS. Permanent products like the styles above: built from the
+       paint catalog, free (the brief), and dropped from the shelf once the
+       pack has been claimed — the one thing the random rotation must never
+       do is hide a product that is still on sale. */
+    if(window.TankPaints && TankPaints.PACK_LIST){
+      TankPaints.PACK_LIST.forEach(id => {
+        const pack = TankPaints.PACKS[id];
+        if(!pack) return;
+        if(TankPaints.packOwned(id)) return;
+        allOffers.push({
+          reward: id,
+          amount: 1,
+          price: pack.free ? 0 : (pack.price || 0),
+          currency: 'gold',
+          stock: 99,
+          priority: 1,
+          free: !!pack.free,
+          name: pack.name,
+          desc: pack.desc || '',
+        });
+      });
+    }
     offers.forEach(o => {
       if(o.reward && prependedStyles.has(o.reward)) return;       /* already on the shelf above */
       if(o.reward && o.reward.indexOf('style_') === 0){
@@ -4264,8 +4398,13 @@ const Menu = {
       const img = art.img;
       const label = art.label;
       const curFile = offer.currency === 'gold' ? 'gold' : (offer.currency === 'coins' ? 'coin' : 'cash');
+      /* A paint card carries the same paint-roller chip the tank menu uses, in
+         the same bottom-left corner, so a camo is recognisable across both
+         screens instead of looking like a different product in each. */
       card.innerHTML =
-        '<div class="shop-deal-image" style="background-image:url(\'' + img + '\')"></div>' +
+        '<div class="shop-deal-image' + (art.brush ? ' has-brush' : '') + '" style="background-image:url(\'' + img + '\')">' +
+          (art.brush ? '<span class="shop-deal-brush"><img src="' + ((window.TankStyles && TankStyles.BRUSH_ICON) || 'assets/icons/style-brush.webp') + '" alt=""></span>' : '') +
+        '</div>' +
         '<div class="shop-deal-amount">' + offer.amount + '</div>' +
         '<div class="shop-deal-label">' + label + '</div>' +
         '<div class="shop-deal-price' + (offer.currency === 'coins' ? ' coins' : '') + '"><img class="cur-mini" src="assets/currency/' + curFile + '.webp" alt=""><span>' + (offer.price === 0 ? 'FREE' : offer.price) + '</span></div>' +
@@ -4403,6 +4542,11 @@ const Menu = {
      never existed, so every crate offer rendered as an empty box. Both crates now
      point at the crate art that IS in the project. */
   _shopRewardArt(reward){
+    /* A paint pack is a product, not a paint: one tin, the pack's own name. */
+    if(window.TankPaints && TankPaints.PACKS && TankPaints.PACKS[reward]){
+      const pack = TankPaints.PACKS[reward];
+      return { img: 'assets/icons/paint-tin.svg', label: pack.name, desc: pack.desc || '' };
+    }
     return {
       cash:        { img:'assets/currency/cash.webp', label:'Cash' },
       coins:       { img:'assets/currency/coin.webp', label:'Coins' },
@@ -4413,13 +4557,16 @@ const Menu = {
       basic_crate: { img:'assets/crate_icon.webp', label:'Basic Crate' },
       rare_crate:  { img:'assets/crate_icon.webp', label:'Rare Crate' },
       first_spray: { img:'assets/sprays/first_spray.webp', label:'First Spray' },
-      /* Tank styles: the texture IS the card art. */
-      style_woodland_camo: { img:'assets/styles/woodland_camo.webp?v=2', label:'Woodland Camo' },
-      style_desert_camo:   { img:'assets/styles/desert_camo.webp?v=2', label:'Desert Storm' },
-      style_tiger_stripes: { img:'assets/styles/tiger_stripes.webp?v=2', label:'Tiger Stripes' },
-      /* Painted in code, so its card art is the same data URL the tank wears. */
-      style_glitch:        { img:(window.TankStyles && TankStyles.DEFS.glitch && TankStyles.DEFS.glitch.texture) || '', label:'Glitch' },
-    }[reward] || { img:'', label:reward || '' };
+    }[reward] || (reward && reward.indexOf('style_') === 0 ? this._styleRewardArt(reward) : { img:'', label:reward || '' });
+  },
+  /* A style's card art is its own texture, straight from the catalog — including
+     the code-painted Glitch, whose "texture" is a data URL. Anything that sells
+     paint goes through here, so the store never needs a table of its own. */
+  _styleRewardArt(reward){
+    const id = String(reward).slice('style_'.length);
+    const d = window.TankStyles && TankStyles.DEFS[id];
+    if(!d) return { img:'', label:id };
+    return { img: d.texture || '', label: d.name || id, brush: true };
   },
   _shopCurrencyIcon(currency){
     return currency === 'gold' ? 'assets/currency/gold.webp'
@@ -4619,6 +4766,9 @@ const Menu = {
       }
     }
     this._updateCurrencies();
+    /* A claimed paint pack must leave the shelf immediately, not on the next
+       visit: the card's whole promise is "one pack each". */
+    try { this._renderDeals(); } catch(e){}
   },
 
   /* ---------- THE REVEAL ---------- */

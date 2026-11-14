@@ -131,6 +131,14 @@
          running it keeps ticking a detached overlay, and its window keydown
          listener survives to skip the NEXT battle's count-up before it starts. */
       this._stopScoreClimb();
+      /* A card left open must not survive into the next battle, and its Escape
+         listener goes with the screen. */
+      this._pcardOpen = false;
+      try {
+        if(this._onPcardKey) window.removeEventListener('keydown', this._onPcardKey, true);
+      } catch(e){}
+      this._pcardKeyOn = false;
+      this._onPcardKey = null;
       try { document.body.classList.remove('res-open'); } catch(e){}
       const el = document.getElementById('results-overlay');
       if(el) el.classList.add('hidden');
@@ -456,7 +464,7 @@
               '<span class="res-board-name">' + esc(myTeamName) + '</span>' +
               '<span class="res-board-count">' + ((d.teams && d.teams.mine) || []).length + '</span>' +
             '</div>' +
-            this._boardRows(d.teams && d.teams.mine) +
+            this._boardRows(d.teams && d.teams.mine, 'mine') +
           '</div>' +
 
           '<div class="res-board res-board-right">' +
@@ -464,7 +472,7 @@
               '<span class="res-board-name">' + esc(theirTeamName) + '</span>' +
               '<span class="res-board-count">' + ((d.teams && d.teams.theirs) || []).length + '</span>' +
             '</div>' +
-            this._boardRows(d.teams && d.teams.theirs) +
+            this._boardRows(d.teams && d.teams.theirs, 'theirs') +
           '</div>' +
         '</div>' +
 
@@ -528,6 +536,31 @@
             '<div class="res-hint">Drag a tank to spin it</div>' +
             '<button class="res-continue" id="res-continue">CONTINUE</button>' +
           '</div>' +
+        '</div>' +
+
+        /* THE PLAYER CARD.
+
+           Every name on this screen — a row in a board, a plate over a tank —
+           opens this, and closing it puts the player back on the results they
+           were reading. It is built empty and filled by _openPlayerCard, so the
+           card and the numbers it shows always come from the same row object.
+
+           Inside the results overlay on purpose: it hides with the screen, it
+           inherits the same scene behind it, and there is no second overlay to
+           keep in sync when the battle ends. */
+        '<div class="res-pcard hidden" id="res-pcard">' +
+          '<div class="rpc-sheet" role="dialog" aria-modal="true" aria-labelledby="res-pcard-name">' +
+            '<button class="rpc-close" id="res-pcard-close" type="button" aria-label="Back to results">&#x2715;</button>' +
+            '<div class="rpc-head">' +
+              '<div class="rpc-avatar" id="res-pcard-avatar" aria-hidden="true"></div>' +
+              '<div class="rpc-id">' +
+                '<div class="rpc-name" id="res-pcard-name"></div>' +
+                '<div class="rpc-sub" id="res-pcard-sub"></div>' +
+              '</div>' +
+            '</div>' +
+            '<div class="rpc-grid" id="res-pcard-grid"></div>' +
+            '<div class="rpc-note">Click anywhere to go back to the results</div>' +
+          '</div>' +
         '</div>';
 
       const btn = document.getElementById('res-continue');
@@ -540,6 +573,9 @@
 
       /* Wire the banner's fallback now that the markup exists. */
       this._armBannerArt(artKey);
+
+      /* And the player cards, now that the rows and floats exist. */
+      this._bindPlayerCards();
 
       /* Body class so the CSS can hold the game still underneath, and so the
          watchdog in Game._showResults can tell whether the screen really came
@@ -843,7 +879,15 @@
        Sorted by damage, because that is the number the mode is scored on and
        because it is the one that does not collapse to zero for a player who
        played well defensively. */
-    _boardRows(rows){
+    /* The one ordering both boards and the card lookup use, so a row on screen
+       and the row object it opens can never be different players. */
+    _sortedTeam(side){
+      const rows = (this.data && this.data.teams && this.data.teams[side]) || [];
+      return rows.slice().sort((a, b) =>
+        (b.damage || 0) - (a.damage || 0) || (b.kills || 0) - (a.kills || 0));
+    },
+
+    _boardRows(rows, side){
       const list = (rows || []).slice().sort((a, b) =>
         (b.damage || 0) - (a.damage || 0) || (b.kills || 0) - (a.kills || 0));
 
@@ -876,7 +920,8 @@
                   + fmtNum(r.kills) + ' ' + (r.kills === 1 ? 'kill' : 'kills') + ', '
                   + fmtNum(r.assists) + ' ' + (r.assists === 1 ? 'assist' : 'assists')
                   + (r.isYou ? ' — you' : '');
-        return '<div class="res-row' + (r.isYou ? ' you' : '') + '" title="' + esc(tip) + '" tabindex="0">' +
+        return '<div class="res-row' + (r.isYou ? ' you' : '') + '" title="' + esc(tip) + '" tabindex="0"' +
+          ' data-side="' + esc(side || 'mine') + '" data-idx="' + i + '">' +
           '<span class="res-rank">' + (i + 1) + '</span>' +
           '<span class="res-name">' +
             (r.isYou ? '<span class="res-you-tag">YOU</span>' : '') +
@@ -889,6 +934,140 @@
       }).join('');
 
       return head + body;
+    },
+
+    /* -------------------------------------------------------- player cards
+
+       A name on this screen used to be a dead label: the boards listed eight
+       players and every one of them was a wall. Clicking one now opens what
+       the battle actually knows about that player — tank, team, damage, kills,
+       assists, place — and closing it puts you back on the results with the
+       board still where you left it, because the card is a layer ON this
+       screen rather than a screen of its own.
+
+       Bots are not excluded. "I want to know what that tank was" is the same
+       question whether the answer is a person or a bot, and the card says which
+       it is instead of pretending. */
+    _bindPlayerCards(){
+      const host = document.getElementById('res-pcard');
+      if(!host) return;
+
+      const boardRows = document.querySelectorAll('#results-overlay .res-row[data-idx]');
+      boardRows.forEach(row => {
+        row.style.cursor = 'pointer';
+        row.onclick = () => {
+          const side = row.getAttribute('data-side') || 'mine';
+          const idx = parseInt(row.getAttribute('data-idx'), 10);
+          const pick = this._sortedTeam(side)[idx];
+          if(pick) this._openPlayerCard(pick, side);
+        };
+        /* Enter/Space are the keyboard equivalents of the click the row already
+           offers — the rows carried tabindex before they did anything. */
+        row.onkeydown = (e) => {
+          if(e.key === 'Enter' || e.key === ' ') { e.preventDefault(); row.click(); }
+        };
+      });
+
+      /* Anywhere outside the sheet closes it. The dimmed area is the "back"
+       people reach for, and the note in the sheet says so. */
+      host.onclick = (e) => {
+        if(e.target === host || e.target.closest('.rpc-close')) this._closePlayerCard();
+      };
+      const close = document.getElementById('res-pcard-close');
+      if(close) close.onclick = () => this._closePlayerCard();
+
+      /* Escape, while a card is open only. One listener for the lifetime of the
+         screen: the screen is rebuilt for every battle, so re-adding it here
+         would stack a second copy per match and close two cards per press. */
+      if(!this._pcardKeyOn){
+        this._pcardKeyOn = true;
+        this._onPcardKey = (e) => {
+          if(e.key === 'Escape' && this._pcardOpen) {
+            e.stopPropagation();
+            this._closePlayerCard();
+          }
+        };
+        window.addEventListener('keydown', this._onPcardKey, true);
+      }
+    },
+
+    _openPlayerCard(row, side){
+      const host = document.getElementById('res-pcard');
+      if(!host || !row) return;
+      const esc2 = v => String(v == null ? '' : v)
+        .replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+      const mineSide = (this.data && this.data.myTeamClass) || 'blue';
+      const isMine = (side || 'mine') === 'mine';
+      const sideName = isMine
+        ? ((this.data && this.data.myTeamName) || 'Your team')
+        : ((this.data && this.data.theirTeamName) || 'Enemy team');
+
+      /* THE RANK COMES FROM THE SORTED LIST, not from the row: the same array
+         the board drew, so the number in the card matches the number in the
+         column the player clicked. */
+      const list = this._sortedTeam(side || 'mine');
+      const rank = list.indexOf(row) + 1;
+
+      const name = row.name || 'Unknown';
+      const tank = (row.tankId && typeof TANKS !== 'undefined' && TANKS[row.tankId])
+        ? (TANKS[row.tankId].name || row.tankId)
+        : (row.tankId || null);
+
+      const nameEl = document.getElementById('res-pcard-name');
+      const subEl  = document.getElementById('res-pcard-sub');
+      const gridEl = document.getElementById('res-pcard-grid');
+      const avEl   = document.getElementById('res-pcard-avatar');
+      const card   = host.querySelector('.rpc-sheet');
+
+      if(nameEl) nameEl.textContent = name;
+      if(subEl){
+        subEl.textContent = [
+          sideName,
+          tank,
+          row.isYou ? 'you' : null,
+          rank ? ('#' + rank + ' on ' + (isMine ? 'your team' : 'their team')) : null,
+        ].filter(Boolean).join('  •  ');
+      }
+      if(card){
+        card.classList.toggle('mine', isMine);
+        card.classList.toggle('theirs', !isMine);
+        card.classList.toggle('self', !!row.isYou);
+      }
+      if(avEl){
+        /* Initial, not a portrait: the game has no per-player avatar and an
+           invented one would be the first thing on this screen to lie. */
+        avEl.textContent = (name.trim()[0] || '?').toUpperCase();
+      }
+      if(gridEl){
+        const tile = (label, value) =>
+          '<div class="rpc-tile"><div class="rpc-tile-v">' + esc2(value) + '</div>' +
+          '<div class="rpc-tile-l">' + esc2(label) + '</div></div>';
+        gridEl.innerHTML =
+          tile('DAMAGE', fmtNum(row.damage)) +
+          tile('KILLS', fmtNum(row.kills)) +
+          tile('ASSISTS', fmtNum(row.assists)) +
+          tile('TEAM PLACE', rank ? ('#' + rank) : '—');
+      }
+
+      this._pcardOpen = true;
+      this._pcardFocus = document.activeElement;
+      host.classList.remove('hidden');
+      try { (host.querySelector('.rpc-close') || host).focus({ preventScroll: true }); } catch(e){}
+    },
+
+    _closePlayerCard(){
+      const host = document.getElementById('res-pcard');
+      if(!host || !this._pcardOpen) return;
+      this._pcardOpen = false;
+      host.classList.add('hidden');
+      /* Focus goes back to the row that opened it, so a keyboard player is not
+         dropped at the top of the document when the card closes. */
+      try {
+        const back = this._pcardFocus;
+        if(back && back.focus) back.focus({ preventScroll: true });
+      } catch(e){}
+      this._pcardFocus = null;
     },
 
     /* ------------------------------------------------------------ the stage
@@ -1976,6 +2155,15 @@
             '<span class="res-float-stat"><i>DMG</i><b>' + fmtNum(r.damage) + '</b></span>' +
             '<span class="res-float-stat"><i>KILLS</i><b>' + fmtNum(r.kills) + '</b></span>' +
           '</span>';
+        /* The plate over a tank is the other place a player reads a name, so it
+           opens the same card the board rows do. Which is the point of the card
+           being filled from the row object rather than from the clicked DOM. */
+        el.style.cursor = 'pointer';
+        el.title = (r.name || 'Player') + ' — open player card';
+        el.onclick = (ev) => {
+          if(ev && ev.stopPropagation) ev.stopPropagation();
+          this._openPlayerCard(r, r.side === 'theirs' ? 'theirs' : 'mine');
+        };
         host.appendChild(el);
         this._floats.push({ el: el, anchor: slot.anchor, isYou: !!r.isYou, row: r });
       }

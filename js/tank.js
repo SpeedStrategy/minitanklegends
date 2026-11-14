@@ -165,6 +165,12 @@ class Tank {
     this._burstRemaining = 0;
     this._burstTimer = 0;
     this._doubleMode = 'single';
+    /* GEAR: a fire-mode switch that is not a reload. Only tanks whose def
+       declares `gear` have one (Burst: SINGLE / SALVO); for everyone else this
+       stays at 'single' and hasGear() answers false, so the HUD slot never
+       appears. See toggleGear() for the rules. */
+    this._gearMode = (def.gear && def.gear.default) || 'single';
+    this.gearCdLeft = 0;
     this._shotgunTilt = 0;
     this._shotgunTiltDecay = 4;
     /* ---- momentum lean state (see _updateLean) ---- */
@@ -407,6 +413,12 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       const _readyS = (this._modelReady && typeof this._modelReady.then === 'function') ? this._modelReady : Promise.resolve();
       _readyS.catch(()=>null)
         .then(()=> window.TankStyles ? TankStyles.apply(this) : null)
+        .catch(()=>null)
+        /* PAINTS LAST. A paint sits on one PART of the surface the style just
+           covered, so it has to run after the style or the style would repaint
+           over it. Still before the static-part merge, which groups meshes by
+           material and needs the final materials to be in place. */
+        .then(()=> window.TankPaints ? TankPaints.apply(this) : null)
         .catch(()=>null)
         .then(()=>{ if(opts && opts.physicsWorld) this._mergeStaticParts(); });
     } else if(opts && opts.physicsWorld && this._modelReady && this._modelReady.then){
@@ -1549,7 +1561,17 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
        `vertexNode`, which is the clip-space output. Writing a view-space value
        into positionNode is the classic TSL outline bug -- it compiles, and the
        outline ends up somewhere else entirely. */
-    if((typeof window !== 'undefined') && window.WebGPU && window.TSL){
+    /* `window.__isWebGPU` IS PART OF THIS TEST, NOT OPTIONAL.
+
+       three's TSL modules are fetched before the WebGPU renderer is attempted,
+       and the attempt can still fail (no device, a driver that lied, the 8s
+       handshake timeout) — in which case the game falls back to WebGL 2 while
+       window.TSL/window.WebGPU stay loaded. A node material built at that point
+       is unrenderable by the WebGL renderer: three's WebGLProgram gets an
+       undefined vertexShader and throws inside resolveIncludes on EVERY FRAME.
+       The HUD keeps drawing, the 3D view is frozen — the game looks crashed.
+       So the material is only node-based when the ACTIVE RENDERER is WebGPU. */
+    if((typeof window !== 'undefined') && window.__isWebGPU && window.WebGPU && window.TSL){
       try {
         const T = window.TSL, W = window.WebGPU;
         const uT = T.uniform(t);
@@ -3357,14 +3379,15 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     const bushX = W - bushSize - 10;                     // 314
     const bushY = Math.round((H - bushSize) / 2);        // 32
 
-    /* THE RELOAD LINE. Deliberately SHORTER than the health bar now: it is a
-       secondary readout and the old full-width line competed with the bar above
-       it. Grey track, amber fill (a warmer orange-leaning yellow), where the
-       amber is the loaded fraction -- fully amber means the gun is loaded, half
-       amber over half grey means it is halfway through a reload. */
+    /* THE AMMO BAR (see the Brawl Stars note further down, where it is drawn).
+       Same slot as the old reload line, but sized like the strip in Brawl
+       Stars: nearly the width of the health bar above it and a little taller,
+       because it is now divided into pips rather than being one continuous
+       fill. 190 of the plate's 250 puts it a hair inside both ends of the
+       health bar, which is the proportion Brawl Stars uses. */
     const rlY = barY - 3 + barH + 13;                    // 83, under it with a gap
-    const rlH = 13;                                      // plate 83 .. 96
-    const rlW = 148;
+    const rlH = 15;                                      // plate 83 .. 98
+    const rlW = 190;
     /* CENTRED ON THE HEALTH BAR. The line is shorter than the bar on purpose,
        and it used to start at the plate's left edge, which put a short bar under
        a long one with all the leftover space on the right -- it read as a
@@ -3484,81 +3507,106 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     // over it. Enemies get no reload line at all -- this is the plate telling
     // YOU about YOUR side's guns, not a readout of the enemy's.
     if(isAlly){
-      const info = (typeof this.reloadInfo === 'function') ? this.reloadInfo() : null;
-      const total = info && info.total > 0 ? info.total : 0;
-      const left = info ? Math.max(0, info.left) : 0;
-      const active = !!(info && info.active && total > 0);
-      /* The eased value from _stepHpBar when it exists, so the line glides rather
-         than stepping once per repaint. Recomputed raw on the first frame and on
-         any plate that is never stepped (a menu preview), so this is never
-         undefined. */
-      /* IT STAYS FULL WHEN THE GUN IS LOADED. This line is a "gun ready" light,
-         not a countdown: it fills as the tank reloads and then REMAINS full until
-         it fires again, at which point it empties and starts refilling. Reading
-         it the other way round -- empty whenever the gun is loaded -- made the
-         steady state look identical to "just took a shell", which is the one
-         state you most want to be able to tell apart at a glance.
+      /* ======================================================================
+         THE AMMO BAR — BRAWL STARS, 1:1
 
-         Magazine tanks are covered by the same rule for the right reason: firing
-         a single round does not set reloadLeft, only running the magazine dry
-         does, so mid-magazine the gun really is loaded and the line really is
-         full. It only drains on the magazine reload. */
-      const rRaw = active ? Math.max(0, Math.min(1, 1 - left / total)) : 1;
-      const rPct = (this._rlDisp === undefined) ? rRaw : this._rlDisp;
+         Brawl Stars puts the player's remaining attacks on a small segmented
+         strip directly under the brawler's health bar: one pip per loaded
+         round, refilling left to right as the magazine comes back. This plate
+         was already saying that with a single continuous fill, so the line is
+         now that strip -- same slot, same idea, drawn as pips.
 
-      /* THE BUMP. _stepHpBar fires this once on the frame a reload completes;
-         while it is above zero the whole line swells a few rows and the yellow
-         is the bright one, so "your gun just came up" is visible peripherally
-         without reading the bar. It settles from there. */
+         WHAT MAKES IT READ AS BRAWL STARS RATHER THAN "a bar with gaps":
+
+           * ONE capsule, divided. The pips sit inside a single outlined
+             capsule and the gaps show the dark track through, so the element
+             still reads as one meter instead of three loose bars.
+           * The capsule is a FIXED size. The old line swelled when a round
+             arrived, which reads as a bounce rather than as a gauge. The
+             emphasis now comes from the arriving pip flashing bright for a
+             fifth of a second.
+           * Three flat bands per pip, no gradients: light gold top, orange
+             body, burnt orange bottom edge. The colours are sampled from
+             Brawl Stars' own UI palette (#EFD753, #F1B641, #C4761A) instead of
+             invented, which is what stops it drifting back into a yellow that
+             reads as a second health bar beside the blue one.
+           * The track is the health plate's own two dark bands, so an empty
+             pip is the same material as the empty health bar above it.
+           * Every corner is rounded (a pill, never a rectangle) and the only
+             outline is the game's one sticker colour, #14141d.
+
+         HOW MANY PIPS: the tank's magazine (magSize), capped at six so a silly
+         definition cannot draw hairlines, and one pip for a tank with no
+         magazine -- the same idea with a single round in it. The fraction
+         comes from reloadFill(), so this drawing and the per-frame easing in
+         _stepHpBar cannot disagree about how full the bar is.
+
+         NOTHING HERE USES clip(). Fills follow rounded-rect PATHS instead,
+         which is both cheaper and the reason this bar is visible at all: the
+         first version of this block clipped to a rounded path and painted
+         nothing, every fill silently swallowed, while the health bar above it
+         drew normally. Path-filling the same shapes cannot do that. */
+      const pips = this.reloadSegments();
+      const pct = Math.max(0, Math.min(1, (this._rlDisp === undefined) ? this.reloadFill() : this._rlDisp));
       const bump = Math.max(0, Math.min(1, this._rlBump || 0));
-      /* 3.5 rows, not 4: the line sits 3 rows lower than it used to, so a 4-row
-         swell would push its outline past the bottom of the 100-unit canvas and
-         clip the last row. At 3.5 the fully swollen plate ends exactly on the
-         canvas edge (83 - 3.5 .. 96 + 3.5) and nothing is cut off. */
-      const grow = 3.5 * bump;
 
-      const rX = pX + (pW - rlW) / 2, rW = rlW;
-      const rY = rlY - grow, rH = rlH + grow * 2;
-      const rPx = rX + 2.5, rPy = rY + 2.5, rPw = rW - 5, rPh = rH - 5;
-      g.save();
-      g.beginPath();
-      (g.roundRect ? g.roundRect(rPx, rPy, rPw, rPh, Math.min(4, rPh / 2))
-                   : g.rect(rPx, rPy, rPw, rPh));
-      g.clip();
-      /* Grey track first: this is the whole line, so whatever is NOT yellow is
-         the time still left on the clock. Kept dark and desaturated so the
-         loaded part is the only thing that reads as lit -- the yellow is the
-         information, the track is just the empty slot it fills. */
-      g.fillStyle = '#31353d'; g.fillRect(rPx, rPy, rPw, rPh);
-      g.fillStyle = '#23262c'; g.fillRect(rPx, rPy + rPh * 0.62, rPw, rPh * 0.38);
-      if(rPct > 0.002){
-        const fw = rPw * rPct;
-        /* An ORANGE-leaning amber, not a pure yellow: at 51 degrees of hue the
-           line read as a second, brighter health bar next to the blue one. The
-           gun-light now sits around 40 degrees, which still reads as "ready"
-           at a glance while staying clearly a warning colour.
+      const RLOUT = 3;                                    // capsule border, logical px
+      const rX = Math.round(pX + (pW - rlW) / 2), rW = rlW;
+      const rY = rlY, rH = rlH;
+      const inX = rX + RLOUT, inY = rY + RLOUT;
+      const inW = rW - RLOUT * 2, inH = rH - RLOUT * 2;
+      const gap = 2.5;
+      const segW = (inW - gap * (pips - 1)) / pips;
+      /* Round only the corners a shape actually owns, so stacked bands inside a
+         pill do not poke square corners through it. */
+      const band = (x, y, w, h, rt, rb) => {
+        const r = Math.min(rt || 0, w / 2, h / 2), b = Math.min(rb || 0, w / 2, h / 2);
+        g.beginPath();
+        if(g.roundRect){
+          if(r === 0 && b === 0) g.rect(x, y, w, h);
+          else g.roundRect(x, y, w, h, [r, r, b, b]);
+        } else {
+          g.rect(x, y, w, h);
+        }
+        g.fill();
+      };
 
-           NOTE the geometry above: rY moves 3.5 rows up and rH gains 7 while the
-           bump runs, so the line occupies 79.5..99.5 at full bump. That is the
-           reason it sits 13 below the bar rather than flush against it -- 7
-           rows of clearance below the plate's own outline at rest, 3.5 at the
-           peak of the swell, so the swell never touches the health bar. */        /* ORANGE-LEANING AMBER, one step further than before. The old #ffb300
-           sits at 42 degrees of hue, which on a blue team bar next to it reads as
-           "yellow"; #ff9c14 is 34 degrees, unmistakably orange while still
-           reading as a "gun ready" light rather than a damage colour. The two
-           overlay bands moved with it so the whole line keeps one hue instead of
-           a yellow face on an orange body. */
-        g.fillStyle = bump > 0.02 ? '#ffb544' : '#ff9c14';
-        g.fillRect(rPx, rPy, fw, rPh);
+      /* ---- the empty capsule: one dark pill, the health bar's two bands ---- */
+      g.fillStyle = '#2b3040';
+      band(inX, inY, inW, inH, 3.5, 3.5);
+      g.fillStyle = '#1e2230';
+      band(inX, inY + inH * 0.62, inW, inH * 0.38, 0, 3.5);
 
-        g.fillStyle = '#ffd28a'; g.fillRect(rPx, rPy, fw, rPh * 0.42);
-        g.fillStyle = '#bf6a00'; g.fillRect(rPx, rPy + rPh * 0.84, fw, rPh * 0.16);
+      /* ---- the loaded rounds, left to right ---- */
+      for(let i = 0; i < pips; i++){
+        /* pct * pips is the fill in pip units: a magazine at 1.5 rounds shows
+           one full pip and half of the next. A single-pip tank simply shows the
+           continuous fraction it always had. */
+        const cov = Math.max(0, Math.min(1, pct * pips - i));
+        if(cov <= 0.004) continue;
+        const sx = inX + i * (segW + gap);
+        const cw = segW * cov;
+        const pr = Math.min(2.5, cw / 2, inH / 2);
+        g.fillStyle = '#f1b641';
+        band(sx, inY, cw, inH, pr, pr);
+        g.fillStyle = '#efd753';
+        band(sx, inY, cw, inH * 0.44, pr, 0);
+        g.fillStyle = '#c4761a';
+        band(sx, inY + inH * 0.84, cw, inH * 0.16, 0, pr);
+        /* The arriving round: a warm flash across the pip that just finished,
+           fading over about a fifth of a second. This is the pip's "pop". */
+        if(bump > 0.02 && cov >= 0.999){
+          g.fillStyle = 'rgba(255,247,214,' + (0.55 * bump).toFixed(3) + ')';
+          band(sx, inY, cw, inH * 0.52, pr, 0);
+        }
       }
-      g.restore();
-      g.strokeStyle = OUT; g.lineWidth = 3;
-      rr(rX + 1, rY + 1, rW - 2, rH - 2, Math.min(6, rH / 2)); g.stroke();
-    }
 
+      /* ---- the outline, drawn last so it sits on top of every fill ---- */
+      g.strokeStyle = OUT; g.lineWidth = RLOUT;
+      g.beginPath();
+      rr(rX + RLOUT / 2, rY + RLOUT / 2, rW - RLOUT, rH - RLOUT, Math.min(6, (rH - RLOUT) / 2));
+      g.stroke();
+    }
     /* ---- bush icon: right-hand gutter, only while actually in a bush ----
        Phase 2 (fully hidden) clears camoState, but the plate itself is faded out
        by then, so 'bush' is the whole condition that can be seen on screen. */
@@ -3631,27 +3679,26 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
                     (lt.allyId && lt.allyId === this.id);
     } catch(e){}
     if(ally){
-      const info = (typeof this.reloadInfo === 'function') ? this.reloadInfo() : null;
-      const total = info && info.total > 0 ? info.total : 0;
-      /* 1 when the gun is loaded, so the line fills as it reloads and STAYS full
-         afterwards. See the matching note in _drawHp. */
-      const targetR = (info && info.active && total > 0)
-        ? Math.max(0, Math.min(1, 1 - Math.max(0, info.left) / total))
-        : 1;
+      /* reloadFill() is the shared definition of "how full is the ammo bar" --
+         see its own note. Computing it here separately is what let a magazine
+         tank read as fully loaded while this plate drew it as 2 of 3 rounds. */
+      const targetR = this.reloadFill();
       if(this._rlDisp === undefined) this._rlDisp = targetR;
       const r0 = this._rlDisp;
       this._rlDisp = r0 + (targetR - r0) * Math.min(1, dt * 12);
       if(Math.abs(this._rlDisp - targetR) < 0.003) this._rlDisp = targetR;
       if(this._rlDisp !== r0) dirty = true;
 
-      /* THE LOADED BUMP, fired once on the transition into "loaded" -- not while
-         the gun sits loaded, which would make the line twitch for the whole
-         match. _drawHp swells the line and brightens the yellow while this is
-         above zero. */
-      const loadedNow = targetR >= 0.999;
-      if(this._rlWasLoaded === undefined) this._rlWasLoaded = loadedNow;
-      if(loadedNow && !this._rlWasLoaded) this._rlBump = 1;
-      this._rlWasLoaded = loadedNow;
+      /* THE PIP POP. A round ARRIVING is the event the ammo bar exists to
+         announce, so the bump fires on every pip that completes -- not only on
+         "the gun is now fully loaded", which for a five-round magazine would
+         have left four arrivals silent. _drawHp flashes that pip for ~0.2s
+         (the geometry itself never moves; Brawl Stars' strip does not swell). */
+      const pips = this.reloadSegments();
+      const filledNow = Math.floor(targetR * pips + 1e-4);
+      if(this._rlPipsFilled === undefined) this._rlPipsFilled = filledNow;
+      if(filledNow > this._rlPipsFilled) this._rlBump = 1;
+      this._rlPipsFilled = filledNow;
     }
     if(this._rlBump > 0){
       this._rlBump = Math.max(0, this._rlBump - dt * 4.5);
@@ -4003,12 +4050,117 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     if(!this._allowFall || !this._physBody || !this._physWorld) return;
   }
 
+  /* SNAG ASSIST — A CORNER IS A GLANCE, NOT A WALL.
+
+     WHAT WAS WRONG. The drive rewrites the hull's velocity to lie along its own
+     heading every frame, which is what gives the tanks their weight — and is
+     also why a tank that clips the corner of a small prop with one track stops
+     DEAD instead of sliding past it. Rapier resolves the contact and leaves a
+     little tangential motion; this code then erases it, so the only thing left
+     is "pressing forward against a box". A pebble, a fence post, the lip of a
+     rock: all of them read as an invisible wall.
+
+     WHAT THIS DOES, AND ONLY THIS. When the tank is being commanded forward and
+     is measurably NOT getting there, and the physics engine reports a contact
+     whose normal is horizontal (a wall, not the floor), the commanded velocity
+     is projected onto the contact plane — the tank keeps most of its speed and
+     slides along the thing it hit — and a small push-off is queued along the
+     normal so the hull visibly breaks free instead of grinding.
+
+     WHAT IT DELIBERATELY DOES NOT DO.
+
+       * HEAD-ON IS UNCHANGED. If the contact is close to perpendicular there is
+         no useful slide (projecting leaves almost nothing), so it bails out and
+         the tank stops exactly as it does today. Parking against a wall still
+         parks.
+       * NOTHING MOVES THROUGH ANYTHING. Only a velocity is corrected; the
+         collider is untouched, so this can never let a tank into geometry — it
+         can only stop the geometry from eating a glancing hit.
+       * TANKS ARE IGNORED. Contacts whose other side is a tank are skipped:
+         ramming another hull is the tank-vs-tank solver's business, and a slide
+         assist there would shove players around in fights.
+       * IT RATE-LIMITS ITSELF. One nudge per 260ms, capped at 1.6 u/s, decaying
+         in about a third of a second — a nudge, not a launcher.
+
+     Returns the corrected drive velocity for this frame, or null when there is
+     nothing to correct (the common case: no contact at all). */
+  _snagAssist(dt, curVel, wantX, wantZ){
+    if(!this._physWorld || !this._physCollider) return null;
+    if(typeof RAPIER === 'undefined') return null;
+    const wantMag = Math.hypot(wantX, wantZ);
+    if(!(wantMag > 1.2)) return null;
+
+    const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    if(this._snagNextAt && now < this._snagNextAt) return null;
+
+    /* Being commanded somewhere is not the same as going there: this is the
+       blocked test. 75% of the wanted speed means nothing is in the way. */
+    const ux = wantX / wantMag, uz = wantZ / wantMag;
+    const along = curVel.x * ux + curVel.z * uz;
+    if(along > wantMag * 0.75) return null;
+
+    let nx = 0, nz = 0, hits = 0;
+    try {
+      this._physWorld.contactPairsWith(this._physCollider, (other) => {
+        if(!other || other === this._physCollider) return;
+        if(other.userData && other.userData.type === 'tank') return;
+        this._physWorld.contactPair(this._physCollider, other, (man) => {
+          if(!man) return;
+          let n = null;
+          try { n = man.normal(); } catch(e){ n = null; }
+          if(!n) return;
+          const hlen = Math.hypot(n.x, n.z);
+          /* Mostly-horizontal normal only. The floor is a contact too, and
+             treating it as a wall would make the tank slide on flat ground. */
+          if(hlen < 0.35) return;
+          nx += n.x / hlen; nz += n.z / hlen;
+          hits++;
+        });
+      });
+    } catch(e){ return null; }
+    if(!hits) return null;
+
+    let nlen = Math.hypot(nx, nz);
+    if(nlen < 0.01) return null;
+    nx /= nlen; nz /= nlen;
+
+    /* The normal must point AWAY from the obstacle. Rapier's sign depends on
+       which side of the pair the collider was created on, so it is settled
+       here instead of being assumed: flip it if it agrees with the drive. */
+    let dot = wantX * nx + wantZ * nz;
+    if(dot > 0){ nx = -nx; nz = -nz; dot = -dot; }
+
+    const slideX = wantX - nx * dot;
+    const slideZ = wantZ - nz * dot;
+    const slideMag = Math.hypot(slideX, slideZ);
+
+    /* HEAD-ON: nothing to slide along, so behave exactly as before. The 55%
+       threshold is deliberately high — a tank pressed square into a wall must
+       sit still, and a low bar here turned "pressing at a wall" into a slow
+       jitter as the nudge pushed it back and the drive pushed it in again. */
+    if(slideMag < wantMag * 0.55) return null;
+
+    const keep = 0.9;
+    const bounce = Math.min(1.2, wantMag * 0.22);
+    this._snagKX = (this._snagKX || 0) + nx * bounce;
+    this._snagKZ = (this._snagKZ || 0) + nz * bounce;
+    const klen = Math.hypot(this._snagKX, this._snagKZ);
+    if(klen > 2.2){ this._snagKX *= 2.2 / klen; this._snagKZ *= 2.2 / klen; }
+    this._snagNextAt = now + 350;
+
+    return { x: slideX * keep, z: slideZ * keep };
+  }
+
   update(dt, world, game){
     /* The frame's own delta, published for _updateLean. Timing the lean off a
        wall clock instead made it wrong whenever the browser throttled a frame
        or the tab was hidden — the hull would then barely move at all. */
     this._frameDt = dt;
     this._frameToken = (this._frameToken || 0) + 1;
+    /* SAFETY NET. Any tank that is alive must be in the world. If some revival
+       path missed _restoreFromGarbage, this puts it back on the next frame
+       instead of leaving an invisible, collisionless tank driving around. */
+    if(this._wreckGone && this.alive && !this.dying) this._restoreFromGarbage(game);
     this._updateFrontMarker();
     if(this._animMixer) this._animMixer.update(dt);
     this._updateTrails(dt, game);
@@ -4156,9 +4308,17 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
          it. The hop is the blast's one-shot vertical pop and is consumed here:
          after this write it is spent. */
       const _extX = this._extVX || 0, _extZ = this._extVZ || 0;
-      this._tmpLinvel.x = newVelX + _extX;
+      /* A SNAG DOES NOT HAVE TO BE A FULL STOP — see _snagAssist. The correction
+         is applied to the drive's own velocity for THIS frame, and the small
+         push-off is queued in its own buffer (_snagKX/_snagKZ) so it survives
+         the next frame's rewrite instead of being erased by it. */
+      let _driveX = newVelX, _driveZ = newVelZ;
+      const _snag = this._snagAssist(dt, curVel, newVelX, newVelZ);
+      if(_snag){ _driveX = _snag.x; _driveZ = _snag.z; }
+      const _snagKX = this._snagKX || 0, _snagKZ = this._snagKZ || 0;
+      this._tmpLinvel.x = _driveX + _extX + _snagKX;
       this._tmpLinvel.y = curVel.y + (this._hopOnce || 0);
-      this._tmpLinvel.z = newVelZ + _extZ;
+      this._tmpLinvel.z = _driveZ + _extZ + _snagKZ;
 
       if(this._allowFall){
         const pitchAngle = this._tmpEuler ? this._tmpEuler.x : 0;
@@ -4181,6 +4341,14 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
         const dcy = Math.exp(-(((CONFIG && CONFIG.IMPULSE_EXT_DECAY) != null) ? CONFIG.IMPULSE_EXT_DECAY : 3.5) * dt);
         this._extVX = Math.abs(_extX * dcy) < 0.02 ? 0 : _extX * dcy;
         this._extVZ = Math.abs(_extZ * dcy) < 0.02 ? 0 : _extZ * dcy;
+      }
+      /* The snag nudge is short-lived on purpose: it exists to break the tank
+         off the corner, not to keep shoving it down the wall. ~0.35s to the
+         noise floor at 6/s, and below that it is zeroed outright. */
+      if(this._snagKX || this._snagKZ){
+        const kd = Math.exp(-6 * dt);
+        this._snagKX = Math.abs(this._snagKX * kd) < 0.02 ? 0 : this._snagKX * kd;
+        this._snagKZ = Math.abs(this._snagKZ * kd) < 0.02 ? 0 : this._snagKZ * kd;
       }
       const turnRate = this.drifting ? d.turn * CONFIG.DRIFT_TURN_BOOST : d.turn;
       /* TURNING UNDER LOAD -- a wide arc at speed, with a floor.
@@ -4375,6 +4543,10 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     }
 
     if(this.reloadLeft > 0) this.reloadLeft -= dt;
+    /* The gear's own cooldown ticks down here with the reload, so a flip is
+       gated by exactly one clock rather than a wall-clock timestamp that would
+       keep counting while the match is paused. */
+    if(this.gearCdLeft > 0) this.gearCdLeft = Math.max(0, this.gearCdLeft - dt);
 
     if(this.superCdLeft > 0){
       /* Super charge rate recovers the meter FASTER (×1.10 per level) and the
@@ -4395,7 +4567,12 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       }
     }
 
-    if(d.doubleBarrel && game && game.input && game.input.keys && game.input.keys['KeyG'] && !this._gPrev){
+    /* LOCAL TANK ONLY. This used to read the keyboard for every tank in the
+       match, so one press of G flipped the fire mode of EVERY double-barrel
+       tank on the field, bots included -- and it is the same key the gear
+       switch now owns, so a Burst player's G would have toggled every Double
+       too. A mode is the owner's input; nobody else's keyboard reaches it. */
+    if(this.isLocal && d.doubleBarrel && game && game.input && game.input.keys && game.input.keys['KeyG'] && !this._gPrev){
       this._doubleMode = this._doubleMode === 'single' ? 'double' : 'single';
       if(this.isLocal && typeof Menu !== 'undefined' && Menu.toast){
         Menu.toast('Mode: ' + (this._doubleMode === 'double' ? 'DOUBLE' : 'SINGLE'));
@@ -4532,13 +4709,26 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
         if(game) game.spawnShot(this);
         if(game) game.spawnShot(this);
       } else {
+        /* BURST SALVO: the gear decides how many shells the trigger spends.
+
+           `shots` is read from the magazine, not from the mode alone: SALVO
+           with only one round loaded fires that one round instead of spending a
+           shell it does not have (the old Double path subtracted a flat 2 and
+           could drive the count negative). Both shells leave in the SAME frame —
+           that is what makes it a salvo rather than the Predator's timed burst —
+           and each spawnShot applies the tank's own knockback, so the kick lands
+           twice and SALVO really is 2x the shove. */
+        const salvo = this._gearMode === 'salvo' && d.gear && d.magSize > 1;
+        const shots = salvo ? Math.min(2, this.mag) : 1;
         this.reloadLeft = d.reload;
         if(d.magSize){
-          this.mag--;
+          this.mag -= shots;
           if(this.mag <= 0) this.magReloadLeft = d.magReload || d.reload;
         }
-        if(d.ejectShell !== false && game) game.ejectShell(this);
-        if(game) game.spawnShot(this);
+        for(let s = 0; s < shots; s++){
+          if(d.ejectShell !== false && game) game.ejectShell(this);
+          if(game) game.spawnShot(this);
+        }
       }
     }
   }
@@ -4548,6 +4738,101 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     if(this.magReloadLeft > 0) return { active:true, total:d.magReload||d.reload, left:Math.max(0,this.magReloadLeft), mag:0, magSize:d.magSize||0 };
     if(this.reloadLeft > 0 || d.magSize) return { active:this.reloadLeft > 0, total:d.reload, left:Math.max(0,this.reloadLeft), mag:this.mag, magSize:d.magSize||0 };
     return { active:false, total:d.reload, left:0, mag:1, magSize:0 };
+  }
+
+  /* ---------- Fire-mode gear ----------
+
+     A second switch beside the super button, for a tank whose gun has two
+     trigger behaviours rather than one. It is NOT a reload: flipping it costs
+     no ammo and no reload, only `gear.cd` seconds of cooldown, which is short
+     enough (one second on Burst) to flip mid-duel.
+
+     Driven entirely by the def's `gear` block, so a tank without one simply has
+     no slot on screen — hasGear() is the single question the HUD asks, and
+     leaving `gear` out of a def is the whole of opting out. */
+  hasGear(){
+    const g = this.def && this.def.gear;
+    return !!(g && g.modes && g.modes.length > 1);
+  }
+
+  /* What the HUD needs to draw the slot. Cheap and allocation-light: it is
+     polled once a frame by Game._updateGearSlot. */
+  gearInfo(){
+    const g = this.def.gear || {};
+    const labels = g.labels || {};
+    const cd = Math.max(0, this.gearCdLeft || 0);
+    return {
+      mode: this._gearMode,
+      label: labels[this._gearMode] || String(this._gearMode || '').toUpperCase(),
+      cd, cdTotal: g.cd || 1,
+      ready: cd <= 0,
+      /* What the trigger will spend right now, so the button can say so. */
+      shells: (this._gearMode === 'salvo' && (this.def.magSize || 0) > 1)
+        ? Math.max(1, Math.min(2, this.mag | 0))
+        : 1,
+    };
+  }
+
+  /* Flip the switch. Returns true if the mode changed, so the caller can play a
+     click without having to re-read the mode. Refuses while on cooldown, while
+     dead, and for a tank that has no gear at all. */
+  toggleGear(){
+    const g = this.def && this.def.gear;
+    if(!g || !g.modes || g.modes.length < 2) return false;
+    if(!this.alive || this.dying) return false;
+    if((this.gearCdLeft || 0) > 0) return false;
+    const i = g.modes.indexOf(this._gearMode);
+    this._gearMode = g.modes[(i < 0 ? 0 : i + 1) % g.modes.length];
+    this.gearCdLeft = g.cd || 1;
+    if(this.isLocal && typeof Menu !== 'undefined' && Menu.toast){
+      const label = (g.labels && g.labels[this._gearMode]) || String(this._gearMode).toUpperCase();
+      const what = (g.desc && g.desc[this._gearMode]) ? ' \u2014 ' + g.desc[this._gearMode] : '';
+      Menu.toast('\u2699 ' + label + what);
+    }
+    return true;
+  }
+
+  /* HOW MANY AMMO PIPS the plate draws: one per round the magazine holds, so a
+     three-round tank reads as three pips and a single-shot tank as one. Capped
+     at six -- a definition with a silly magSize must not draw hairlines -- and
+     never below one, because a zero-round bar is not a thing. */
+  reloadSegments(){
+    const n = (this.def && this.def.magSize) | 0;
+    return n > 0 ? Math.max(1, Math.min(6, n)) : 1;
+  }
+
+  /* THE LOADED FRACTION, 0..1, for the ammo bar.
+
+     One function, used by the drawing AND by the easing in _stepHpBar, because
+     the two used to compute this separately and a magazine tank (rounds in the
+     gun but no reload running) evaluated to "fully loaded" in one of them and
+     "2 of 3 rounds" in the other.
+
+     A magazine is counted in ROUNDS: the rounds still in the gun, plus the
+     fraction of the round currently being reloaded. BUT the empty-magazine
+     reload is not one round -- `magReloadLeft` runs for the whole clip, so its
+     remaining time already is the fraction of the BAR and must not be divided
+     by the pip count again (that read a refilling magazine as one sixth full
+     halfway through instead of one half). It is therefore handled first, and
+     separately from the per-round case. A tank with no magazine has one round:
+     reloading or loaded. */
+  reloadFill(){
+    const clamp01 = (v) => Math.max(0, Math.min(1, v));
+    const d = this.def || {};
+    const pips = (d.magSize | 0);
+    /* THE WHOLE MAGAZINE COMING BACK: already a 0..1 bar fraction. */
+    if(this.magReloadLeft > 0){
+      const total = (d.magReload || d.reload || 1);
+      return clamp01(1 - this.magReloadLeft / total);
+    }
+    const info = (typeof this.reloadInfo === 'function') ? this.reloadInfo() : null;
+    if(!info) return 1;
+    const total = info.total > 0 ? info.total : 0;
+    const partial = (info.active && total > 0)
+      ? clamp01(1 - Math.max(0, info.left) / total)
+      : 0;
+    if(pips > 0) return clamp01(((this.mag || 0) + partial) / pips);
+    return info.active ? partial : 1;
   }
 
   /* ---------- Super abilities ---------- */
@@ -6037,9 +6322,33 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     this.hpSprite.position.y = (this._baseTurretH + NAMEPLATE_GAP) * s + halfH;
   }
 
+  /* ============================================================================
+     DEATH: BLACK, THEN BURIED, THEN GONE
+
+     A wreck used to keep its own colours everywhere except the two hull
+     materials, smoulder with an orange ember glow for forty-eight seconds and
+     then simply stop being drawn - still in the scene graph, still holding a
+     physics body, still in game.tanks. The three stages are now explicit and
+     short:
+
+       0s   every material this tank owns goes pure black; no ember tint, no
+            coloured tracks, no lit muzzle. One wreck, one silhouette.
+       5s   it starts sinking straight down into the ground, so it reads as
+            being swallowed rather than fading out.
+       10s  it is garbage: off the scene graph, out of the physics world, its
+            per-wreck textures freed. The Tank RECORD survives because the
+            modes revive it (a TDM round resets these same objects, Capture
+            the Circle respawns them), and respawn() knows how to rebuild
+            what garbage() removed.
+     ============================================================================ */
   _startDeath(game, killer){
     this.dying = true; this.deathT = 0;
-    this.removeAt = (game? game.time : 0) + 48;
+    this.removeAt = (game? game.time : 0) + 10;
+    /* Where the wreck actually is. The sink used to write root.position.y
+       ABSOLUTELY (-sink * 1.2), which snapped a tank that died on a hill down
+       to y = 0 the instant the sink began - it dropped through the ground on
+       every map with any relief at all. Sinking is an offset from here now. */
+    this._wreckBaseY = this.root ? this.root.position.y : 0;
     /* Tell the game the LOCAL player has just been wrecked. That is the moment
        the respawn cinematic has to start — not four seconds later, which is
        when onLocalDeath() fires, long after the camera should already be
@@ -6047,8 +6356,9 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     if(this.isLocal && game && typeof game.onLocalTankWreck === 'function'){
       try { game.onLocalTankWreck(this); } catch(e){}
     }
-    // Keep the collider alive for 5s so the wreck still blocks other tanks.
-    // (Do not disable the rigid body here.)
+    // Keep the collider alive while the wreck is in the world (0-10s) so it
+    // still blocks other tanks. (Do not disable the rigid body here - it is
+    // _toGarbage() at the ten-second mark that takes it out.)
 
     if(this.hpSprite) this.hpSprite.visible = false;
     if(this.viewCircle) this.viewCircle.visible = false;
@@ -6056,6 +6366,18 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     // Model stands still for 5 seconds: no turret fly-off.
     this._turretVel = null;
     this._turretSpin = null;
+
+    /* KILL THE HIT-FLASH, WITHOUT LETTING IT RESTORE.
+
+       A tank that dies 0.1s after being hit has a white flash in flight, and
+       that flash's timer puts the pre-flash colour back when it expires. It
+       used to expire AFTER the wreck had been charred, so one patch of the
+       dead tank snapped back to its old paint for the rest of the wreck's
+       life - a tank-shaped spot of colour on a black hull. Cancel the timer
+       here instead: the snapshot below still reads the true originals out of
+       _flashOriginals, so respawn can undo the black correctly. */
+    this._flashUntil = 0;
+    this._flashMat = null;
 
     // Snapshot the pre-death material colours BEFORE they are charred, so a
     // respawn (Capture the Circle brings tanks back mid-match) can paint them
@@ -6080,25 +6402,44 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     if(this.bodyMesh) _snapDeathMat(this.bodyMesh.material);
     if(this.turretMesh) _snapDeathMat(this.turretMesh.material);
 
-    if(this.bodyMat){ this.bodyMat.color.setHex(0x141414); if(this.bodyMat.emissive){ this.bodyMat.emissive=new THREE.Color(0x3a1500); this.bodyMat.emissiveIntensity=0.6; } }
-    if(this.turretMat){ this.turretMat.color.setHex(0x1a1a1a); if(this.turretMat.emissive){ this.turretMat.emissive=new THREE.Color(0x2a1000); this.turretMat.emissiveIntensity=0.5; } }
-    // `emissive` only exists on lit materials (toon/phong/standard). On a
-    // MeshBasicMaterial it is not part of the shader's uniforms, and three.js
-    // throws on it for the rest of the session — which aborts renderer.render().
-    if(this.bodyMesh && this.bodyMesh.material !== this.bodyMat){
-      this.bodyMesh.material.color.setHex(0x141414);
-      if(this.bodyMesh.material.emissive){
-        this.bodyMesh.material.emissive = new THREE.Color(0x3a1500);
-        this.bodyMesh.material.emissiveIntensity = 0.6;
-      }
+    /* FULLY BLACK - the whole tank, not two materials.
+
+       The old wreck was "charred": hull and turret at #141414/#1a1a1a with an
+       orange ember emissive on top, while the tracks, decals, sprays and every
+       paint material stayed exactly as they were. Up close that reads as a
+       dirty tank, not a destroyed one.
+
+       So the traversal is the point: every mesh and sprite this tank owns is
+       driven to #000000 with no emissive. The outline shells are skipped by
+       the sharedWithCache flag because that material is ONE object used by
+       every tank in the match (Tank._outlineMaterial) - it is already black,
+       and restoring it here would repaint the living tanks' rims.
+
+       `emissive` only exists on lit materials (toon/phong/standard). On a
+       MeshBasicMaterial it is not part of the shader's uniforms, so it is
+       tested rather than assumed. */
+    const _blacken = (m) => {
+      if(!m || !m.color) return;
+      if(m.userData && m.userData.sharedWithCache) return;
+      _snapDeathMat(m);
+      m.color.setRGB(0, 0, 0);
+      if(m.emissive && m.emissive.isColor){ m.emissive.setRGB(0, 0, 0); m.emissiveIntensity = 0; }
+      m.needsUpdate = true;
+    };
+    if(this.root && this.root.traverse){
+      this.root.traverse(o => {
+        if(!o.isMesh && !o.isSprite) return;
+        const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
+        mats.forEach(_blacken);
+      });
     }
-    if(this.turretMesh && this.turretMesh.material !== this.turretMat){
-      this.turretMesh.material.color.setHex(0x1a1a1a);
-      if(this.turretMesh.material.emissive){
-        this.turretMesh.material.emissive = new THREE.Color(0x2a1000);
-        this.turretMesh.material.emissiveIntensity = 0.5;
-      }
-    }
+    /* The hull, turret and barrel materials are also held by reference and are
+       read by the muzzle/recoil paths, so they are blacked explicitly even if
+       the traversal already reached them (it is idempotent - the colour is
+       already zero and _snapDeathMat de-duplicates by material). */
+    _blacken(this.bodyMat);
+    _blacken(this.turretMat);
+    _blacken(this.barrelMat);
 
     this._firePts = (!window.particleClouds || (game && game._noParticles)) ? null : this._makeFireParticles();
     if(this._firePts){
@@ -6178,29 +6519,163 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       });
     }
 
+    /* SINKING. Five seconds of standing still (long enough to read the wreck
+       and for the killer to move on), then it goes down. 1.7 units per second
+       is ~8.5 units over the five it has left, which clears the tallest hull
+       in the roster and buries it below the lowest ground on any map. */
     if(this.deathT > 5){
-      const sink = (this.deathT-5);
-      this.root.position.y = -sink*1.2;
-      if(this._firePts){ this._firePts.children.forEach(p=>{ p.material.opacity=Math.max(0, 0.9 - this.deathT/45); }); }
+      const sink = (this.deathT - 5);
+      if(this.root) this.root.position.y = (this._wreckBaseY || 0) - sink * 1.7;
+      if(this._firePts){
+        this._firePts.children.forEach(p => { p.material.opacity = Math.max(0, 0.9 * (1 - sink / 5)); });
+      }
     }
 
     if(this._star){
-      this._star.material.opacity = Math.max(0, 1.0 - this.deathT / 45);
+      this._star.material.opacity = Math.max(0, 1.0 - this.deathT / 10);
     }
 
     if(this.deathT > 4 && game && this.isLocal && !this._notifiedDeath){
       this._notifiedDeath = true;
       game.onLocalDeath();
     }
-    if(this.deathT > 48){
-      this.root.visible = false;
+    /* GONE. By ten seconds the wreck is fully under the ground, so taking it
+       out of the world cannot be seen as a pop. */
+    if(this.deathT > 10) this._toGarbage(game);
+  }
+
+  /* Take the wreck out of the world.
+
+     NOT dispose(): the Tank record has to survive, because the modes revive
+     it - a TDM round resets hp/alive on these same objects and Capture the
+     Circle respawns them by reference. dispose() nulls root and kills the
+     model materials, which would leave those revivals with nothing to stand
+     up. This frees what CANNOT come back - the wreck dressing (fire plume,
+     scorch decal) and the world-space presence (scene graph entry, rigid
+     body) - and leaves a black, hidden, detached hull that respawn() can put
+     back on its feet. */
+  _toGarbage(game){
+    if(this._wreckGone) return;
+    this._wreckGone = true;
+    if(this._firePts){
+      if(this.root) this.root.remove(this._firePts);
+      this._firePts.children.forEach(p => { if(p.material) p.material.dispose(); });
+      this._firePts = null;
     }
+    if(this._star){
+      if(this.root) this.root.remove(this._star);
+      if(this._star.geometry) this._star.geometry.dispose();
+      if(this._star.material) this._star.material.dispose();
+      this._star = null;
+    }
+    /* Hidden as well as detached: _updateVisibility() walks every tank and
+       writes root.visible every frame, so "not in the scene" alone is one
+       stray add() away from a black hull hanging in the air. */
+    if(this.root) this.root.visible = false;
+    try { this.detach(); } catch(e){}
   }
 
   /* Bring this tank back to life. `at` optionally pins it to a fixed spawn
      ({x, z, heading}) — Capture the Circle sends everyone back to the exact
      point they started from instead of a random spot on the map. */
+  /* Undo _toGarbage(): put the model back in the scene and stand a body up
+     under it. Separate from respawn() because respawn is not the only way a
+     tank comes back - the TDM round reset flips alive/dying by hand - and a
+     collected wreck that is revived without this comes back invisible and
+     without collision. Both paths call it; update() also calls it as a net. */
+  _restoreFromGarbage(game){
+    if(!this._wreckGone) return false;
+    this._wreckGone = false;
+    if(this.root && !this.scene && game && game.scene){
+      game.scene.add(this.root);
+      this.scene = game.scene;
+    }
+    if(!this._physBody && this._physWorld) this._createPhysBody();
+    if(this.root) this.root.visible = true;
+    return true;
+  }
+
+  /* UNDO THE DEATH BLACK.
+
+     _startDeath() drives EVERY material the tank owns to #000000 and snapshots
+     the colours it found in _deathColorBackup. Putting them back is a separate,
+     named step because respawn() is not the only thing that brings a tank back:
+
+       * game.js `_tdmStartRound()` revives every tank by hand when the round
+         rolls over (it never called respawn(); it re-implements the restore),
+       * game.js `_tdmRespawnBot()` does the same for a bot's timer respawn.
+
+     Neither of those restored the colours, so a tank that was wrecked in round
+     one came back for round two as a pure black silhouette -- correct-looking
+     for about a second, while the model is still under the spawn camera, and
+     then obviously broken for the rest of the round. Bots that died and came
+     back on a timer were black too. Both now call this.
+
+     Idempotent and cheap: the backup is nulled after the first restore, so a
+     second call (a round reset after a respawn, say) does nothing. */
+  _restoreDeathColors(){
+    const backup = this._deathColorBackup;
+    if(!backup) return false;
+    for(const e of backup){
+      const m = e && e.m;
+      if(!m) continue;
+      if(e.color && m.color) m.color.copy(e.color);
+      if(e.emissive && m.emissive && m.emissive.isColor) m.emissive.copy(e.emissive);
+      if(e.ei != null && typeof m.emissiveIntensity === 'number') m.emissiveIntensity = e.ei;
+      m.needsUpdate = true;
+    }
+    this._deathColorBackup = null;
+    return true;
+  }
+
+  /* TAKE THE WRECK DRESSING OFF AGAIN.
+
+     _startDeath() hangs two extra objects on the tank: a fire plume at its
+     base and a scorch STAR decal on the hull, and fades the star out over the
+     ten seconds the wreck is around. Only respawn() used to take them off, so
+     a tank revived by a TDM round reset kept the decal -- a black cartoon star
+     lying on a live tank, still at whatever opacity the fade had reached when
+     the round ended. Shared by every revival path for that reason. */
+  _stripWreckDressing(){
+    if(this._firePts){
+      if(this.root) this.root.remove(this._firePts);
+      this._firePts.children.forEach(p => { if(p.material) p.material.dispose(); });
+      this._firePts = null;
+    }
+    if(this._star){
+      if(this.root) this.root.remove(this._star);
+      if(this._star.geometry) this._star.geometry.dispose();
+      if(this._star.material) this._star.material.dispose();
+      this._star = null;
+    }
+  }
+
+  /* WHAT ELSE DEATH LEFT BEHIND.
+
+     A super cut short by death must not come back with the tank -- a cloak
+     would leave it invisible, a dash would launch it -- and the same goes for
+     a flamethrower heat lock and a drowning state. respawn() clears these
+     inline; this is the same list, named, for the hand-written revivals in
+     game.js (a TDM round reset and a bot's timer respawn) that never did. */
+  _resetPostDeathState(){
+    if(this.superState === 'cloaked' && this._applyCloakVisual) this._applyCloakVisual(false);
+    this.superState = null; this.superTimer = 0; this._bigShots = 0;
+    this.heat = 0; this.overheated = false;
+    /* The gear keeps its MODE across lives (a player who switched to SALVO
+       expects it back) but never its cooldown. */
+    this.gearCdLeft = 0;
+    this._drowning = false; this._drownTimer = 0;
+    if(this._drownBar) this._drownBar.visible = false;
+    this._notifiedDeath = false;
+    this._wreckBaseY = 0;
+    this._turretVel = null; this._turretSpin = null;
+  }
+
   respawn(world, game, at){
+    /* Back from the garbage: the model was taken out of the scene and the
+       rigid body out of the world at the ten-second mark, so both have to
+       exist again before the rest of this function writes to them. */
+    this._restoreFromGarbage(game);
     const sp = at || world.randomSpawn();
     /* A fresh life starts solid; Game arms the ghost window afterwards. */
     this._spawnLockT = 0;
@@ -6219,8 +6694,11 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     this._yawVel = 0; this._overdriveUntil = 0;
     this.removeAt = -1;
     this._notifiedDeath = false;
+    this._wreckBaseY = 0;
+    if(this.root) this.root.visible = true;
     this.speed = 0; this.vx = 0; this.vz = 0; this.reloadLeft = 0;
     this.heat = 0; this.overheated = false;
+    this.gearCdLeft = 0;
     /* Coming back into the fight must not inherit the blast that killed you.
        A big kill kick lasts about a second, and without this the camera was
        still juddering for two seconds AFTER the respawn — which reads as the
@@ -6228,28 +6706,11 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     if(game && this.isLocal && game._shake > 0) game._shake = 0;
     // The wreck's tumbling turret must not keep flying once we're back
     this._turretVel = null; this._turretSpin = null;
-    // Paint the charred body/turret back to their pre-death colours
-    if(this._deathColorBackup){
-      for(const e of this._deathColorBackup){
-        if(e.color && e.m.color) e.m.color.copy(e.color);
-        if(e.emissive && e.m.emissive && e.m.emissive.isColor) e.m.emissive.copy(e.emissive);
-        if(e.ei != null && typeof e.m.emissiveIntensity === 'number') e.m.emissiveIntensity = e.ei;
-        e.m.needsUpdate = true;
-      }
-      this._deathColorBackup = null;
-    }
+    /* Paint the charred body/turret back to their pre-death colours. Shared
+       with the hand-written revivals in game.js -- see _restoreDeathColors. */
+    this._restoreDeathColors();
     // Strip the wreck dressing: fire plume + scorch star decal
-    if(this._firePts){
-      this.root.remove(this._firePts);
-      this._firePts.children.forEach(p => { if(p.material) p.material.dispose(); });
-      this._firePts = null;
-    }
-    if(this._star){
-      this.root.remove(this._star);
-      if(this._star.geometry) this._star.geometry.dispose();
-      if(this._star.material) this._star.material.dispose();
-      this._star = null;
-    }
+    this._stripWreckDressing();
     if(this.barrelMat){
       this.barrelMat.color.setHex(0x2a2a2e);
       this.barrelMat.emissive = new THREE.Color(0,0,0);

@@ -328,6 +328,10 @@ class Shell {
     /* Captured here rather than read from `def` in _build, which does not have
        the def in scope — it is handed no arguments at all. */
     this._shellScale = (def.shellScale || 1);
+    /* The colour a pellet burns, taken off the def here for the same reason the
+       pellet flag is: _build cannot see the def. Cached per hex below, so a
+       thousand pellets across a match share one THREE.Color. */
+    this._moteHex = (def.pelletGlow != null) ? def.pelletGlow : 0xffd24a;
     this._physBody = null;
     this._physWorld = this._isMortar ? null : (physicsWorld || null);
     this._hitByPhysics = false;
@@ -565,6 +569,34 @@ class Shell {
      on updateInstances for exactly where. */
   static _RIFLE_SLOTS = 160;
   static _ARTILLERY_SLOTS = 48;
+  /* SHOTGUN PELLETS DRAW AS MOTES, NOT AS TINY SHELLS.
+
+     A wide fan of shrunken bullet models is unreadable at 20m: ten shapeless
+     lumps travelling at 130 m/s read as noise, and at 0.34 scale the model's
+     detail is gone anyway. They are now glowing yellow motes instead — a solid
+     colour that carries the fan's SHAPE, which is the only thing the player
+     needs to read off a shotgun.
+
+     WHY A CUBE AND NOT A BILLBOARDED SPRITE. A sprite would be 2 triangles
+     instead of 12 but would need a camera-facing quaternion written into every
+     instance matrix, a texture bind, and an alpha-blended sort against the
+     world. A cube in an unlit additive material has no texture, no sorting, no
+     camera dependency, and is 12 triangles — at the 22-pellet ceiling that is
+     264 triangles in ONE draw call, which is cheaper than the sprite path in
+     everything except the triangle count nobody is short of. It also keeps the
+     update loop identical: the same composed matrix that draws a shell draws a
+     mote.
+
+     Slots: two Burst tanks dumping a salvo in the same frame is 40 pellets, and
+     Nova throws 32 more. 96 covers every combination of that without dropping
+     one on screen. */
+  static _MOTE_SLOTS = 96;
+  /* A pellet's on-screen size, in world units. The old shrunken shell model was
+     0.34, but a SOLID bright cube reads much larger than a thin dark shell of
+     the same footprint — at 0.34 a twenty-pellet salvo was a wall of yellow. 0.28
+     is ~9px at the 20m edge of Burst's range and ~18px at 10m: a clear dot at
+     both, without the fan turning into a blob. */
+  static _MOTE_SIZE = 0.28;
 
   /* Called once each time a bullet / artillery GLB is ADOPTED -- i.e. at the
      moment the placeholder capsule is replaced by the material the shells will
@@ -590,6 +622,29 @@ class Shell {
      it on purpose: compose() only READS the three it is handed, so the shell's
      own components go straight in rather than through a copy. */
   static _instMat = new THREE.Matrix4();
+
+  /* The mote geometry and material, built once for the whole match. Both are
+     shared by every pellet in flight, exactly like the shell's own set. */
+  static _initMoteKit(){
+    if(Shell._moteGeo && Shell._moteMat) return;
+    /* One unit cube scaled per instance, so a single geometry serves every
+       pellet size the defs might ask for later. No normals needed: a MeshBasic
+       material is unlit, and the box geometry's own normals are simply unused. */
+    Shell._moteGeo = new THREE.BoxGeometry(1, 1, 1);
+    /* ADDITIVE, so a dot over dark terrain glows and a dot over the sky does not
+       turn into a grey square. depthWrite stays off: these are light, not
+       matter, and letting them write depth would let one pellet hide another
+       behind it. depthTest stays ON, so a pellet is still hidden by the tank it
+       is about to hit. */
+    Shell._moteMat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      blending: THREE.AdditiveBlending,
+      transparent: true,
+      depthWrite: false,
+      fog: false,
+      toneMapped: false,
+    });
+  }
 
   static _mkBatch(geo, mat, slots){
     const im = new THREE.InstancedMesh(geo, mat, slots);
@@ -665,6 +720,39 @@ class Shell {
     if(!B || !B.scene) return;
     Shell._syncBatch(B.rifle, false, B.scene);
     Shell._syncBatch(B.art,   true,  B.scene);
+    Shell._syncMoteBatch(B, B.scene);
+  }
+
+  /* ONE COLOUR PER TINT VALUE, cached. Pellets are constructed on the firing
+     path — 20 a salvo, hundreds a match — and a fresh THREE.Color per pellet is
+     garbage the renderer never needed, since every pellet from the same tank is
+     the same colour. */
+  static _moteTints = null;
+  static _moteTintFor(hex){
+    if(!Shell._moteTints) Shell._moteTints = new Map();
+    const key = (hex == null ? 0xffd24a : hex) >>> 0;
+    let c = Shell._moteTints.get(key);
+    if(!c){ c = new THREE.Color(key); Shell._moteTints.set(key, c); }
+    return c;
+  }
+  static _moteTintDefault(){
+    if(!Shell._moteTintDefaultColor) Shell._moteTintDefaultColor = Shell._moteTintFor(0xffd24a);
+    return Shell._moteTintDefaultColor;
+  }
+
+  /* The pellet batch. Unlike the two shell families there is nothing to
+     re-point: its geometry and material are this file's own, not a GLB's, so it
+     is created once and then only re-parented when the scene changes.
+
+     INSTANCE COLOURS, so one material serves every tank. `setColorAt` allocates
+     the instanceColor attribute itself on first use, and the tint comes off the
+     firing tank's `pelletGlow` — which is why a Burst's fan and Nova's ring can
+     differ without a second material and a second draw call. */
+  static _syncMoteBatch(B, scene){
+    if(B.mote) return;
+    Shell._initMoteKit();
+    B.mote = Shell._mkBatch(Shell._moteGeo, Shell._moteMat, Shell._MOTE_SLOTS);
+    scene.add(B.mote);
   }
 
   /* Make sure the batches exist in the scene a shell is being attached to.
@@ -679,7 +767,7 @@ class Shell {
   static _ensureBatches(scene){
     if(!scene || !scene.add) return null;
     if(!Shell._batches){
-      Shell._batches = { scene:null, rifle:{body:null,trace:null}, art:{body:null,trace:null} };
+      Shell._batches = { scene:null, rifle:{body:null,trace:null}, art:{body:null,trace:null}, mote:null };
     }
     const B = Shell._batches;
     if(B.scene !== scene){
@@ -690,6 +778,7 @@ class Shell {
           if(slot[key]) scene.add(slot[key]);
         }
       }
+      if(B.mote) scene.add(B.mote);
       B.scene = scene;
     }
     /* Idempotent, so it is safe on every attach rather than only the first: four
@@ -732,9 +821,9 @@ class Shell {
   static updateInstances(){
     const B = Shell._batches;
     if(B){
-      const rifle = B.rifle, art = B.art;
+      const rifle = B.rifle, art = B.art, mote = B.mote;
       const m = Shell._instMat;
-      let nR = 0, nRT = 0, nA = 0, nAT = 0;
+      let nR = 0, nRT = 0, nA = 0, nAT = 0, nM = 0;
       for(const sh of Shell._live){
         /* A shell that was constructed but never attached is in the live set and
            must not be drawn: before instancing it simply was not in the scene.
@@ -746,6 +835,19 @@ class Shell {
            same quaternion (written by orientShellModel, or by game.js's lookAt
            on a shell the host is driving), same _baseScale. */
         m.compose(sh.mesh.position, sh.mesh.quaternion, sh.mesh.scale);
+        /* PELLETS GO TO THE MOTE BATCH AND NOWHERE ELSE. They used to be drawn
+           as the rifle family at 0.34 scale; sending them to the bullet batch
+           as well would draw a tiny shell underneath every mote. Same matrix,
+           same transform the rest of the world already writes — only the thing
+           being drawn changed. */
+        if(sh._isShotgunPellet){
+          if(mote && nM < Shell._MOTE_SLOTS){
+            mote.setMatrixAt(nM, m);
+            mote.setColorAt(nM, sh._moteTint || Shell._moteTintDefault());
+            nM++;
+          }
+          continue;
+        }
         if(sh._isMortar){
           if(art.body && nA < Shell._ARTILLERY_SLOTS) art.body.setMatrixAt(nA++, m);
           /* THE TRACER MATRIX IS THE SHELL MATRIX. In the old code the planes
@@ -763,6 +865,13 @@ class Shell {
       if(rifle.trace){ rifle.trace.count = nRT; rifle.trace.instanceMatrix.needsUpdate = true; }
       if(art.body){ art.body.count = nA; art.body.instanceMatrix.needsUpdate = true; }
       if(art.trace){ art.trace.count = nAT; art.trace.instanceMatrix.needsUpdate = true; }
+      if(mote){
+        mote.count = nM;
+        mote.instanceMatrix.needsUpdate = true;
+        /* instanceColor only exists once setColorAt has been called at least
+           once, which is why it is guarded rather than assumed. */
+        if(mote.instanceColor) mote.instanceColor.needsUpdate = true;
+      }
     }
     /* OUTSIDE THE GUARD, DELIBERATELY. A batch that does not exist yet means no
        shell has ever been attached, and a shell that has never been attached has
@@ -1303,28 +1412,19 @@ class Shell {
        lands in exactly the place it used to. See the batch note above. */
     this.mesh = new THREE.Object3D();
     if(this._isShotgunPellet){
-      /* SHOTGUN PELLETS ARE THE SAME SHELL, SMALLER.
+      /* A MOTE, NOT A SHRUNKEN SHELL. The geometry and material are the pellet
+         batch's own (see _MOTE_SLOTS); this branch only says how big the mote is
+         and what colour it burns. orientShellModel is kept because a cube has no
+         wrong orientation and the call is one quaternion write — but the mote's
+         tint is what the eye actually reads.
 
-         They were once meant to be 3D spheres — a 4x4 sphere in flat yellow —
-         but that branch never ran (see the constructor note about the pellet
-         flag), so pellets quietly drew as full-size shells. Now the pellet flag
-         is read from the def, so it finally takes effect, and the pellet is the
-         shell model scaled down on the MESH.
-
-         Deliberately not a second geometry: the model's geometry and material
-         are shared by every shell in the match and a mesh transform is
-         per-instance and free, so a smaller pellet costs exactly what the
-         full-size one costs.
-
-         THE HITBOX IS DELIBERATELY NOT TOUCHED. An older branch set
-         radius = 0.15 here, but that line never ran either, and the collider is
-         built earlier from the constructor's 0.4 — so pellets have always hit
-         with a 0.4 sphere and the physics body agrees with that. Letting 0.15
-         take effect now, as a side effect of fixing the flag, would quietly
-         quarter the shotgun's hit area without anyone asking for it. The shell
-         gets smaller; what it hits does not. */
-      this._baseScale = 0.34;
+         THE HITBOX IS STILL THE 0.4 SPHERE it has always been: the mote is
+         smaller than that on screen, but making the collider match the art would
+         quietly quarter the shotgun's hit area. The shell gets prettier; what it
+         hits does not change. */
+      this._baseScale = Shell._MOTE_SIZE;
       this.mesh.scale.setScalar(this._baseScale);
+      this._moteTint = Shell._moteTintFor(this._moteHex);
       orientShellModel(this.mesh, this.dir);
     } else if(this._isMortar){
       /* THE MORTAR DRAWS ITS OWN ROUND, at full size.
@@ -1422,6 +1522,11 @@ class Shell {
      it one. The tracer batch does not exist yet either, which is the same thing
      said about the geometry rather than the shell. */
   _addTracer(){
+    /* A pellet has no streak and never will. The create check in game.js's
+       pellet loop only stops the streak being SPAWNED; the planes are handed to
+       every shell of the rifle family when the model lands, and a shotgun fan of
+       ten streaks is a smear across the screen rather than a read of the shot. */
+    if(this._isShotgunPellet) return;
     const kit = Shell._kit(this._isMortar);
     if(!kit.traceGeo || !this.mesh) return;
     this._tracerOn = true;

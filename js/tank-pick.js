@@ -15,10 +15,130 @@ window.TankPick = (function(){
 
   var R = null, _scene = null, _cam = null;
   var _thumbs = {};           /* id -> data URL */
+  var _thumbPending = {};     /* id -> the promise already drawing it */
   var _queue = Promise.resolve();
   var _game = null, _panel = null;
   var _shown = null, _model = null, _yaw = 0.6, _dragging = false, _lastSpin = 0;
   var _raf = 0, _rosterHash = '', _token = 0;
+
+  /* ------------------------------------------------------------
+     THE ROSTER ICON POSE.
+
+     Every card in the pre-battle picker wears a REAL render of the real
+     model - no painted icon, no silhouette. The pose is the reference
+     image the design was drawn against: camera square in front of the
+     hull and a little above it, nose swung to screen-left so the glacis
+     and the near flank both read and the barrel leads out of the card.
+
+     Stored as angles, not as a position, so a flat scout and a tall
+     howitzer get the SAME pose - the distance is constant and fitForCard()
+     decides how much of the frame each one fills.
+     ------------------------------------------------------------ */
+  var ICON_YAW  = -0.66;                 /* model turned to screen-left */
+  var ICON_ELEV = 15 * Math.PI / 180;    /* a little above the hull */
+  var ICON_DIST = 9.2;
+  var ICON_FOV  = 30;
+  var ICON_W = 384, ICON_H = 288;
+  var ICON_FILL = 0.88;                  /* how much of the frame a tank fills */
+
+  function iconPose(){
+    if(!_cam) return;
+    _cam.fov = ICON_FOV;
+    _cam.aspect = ICON_W / ICON_H;
+    _cam.position.set(0, Math.sin(ICON_ELEV) * ICON_DIST, Math.cos(ICON_ELEV) * ICON_DIST);
+    _cam.lookAt(0, 0.05, 0);
+    _cam.updateProjectionMatrix();
+  }
+
+  /* ------------------------------------------------------------
+     SIZING A CARD ICON
+
+     fit() normalises the longest FOOTPRINT to 4.4 units, which is right for
+     the garage but wrong on a card: a long-barrelled tank spends most of its
+     footprint on the barrel and then reads as a small box beside a stubby
+     one.
+
+     So the icon measures ITSELF instead. This reads the pixels it actually
+     drew and scales the model until the silhouette fills ICON_FILL of the
+     frame, then centres it.
+
+     Measuring the model's Box3 instead was the first attempt and it was
+     wrong twice over: the roster's GLBs carry invisible helper meshes that
+     Box3 counts and the camera does not draw (every tank came out small and
+     floating), and perspective means a scaled-up hull grows faster near the
+     lens than the scale factor predicts (the long ones burst out of the
+     bottom of the card). Reading the render answers both questions at once:
+     this IS the tank, this IS where it landed.
+     ------------------------------------------------------------ */
+  function drawnBox(){
+    try {
+      var src = R.domElement;
+      var c2 = document.createElement('canvas');
+      c2.width = src.width; c2.height = src.height;
+      var ctx = c2.getContext('2d');
+      ctx.drawImage(src, 0, 0);
+      var d = ctx.getImageData(0, 0, c2.width, c2.height).data;
+      var x0 = c2.width, y0 = c2.height, x1 = -1, y1 = -1;
+      for(var y = 0; y < c2.height; y++){
+        var row = y * c2.width * 4;
+        for(var x = 0; x < c2.width; x++){
+          if(d[row + x * 4 + 3] > 8){
+            if(x < x0) x0 = x;
+            if(x > x1) x1 = x;
+            if(y < y0) y0 = y;
+            if(y > y1) y1 = y;
+          }
+        }
+      }
+      if(x1 < 0) return null;
+      return { x0: x0, y0: y0, x1: x1, y1: y1, w: x1 - x0 + 1, h: y1 - y0 + 1, W: c2.width, H: c2.height };
+    } catch(e){ return null; }   /* a tainted canvas just means no fit */
+  }
+
+  function fitForCard(m){
+    if(!_cam || !R) return;
+    var W = R.domElement.width, H = R.domElement.height;
+    var right = new THREE.Vector3().setFromMatrixColumn(_cam.matrixWorld, 0);
+    var up = new THREE.Vector3().setFromMatrixColumn(_cam.matrixWorld, 1);
+    /* Pixels to world units on the plane the model sits on. Used only for
+       the centring nudge, so an approximation of depth is enough - and the
+       nudge is done twice, which absorbs the error. */
+    var perPx = (2 * _cam.position.length() * Math.tan(_cam.fov * Math.PI / 360)) / H;
+
+    /* Scale. Damped, not direct: growing a hull by k makes its near face
+       grow by MORE than k, so a full correction overshoots and the next one
+       overshoots back. Walking in on 60% steps lands inside a pixel without
+       bouncing, and 8 passes is one more than it ever needs. */
+    for(var pass = 0; pass < 8; pass++){
+      R.clear();
+      R.render(_scene, _cam);
+      var bb = drawnBox();
+      if(!bb) return;
+      var f = Math.max(bb.w / bb.W, bb.h / bb.H);
+      if(f <= 0.0001) return;
+      var k = ICON_FILL / f;
+      if(Math.abs(1 - k) < 0.01) break;
+      k = 1 + (k - 1) * 0.6;
+      m.scale.multiplyScalar(Math.max(0.5, Math.min(2, k)));
+      m.updateMatrixWorld(true);
+    }
+
+    /* Centre the visual mass. A rotated tank is not symmetric in projection
+       - the barrel side hangs heavier - so a model that is geometrically
+       centred still looks a few percent off-centre beside its neighbours. */
+    for(var cpass = 0; cpass < 2; cpass++){
+      R.clear();
+      R.render(_scene, _cam);
+      var fb = drawnBox();
+      if(!fb) return;
+      var cx = (fb.x0 + fb.x1) / 2 / W - 0.5;
+      var cy = (fb.y0 + fb.y1) / 2 / H - 0.5;
+      if(Math.abs(cx) < 0.004 && Math.abs(cy) < 0.004) break;
+      m.position.addScaledVector(right, -cx * W * perPx);
+      m.position.addScaledVector(up, cy * H * perPx);
+      m.updateMatrixWorld(true);
+    }
+  }
 
   function ensureRenderer(){
     if(R) return R;
@@ -26,13 +146,18 @@ window.TankPick = (function(){
     R.setPixelRatio(1);
     R.setClearColor(0x000000, 0);
     _scene = new THREE.Scene();
-    _scene.add(new THREE.AmbientLight(0xffffff, 0.75));
-    var sun = new THREE.DirectionalLight(0xffffff, 1.1);
-    sun.position.set(4, 8, 6);
+    /* Studio-ish three point light. Flat enough to read the silhouette,
+       with the key over the front-left shoulder so the nose and the near
+       track keep their shape instead of flattening into one blob. */
+    _scene.add(new THREE.AmbientLight(0xffffff, 0.82));
+    var sun = new THREE.DirectionalLight(0xffffff, 1.05);
+    sun.position.set(5, 9, 7);
     _scene.add(sun);
-    _cam = new THREE.PerspectiveCamera(32, 1.33, 0.1, 200);
-    _cam.position.set(0, 4.6, 9.5);
-    _cam.lookAt(0, 0, 0);
+    var fill = new THREE.DirectionalLight(0xdfe9ff, 0.32);
+    fill.position.set(-7, 3, 2);
+    _scene.add(fill);
+    _cam = new THREE.PerspectiveCamera(ICON_FOV, ICON_W / ICON_H, 0.1, 200);
+    iconPose();
     return R;
   }
 
@@ -62,34 +187,54 @@ window.TankPick = (function(){
       g.add(body); g.add(tur);
       return fit(g);
     };
-    if(def.model && window.Models && Models.hasModel(def.model)){
-      return Promise.resolve(Models.load(def.model)).then(function(g){ return g ? fit(g) : fallback(); }).catch(fallback);
+    if(def.model && window.Models){
+      /* hasModel() is only true once the boot probe has answered. Asking
+         before that quietly hands back the cube stand-in, and a cube in a
+         card never corrects itself because thumbnails are cached forever.
+         So wait for the probe the boot already started instead of racing
+         it: the card shows its placeholder for a moment, then the real
+         tank. */
+      var probed = Models._probePromise ? Promise.resolve(Models._probePromise).catch(function(){}) : Promise.resolve();
+      return probed.then(function(){
+        if(!Models.hasModel(def.model)) return fallback();
+        return Models.load(def.model).then(function(g){ return g ? fit(g) : fallback(); }).catch(fallback);
+      }).catch(fallback);
     }
     return Promise.resolve(fallback());
   }
 
+  /* Draw one tank's card icon. Renders are serialised on `_queue` because
+     they all share the one WebGL context, and the result is cached as a
+     data URL - a card never costs a second render. */
   function thumb(id){
     if(_thumbs[id]) return Promise.resolve(_thumbs[id]);
+    if(_thumbPending[id]) return _thumbPending[id];
     var job = _queue.then(function(){
       if(_thumbs[id]) return _thumbs[id];
       return buildModel(id).then(function(m){
         ensureRenderer();
-        var w = R.domElement.width, h = R.domElement.height;
         var hide = _model; if(hide) hide.visible = false;
-        m.rotation.y = 0.6;
+        m.rotation.y = ICON_YAW;
         _scene.add(m);
-        R.setSize(220, 165, false);
-        _cam.aspect = 220 / 165; _cam.updateProjectionMatrix();
+        /* Resize BEFORE measuring: fitForCard reads the pixels it just
+           drew, so the buffer has to already be the icon's size or the fit
+           is computed for a different frame than the one finally saved. */
+        R.setSize(ICON_W, ICON_H, false);
+        iconPose();
+        fitForCard(m);
+        R.clear();
         R.render(_scene, _cam);
-        var url = R.domElement.toDataURL('image/png');
+        var url = '';
+        try { url = R.domElement.toDataURL('image/png'); } catch(e){ url = ''; }
         _scene.remove(m);
         if(hide) hide.visible = true;
-        if(w && h && _panel){ R.setSize(w, h, false); _cam.aspect = w / h; _cam.updateProjectionMatrix(); }
         _thumbs[id] = url;
         return url;
       });
     }).catch(function(){ return ''; });
+    _thumbPending[id] = job;
     _queue = job;
+    job.then(function(){ if(_thumbPending[id] === job) delete _thumbPending[id]; });
     return job;
   }
 
@@ -243,7 +388,8 @@ window.TankPick = (function(){
     if(!_panel) return;
     if(!_panel.querySelector('.tkp-stage')){
       _panel.innerHTML =
-        '<div class="tkp-team"><div class="tkp-head">YOUR TEAM</div><div class="tkp-team-list"></div></div>' +
+        '<div class="tkp-title"><span class="tkp-title-icon">\u2694</span> PICK YOUR TANK <span class="tkp-title-icon">\u2694</span></div>' +
+        '<div class="tkp-team"><div class="tkp-head">\u{1F3C6} YOUR SQUAD</div><div class="tkp-team-list"></div></div>' +
         '<div class="tkp-main">' +
           '<div class="tkp-stage" title="Drag to spin"></div>' +
           '<div class="tkp-info"><div class="tkp-name"></div><div class="tkp-desc"></div><div class="tkp-bars"></div><div class="tkp-super"></div></div>' +

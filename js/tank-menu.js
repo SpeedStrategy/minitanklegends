@@ -49,7 +49,11 @@ window.TankMenu = (function(){
     },
     shotgun: {
       name:'Shotgun', icon:'🔫',
-      desc:'Fires a spread of pellets; devastating up close. Tip: get inside 20m, aim centre mass, and keep firing.'
+      desc:'Fires a spread of glowing pellets; devastating up close, and the kick throws the tank backwards. Tip: get inside 20m, aim centre mass, and keep firing.'
+    },
+    salvoGear: {
+      name:'Salvo Gear', icon:'⚙',
+      desc:'A switch beside the super slot: SINGLE fires one shell, SALVO fires both magazine shells at once for double damage and double kick. One second between flips, and it never needs reloading.'
     },
     artillery: {
       name:'Artillery', icon:'💣',
@@ -68,7 +72,7 @@ window.TankMenu = (function(){
     panzer:    [],
     demolisher:['landmines'],
     grom:      ['splashShells'],
-    burst:     ['shotgun'],
+    burst:     ['shotgun','salvoGear'],
     predator:  ['burstFire'],
     double:    ['doubleBarrel','magazine'],
     mortar:    ['artillery'],
@@ -212,6 +216,14 @@ window.TankMenu = (function(){
   }
 
   var _currentTank = null;
+  /* THE GHOST TRY-ON (Style tab): the style the viewer is wearing right now
+     without it being equipped. It lives only for as long as this screen is
+     open — it is never written to the save, and every exit (closing the tank,
+     switching tab, equipping something) clears it and repaints the tank with
+     what is really equipped. */
+  var _viewStyle = null;
+  /* Ghost try-on for paints: { id, part } or null. Never saved. */
+  var _viewPaint = null;
   var _scene = null, _camera = null, _renderer = null, _tankGroup = null;
   var _previewTank = null;   /* the real Tank the viewer is showing */
   var _viewerHost = null;
@@ -222,11 +234,25 @@ window.TankMenu = (function(){
   var _gunBox = null;       /* root-space box covering the gun */
   var _viewerToken = 0;     /* bumped by destroy() so a late model load bails out */
   var _loopId = null;
-  var _dragging = false, _lastX = 0, _rotY = 0, _velX = 0;
+  var _dragging = false, _lastX = 0, _lastY = 0, _rotY = 0, _velX = 0;
   /* Never on its own — see the turntable block near onDragStart(). */
   var _autoRotate = false, _autoTimer = null;
-  var _zoom = 0; /* 0 = default, 1 = zoomed in (closer) */
-  var _zoomTarget = 0;
+  /* ZOOM IS A 0..1 SLIDER OVER A GEOMETRIC RANGE, not a straight line between
+     two points. 0 is the farthest stop, 1 the closest, and the distance is
+     interpolated in ratio space so one wheel notch moves the camera by the same
+     PROPORTION wherever it currently is -- a linear lerp crawls when you are
+     far out and slams into the tank when you are close in.
+
+     The two stops are the old ones doubled. The screen used to open at `far`
+     with `near` a little over half of it; `near` is now half of that again
+     (2x more zoom in) and `far` is twice the old far (2x more zoom out).
+     _ZOOM_HOME puts the opening view back exactly where it was, so a player
+     who never touches the wheel sees the same framing as before. */
+  var _ZOOM_IN  = 0.29;     /* x the framed distance, closest stop */
+  var _ZOOM_OUT = 2.0;      /* x the framed distance, farthest stop */
+  var _ZOOM_HOME = Math.log(_ZOOM_OUT) / Math.log(_ZOOM_OUT / _ZOOM_IN);
+  var _zoom = _ZOOM_HOME;
+  var _zoomTarget = _ZOOM_HOME;
 
   /* Spray placement state */
   var _placeMode = false;
@@ -636,6 +662,8 @@ window.TankMenu = (function(){
     var def = TANKS[tankId];
     if(!def) return;
     _currentTank = tankId;
+    _viewStyle = null;          /* a new tank starts with no ghost paint */
+    _viewPaint = null;
 
     var wrap = document.getElementById('menu-tank');
     if(!wrap) return;
@@ -738,19 +766,30 @@ window.TankMenu = (function(){
         var cosmoType = tab.dataset.cosmo;
         var actionBar = document.getElementById('tm-spray-actions');
         if(cosmoType === 'sprays'){
+          /* Leaving the Style/Paint tab ends any try-on. */
+          _viewStyle = null;
+          _viewPaint = null;
+          applyStyleToPreview();
+          applyPaintsToPreview();
+          renderViewBanner();
           renderSpraysTab(body);
         }else if(cosmoType === 'style'){
-          /* The stamp bar and the placement ghost belong to the Sprays tab
-             only — leaving it disarms the hull so a click cannot stamp a
-             sticker the player is no longer looking at. */
           exitPlaceMode();
+          _viewPaint = null;
+          applyPaintsToPreview();
           if(actionBar) actionBar.innerHTML = '';
           renderStylesTab(body);
         }else{
+          /* PAINT: per-part colour over the hull or the turret. The stamp bar
+             belongs to Sprays, so it is emptied here the same way the Style
+             tab empties it. */
           exitPlaceMode();
-          if(actionBar) actionBar.innerHTML = '';
-          if(body) body.innerHTML = '<div class="tm-cosmo-placeholder">' +
-            'Paint customization coming soon</div>';
+          _viewStyle = null;
+          applyStyleToPreview();
+          renderViewBanner();
+          if(actionBar){ actionBar.innerHTML = ''; actionBar.classList.remove('active'); }
+          renderPaintTab(body);
+          highlightPart(_paintPart);
         }
       };
     });
@@ -761,6 +800,13 @@ window.TankMenu = (function(){
       var body = document.getElementById('tm-cosmo-body');
       renderSpraysTab(body);
     }
+    /* Leaving the paint tab takes its white highlight with it — the overlay is
+       a preview of a choice, not part of the tank. */
+    wrap.querySelectorAll('.tm-cosmo-tab').forEach(function(tab){
+      tab.addEventListener('click', function(){
+        if(tab.dataset.cosmo !== 'paint') clearPaintHighlight();
+      });
+    });
 
     /* Build the viewer straight away. Waiting for a frame meant the preview
        never appeared while the tab was in the background (rAF doesn't run). */
@@ -784,11 +830,15 @@ window.TankMenu = (function(){
     var equipped = TankStyles.equippedForTank(tankId);
     var defs = TankStyles.DEFS;
     var list = TankStyles.LIST;
+    /* A paint that is no longer in the catalog (or a tank that changed under
+       us) cannot stay in the ghost slot. */
+    if(_viewStyle && !defs[_viewStyle]) _viewStyle = null;
+    renderViewBanner();
 
     var html = '<div class="tm-styles-container">';
     html += '<div class="tm-sprays-section">';
     html += '<div class="tm-sprays-section-title">🎨 Tank Styles</div>';
-    html += '<div class="tm-style-hint">One paint texture over the whole tank. A style lives on one tank at a time — the store sells all three.</div>';
+    html += '<div class="tm-style-hint">One paint texture over the whole tank. A style lives on one tank at a time — the store sells ' + list.length + '. Click a paint you own to equip it; a paint you do not own can be tried on with <b>View</b>, which paints the tank in front of you and saves nothing.</div>';
     html += '<div class="tm-styles-grid">';
 
     var shown = 0;
@@ -797,23 +847,37 @@ window.TankMenu = (function(){
       if(!def) return;
       var owned = TankStyles.ownsStyle(key);
       var isEquipped = equipped === key;
+      var isViewing = _viewStyle === key;
       var owner = TankStyles.ownerOfStyle(key);
       var wornElsewhere = owner && owner !== tankId;
       shown++;
 
-      html += '<div class="tm-style-card' + (owned ? ' owned' : '') + (isEquipped ? ' equipped' : '') + '">';
-      html += '<div class="tm-style-preview" style="background-image:url(' + def.texture + ')"></div>';
+      html += '<div class="tm-style-card' + (owned ? ' owned' : '') + (isEquipped ? ' equipped' : '') + (isViewing ? ' viewing' : '') + '" data-style="' + key + '">';
+      /* THE ICON TEMPLATE: camo in an ink frame, paint-roller chip pinned over
+         its bottom-left corner. Built by TankStyles so every screen that shows
+         a paint -- this one and the store -- renders the same card. */
+      html += TankStyles.artMarkup(key, { className: isEquipped ? 'is-equipped' : '' });
       html += '<div class="tm-style-info">';
       html += '<span class="tm-style-name">' + def.name + '</span>';
       html += '<span class="tm-style-desc">' + def.desc + '</span>';
+      html += '<div class="tm-style-actions">';
       if(isEquipped){
         html += '<button class="tm-style-btn tm-style-unequip" data-style="' + key + '">↩ Remove Style</button>';
-      }else if(owned && !wornElsewhere){
-        html += '<button class="tm-style-btn tm-style-equip" data-style="' + key + '">✨ Equip</button>';
-      }else if(owned && wornElsewhere){
-        html += '<span class="tm-style-note">🔄 On another tank</span>';
       }else{
+        if(owned && !wornElsewhere){
+          html += '<button class="tm-style-btn tm-style-equip" data-style="' + key + '">✨ Equip</button>';
+        }
+        /* VIEW is offered on everything you are not already wearing — the
+           paints you do not own (the point of it) and the ones already on
+           another tank, which you cannot equip from here either. */
+        html += '<button class="tm-style-btn tm-style-view' + (isViewing ? ' is-viewing' : '') + '" data-style="' + key + '" title="Try this paint on the tank without equipping it">' +
+                (isViewing ? EYE_OFF_ICON + ' Exit view' : EYE_ICON + ' View') + '</button>';
+      }
+      html += '</div>';
+      if(!owned){
         html += '<span class="tm-style-note">🛍️ Buy in the store — ' + def.price + ' gold</span>';
+      }else if(wornElsewhere){
+        html += '<span class="tm-style-note">🔄 On another tank</span>';
       }
       html += '</div></div>';
     });
@@ -828,6 +892,29 @@ window.TankMenu = (function(){
       btn.onclick = function(){
         var ok = TankStyles.equipStyle(tankId, btn.dataset.style);
         if(ok){
+          _viewStyle = null;          /* equipping ends the try-on */
+          applyStyleToPreview();
+          renderStylesTab(body);
+          if(window.Menu) Menu.toast('✨ Style equipped');
+        }
+      };
+    });
+    /* THE WHOLE CARD IS THE TARGET, not just the button.
+       A style card is a picture of a paint, so clicking the paint is what a
+       player tries first. Only cards that can be equipped this instant take the
+       click — owned, not already worn here, not worn on another tank — so a
+       locked card cannot equip itself by being clicked, and the buttons keep
+       their own handlers. */
+    body.querySelectorAll('.tm-style-card').forEach(function(card){
+      if(card.classList.contains('equipped')) return;
+      card.onclick = function(ev){
+        if(ev.target.closest('button')) return;
+        var id = card.dataset.style;
+        if(!id || !TankStyles.ownsStyle(id)) return;
+        if(TankStyles.ownerOfStyle(id) && TankStyles.ownerOfStyle(id) !== tankId) return;
+        var ok = TankStyles.equipStyle(tankId, id);
+        if(ok){
+          _viewStyle = null;          /* equipping ends the try-on */
           applyStyleToPreview();
           renderStylesTab(body);
           if(window.Menu) Menu.toast('✨ Style equipped');
@@ -837,21 +924,342 @@ window.TankMenu = (function(){
     body.querySelectorAll('.tm-style-unequip').forEach(function(btn){
       btn.onclick = function(){
         TankStyles.equipStyle(tankId, null);
-        removeStyleFromPreview();
+        _viewStyle = null;
+        applyStyleToPreview();
         renderStylesTab(body);
         if(window.Menu) Menu.toast('Style removed');
       };
     });
+    /* THE GHOST TRY-ON. Nothing here writes to the save: it only repaints the
+       preview tank and remembers which paint is being shown, so leaving the
+       tab, equipping anything or closing the menu puts the real paint back. */
+    body.querySelectorAll('.tm-style-view').forEach(function(btn){
+      btn.onclick = function(ev){
+        ev.stopPropagation();
+        var id = btn.dataset.style;
+        _viewStyle = (_viewStyle === id) ? null : id;
+        applyStyleToPreview();
+        renderStylesTab(body);
+        if(window.Menu){
+          Menu.toast(_viewStyle ? ('👁 Trying on: ' + (defs[_viewStyle].name || _viewStyle) + ' — nothing equipped') : 'Preview off');
+        }
+      };
+    });
+  }
+
+  /* ============================================================
+     PAINTS — one coat, one part
+
+     THE MODEL. A paint is not a style. A style is one texture over the whole
+     tank; a paint is chosen for the HULL or for the TURRET, in two separate
+     slots, so a tank can wear two colours at once. They share the shelf with
+     everything else cosmetic: fixed height, one row, sideways scroll.
+
+     THE COST. Every paint arrives with two coats. One coat covers one part,
+     so one paint can dress a whole tank and is then spent; taking a coat back
+     off returns it. That is the "1 per tank point" rule in the brief: a full
+     body costs two, a hull alone costs one.
+
+     THE HIGHLIGHT. Hovering the tank lights the part under the pointer with a
+     wide white outline and white ribbons crawling over it — the ribbons are a
+     shader on the part's own geometry, so they follow every panel of the
+     model instead of being a decal stuck to one face.
+     ============================================================ */
+
+  var _paintPart = 'hull';
+  var _hlUsed = [];          /* overlay meshes currently attached to the tank */
+  var _hlPart = null;
+
+  function paintTabActive(){
+    var t = document.querySelector('#menu-tank .tm-cosmo-tab.active');
+    return !!(t && t.dataset.cosmo === 'paint');
+  }
+
+  /* White ribbons, drawn in world space so they wrap the gearbox and the
+     skirts alike, and animated by the clock rather than by any per-frame
+     bookkeeping: onBeforeRender runs whenever the mesh is drawn. */
+  function ribbonMesh(geo){
+    var mat = new THREE.ShaderMaterial({
+      uniforms: { uTime: { value: 0 } },
+      vertexShader:
+        'varying vec3 vW;\n' +
+        'void main(){\n' +
+        '  vec4 w = modelMatrix * vec4(position, 1.0);\n' +
+        '  vW = w.xyz;\n' +
+        '  gl_Position = projectionMatrix * viewMatrix * w;\n' +
+        '}',
+      fragmentShader:
+        'uniform float uTime;\n' +
+        'varying vec3 vW;\n' +
+        'void main(){\n' +
+        '  float t = (vW.x * 0.8 + vW.y * 1.25 + vW.z * 0.8) * 0.35 - uTime * 0.16;\n' +
+        '  float f = fract(t);\n' +
+        '  float band = smoothstep(0.00, 0.05, f) * (1.0 - smoothstep(0.28, 0.38, f));\n' +
+        '  float a = 0.14 + 0.62 * band;\n' +
+        '  gl_FragColor = vec4(1.0, 1.0, 1.0, a);\n' +
+        '}',
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+    });
+    var m = new THREE.Mesh(geo, mat);
+    m.userData.isPaintHl = true;
+    m.scale.setScalar(1.012);
+    m.renderOrder = 26;
+    m.onBeforeRender = function(){
+      mat.uniforms.uTime.value = ((window.performance && performance.now) ? performance.now() : Date.now()) / 1000;
+    };
+    return m;
+  }
+
+  function clearPaintHighlight(){
+    _hlPart = null;
+    for(var i = 0; i < _hlUsed.length; i++){
+      var e = _hlUsed[i];
+      try{
+        if(e.parent) e.parent.remove(e);
+        if(e.material && e.material.dispose) e.material.dispose();
+      }catch(err){}
+    }
+    _hlUsed.length = 0;
+  }
+
+  function highlightPart(part){
+    clearPaintHighlight();
+    if(!window.TankPaints || !_previewTank || !_previewTank.root || !_tankReady) return;
+    var meshes = TankPaints.paintableMeshes(_previewTank.root).filter(function(m){
+      return TankPaints.partOfMesh(m, _previewTank) === part;
+    });
+    meshes.forEach(function(m){
+      try{
+        /* Wide white outline: the same geometry, back faces only, grown a few
+           percent. Cheap, and it reads on a dark or a light paint alike. */
+        var outline = new THREE.Mesh(m.geometry, new THREE.MeshBasicMaterial({
+          color: 0xffffff, side: THREE.BackSide, transparent: true, opacity: 0.9,
+          depthWrite: false,
+        }));
+        outline.scale.setScalar(1.055);
+        outline.userData.isPaintHl = true;
+        outline.renderOrder = 25;
+        m.add(outline);
+        _hlUsed.push(outline);
+
+        var ribbons = ribbonMesh(m.geometry);
+        m.add(ribbons);
+        _hlUsed.push(ribbons);
+      }catch(e){}
+    });
+    _hlPart = part;
+  }
+
+  function applyPaintsToPreview(){
+    if(!window.TankPaints || !_previewTank) return;
+    try{
+      TankPaints.applyToTank(_previewTank);
+      /* Ghost try-on: paint the viewed colour over the selected part without
+         saving or consuming a coat. Applied last so it overrides the saved
+         paint on that part's meshes only. */
+      if(_viewPaint && _viewPaint.id){
+        var P = window.TankPaints;
+        var meshes = P.paintableMeshes(_previewTank.root).filter(function(m){
+          return P.partOfMesh(m, _previewTank) === _viewPaint.part;
+        });
+        var mat = P.materialFor ? P.materialFor(_viewPaint.id) : null;
+        if(mat){
+          meshes.forEach(function(m){
+            if(!m.userData._paintBase) m.userData._paintBase = m.material;
+            m.material = mat;
+            m.userData._viewPainted = true;
+          });
+        }
+      }
+    }catch(e){ console.warn('paint preview:', e); }
+  }
+
+  function renderPaintTab(body){
+    if(!body) return;
+    var tankId = _currentTank;
+    if(!window.TankPaints){
+      body.innerHTML = '<div class="tm-cosmo-placeholder">Paints unavailable</div>';
+      return;
+    }
+    var P = TankPaints;
+    var parts = P.partsFor(tankId);
+
+    var html = '<div class="tm-sprays-container"><div class="tm-sprays-section">';
+    html += '<div class="tm-sprays-section-title"><span class="tm-ico">🖌️</span>Paint' +
+            '<span class="tm-spray-budget">one coat per part · 2 coats per paint</span></div>';
+
+    /* The part switch. It is the first thing on the shelf because everything
+       below it applies to the part it names — a paint click with no part in
+       mind is the only way this screen could lie about what it did. */
+    html += '<div class="tm-paint-parts">';
+    ['hull', 'turret'].forEach(function(part){
+      var cur = parts[part];
+      html += '<button type="button" class="tm-paint-part' + (_paintPart === part ? ' on' : '') + '" data-part="' + part + '">' +
+        '<i class="tm-paint-part-dot" style="background:' + (cur ? P.swatchColor(cur) : 'rgba(255,255,255,0.12)') + '"></i>' +
+        '<span class="tm-paint-part-name">' + P.PART_LABEL[part] + '</span>' +
+        '<span class="tm-paint-part-state">' + (cur ? P.DEFS[cur].name : 'bare steel') + '</span>' +
+      '</button>';
+    });
+    html += '<button type="button" class="tm-paint-clear" id="tm-paint-clear"' + (parts[_paintPart] ? '' : ' disabled') + '>Remove</button>';
+    html += '</div>';
+
+    html += '<div class="tm-paints-grid tm-sprays-grid">';
+    P.LIST.forEach(function(id){
+      var d = P.DEFS[id];
+      if(!d) return;
+      var owned = P.ownsPaint(id);
+      var coats = P.coatsOf(id);
+      var on = parts[_paintPart] === id;
+      var sw = d.kind === 'anim'
+        ? '<div class="tm-paint-swatch is-anim" style="background-image:url(&quot;' + P.swatchUrl(id) + '&quot;)"></div>'
+        : '<div class="tm-paint-swatch" style="background:' + d.color + '"></div>';
+      var tag = on ? 'ON THIS PART'
+              : !owned ? 'IN A PACK'
+              : coats > 0 ? (coats + (coats === 1 ? ' coat' : ' coats'))
+              : 'ALL COATS IN USE';
+      var isViewingPaint = _viewPaint && _viewPaint.id === id && _viewPaint.part === _paintPart;
+      html += '<div class="tm-paint-card' + (owned ? ' owned' : ' locked') + (on ? ' on' : '') + (isViewingPaint ? ' viewing' : '') + '" data-paint="' + id + '">' +
+        sw +
+        '<span class="tm-paint-name">' + d.name + (d.kind === 'anim' ? ' <b class="tm-paint-anim">✦</b>' : '') + '</span>' +
+        '<span class="tm-paint-desc">' + d.desc + '</span>' +
+        '<span class="tm-paint-tag' + (on ? ' on' : '') + '">' + tag + '</span>' +
+        '<button class="tm-style-btn tm-style-view tm-paint-view' + (isViewingPaint ? ' is-viewing' : '') + '" data-paint="' + id + '" title="Try this paint on the selected part without equipping it">' +
+          (isViewingPaint ? EYE_OFF_ICON + ' Exit view' : EYE_ICON + ' View') + '</button>' +
+      '</div>';
+    });
+    html += '</div></div></div>';
+    body.innerHTML = html;
+
+    body.querySelectorAll('.tm-paint-part').forEach(function(btn){
+      btn.onclick = function(){
+        _paintPart = btn.dataset.part;
+        _viewPaint = null;          /* view was for the previous part */
+        renderPaintTab(body);
+        highlightPart(_paintPart);
+        try { Audio.click(); }catch(e){}
+      };
+    });
+    var clear = document.getElementById('tm-paint-clear');
+    if(clear) clear.onclick = function(){
+      if(!window.TankPaints) return;
+      if(TankPaints.clearPart(tankId, _paintPart)){
+        applyPaintsToPreview();
+        renderPaintTab(body);
+        if(window.Menu) Menu.toast('Paint removed from the ' + TankPaints.PART_LABEL[_paintPart].toLowerCase());
+      }
+      try { Audio.click(); }catch(e){}
+    };
+
+    body.querySelectorAll('.tm-paint-card').forEach(function(card){
+      card.onclick = function(){
+        var id = card.dataset.paint;
+        if(!window.TankPaints || !id) return;
+        var res = TankPaints.paintPart(tankId, _paintPart, id);
+        if(!res.ok){
+          if(window.Menu) Menu.toast(res.why);
+          return;
+        }
+        _viewPaint = null;          /* equipping ends the try-on */
+        applyPaintsToPreview();
+        renderPaintTab(body);
+        highlightPart(_paintPart);
+        if(window.Menu) Menu.toast('🖌️ ' + TankPaints.DEFS[id].name + ' on the ' + TankPaints.PART_LABEL[_paintPart].toLowerCase());
+        try { Audio.click(); }catch(e){}
+      };
+    });
+    /* Ghost try-on for paints: preview a colour on the selected part without
+       consuming a coat or saving. */
+    body.querySelectorAll('.tm-paint-view').forEach(function(btn){
+      btn.onclick = function(ev){
+        ev.stopPropagation();
+        var id = btn.dataset.paint;
+        if(!window.TankPaints || !id) return;
+        if(_viewPaint && _viewPaint.id === id && _viewPaint.part === _paintPart){
+          _viewPaint = null;
+        } else {
+          _viewPaint = { id: id, part: _paintPart };
+        }
+        applyPaintsToPreview();
+        renderPaintTab(body);
+        highlightPart(_paintPart);
+        if(window.Menu){
+          Menu.toast(_viewPaint ? ('👁 Trying on: ' + (TankPaints.DEFS[id].name || id) + ' — nothing equipped') : 'Preview off');
+        }
+        try { Audio.click(); }catch(e){}
+      };
+    });
+  }
+
+  /* The VIEW button's icons, drawn inline so they take the label's colour and
+     weight — an emoji would render in its own palette and at its own size.
+     13px at a 10px label reads as an icon beside words, not a picture. */
+  var EYE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.8-6.6 10-6.6S22 12 22 12s-3.8 6.6-10 6.6S2 12 2 12z"/><circle cx="12" cy="12" r="2.9"/></svg>';
+  var EYE_OFF_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5l14 14"/><path d="M9.9 5.7A11 11 0 0 1 12 5.4c6.2 0 10 6.6 10 6.6a19 19 0 0 1-3.5 4.2"/><path d="M6.3 8.1A18.6 18.6 0 0 0 2 12s3.8 6.6 10 6.6a11 11 0 0 0 4.3-.9"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/></svg>';
+
+  /* The strip above the tabs while a ghost paint is on the tank. Lives in the
+     action bar (which the Style tab otherwise leaves empty) so it is always on
+     screen next to the tank it describes, never scrolled away in the panel. */
+  function renderViewBanner(){
+    var bar = document.getElementById('tm-spray-actions');
+    if(!bar) return;
+    if(!_viewStyle){
+      if(bar.dataset.styleBanner === '1'){
+        bar.innerHTML = '';
+        bar.classList.remove('active');
+        delete bar.dataset.styleBanner;
+      }
+      return;
+    }
+    var d = (window.TankStyles && TankStyles.DEFS[_viewStyle]) || {};
+    bar.dataset.styleBanner = '1';
+    bar.classList.add('active');
+    bar.innerHTML = '<div class="tm-style-preview-note">' +
+      '<span>👁 Trying on <b>' + (d.name || _viewStyle) + '</b> — not equipped, nothing saved</span>' +
+      '<button class="tm-style-preview-exit" type="button">Exit view</button>' +
+    '</div>';
+    var exit = bar.querySelector('.tm-style-preview-exit');
+    if(exit) exit.onclick = function(){
+      _viewStyle = null;
+      applyStyleToPreview();
+      renderStylesTab(document.getElementById('tm-cosmo-body'));
+    };
   }
 
   /* Paint / strip the style on whatever preview is currently in the viewer
-     (GLB model or the box fallback). */
+     (GLB model or the box fallback).
+
+     THE ONE RULE: the viewer shows the GHOST paint while a try-on is active
+     and the equipped paint otherwise, and it is always stripped first.
+     Stripping matters — applyToModel backs up the material it replaces, so a
+     second style painted over the first would make the FIRST one the thing
+     "Remove Style" restores. */
   function _previewRoot(){
     return _tankGroup;
   }
+  function _wantedPreviewStyle(){
+    if(!window.TankStyles) return null;
+    if(_viewStyle && TankStyles.DEFS[_viewStyle]) return _viewStyle;
+    return TankStyles.equippedForTank(_currentTank);
+  }
   function applyStyleToPreview(){
-    if(!window.TankStyles || !_tankGroup) return;
-    TankStyles.applyToPreview(_tankGroup, _currentTank);
+    if(!window.TankStyles || !_tankGroup) return Promise.resolve(false);
+    var want = _wantedPreviewStyle();
+    TankStyles.removeFromModel(_tankGroup);
+    var p = want ? TankStyles.applyToModel(_tankGroup, want) : Promise.resolve(false);
+    return Promise.resolve(p).then(function(ok){
+      /* A texture load can outlive a click on another paint. If the choice
+         moved while this one was loading, the newer call wins. */
+      if(_wantedPreviewStyle() !== want) return applyStyleToPreview();
+      /* PAINTS GO ON AFTER THE STYLE — every time. A style replaces the material
+         of every paintable mesh, so a paint applied before it would be painted
+         over. Reapplying here is what makes a hull colour survive a style swap
+         instead of silently vanishing until the menu is reopened. */
+      applyPaintsToPreview();
+      return ok;
+    });
   }
   function removeStyleFromPreview(){
     if(!window.TankStyles || !_tankGroup) return;
@@ -1412,7 +1820,10 @@ window.TankMenu = (function(){
       var hit = hits[i], obj = hit.object, u = obj.userData || {};
       if(!obj.isMesh || obj.visible === false) continue;
       if(!obj.geometry || !obj.geometry.getAttribute('position')) continue;
-      if(u.isOutline || u.isSpray || u.noSpray) continue;   /* shells and old stamps aren't targets */
+      /* Shells, old stamps and the paint highlight's own overlays are not
+         targets — otherwise hovering a highlighted part would pick the white
+         ribbon instead of the armour under it. */
+      if(u.isOutline || u.isSpray || u.noSpray || u.isPaintHl) continue;
       /* Say why nothing happened rather than silently dropping the tap. A click
          on a named gun part, or on the front of the turret where every barrel
          sits, is refused here AND by the same projection in battle, so the two
@@ -1425,6 +1836,19 @@ window.TankMenu = (function(){
 
   function onHover(e){
     _lastPointer = { x: e.clientX, y: e.clientY };
+    /* PAINT TAB: the part under the pointer is the part that lights up. This
+       runs before the spray branch and returns, because the two modes cannot
+       both be armed — placement belongs to Sprays and this belongs to Paint. */
+    if(paintTabActive()){
+      if(!_tankReady || !_previewTank || !window.TankPaints || _dragging) return;
+      var nowP = (window.performance && performance.now) ? performance.now() : Date.now();
+      if(nowP - _ghostPickAt < 40) return;
+      _ghostPickAt = nowP;
+      var pp = raycastTank(e.clientX, e.clientY);
+      var wantPart = (pp && !pp.refused) ? TankPaints.partOfMesh(pp.hit.object, _previewTank) : _paintPart;
+      if(wantPart !== _hlPart) highlightPart(wantPart);
+      return;
+    }
     if(!_placeMode || !_selectedSpray || !_tankReady || !_previewTank || _dragging) return;
     var now = (window.performance && performance.now) ? performance.now() : Date.now();
     if(now - _ghostPickAt < 40) return;      /* ~25 rays a second, not 200 */
@@ -1547,10 +1971,12 @@ window.TankMenu = (function(){
     _scene.add(lamp);
     _scene.add(lamp.target);
 
-    /* The fixture and its bulb. */
+    /* The fixture and its bulb. Transparent so _fadeLamp() can dissolve them
+       when the camera rises past the lamp on its way to the top-down view;
+       the base opacities it restores are kept in _lampParts below. */
     var fixture = new THREE.Mesh(
       new THREE.CylinderGeometry(0.7, 0.95, 0.5, 24),
-      new THREE.MeshBasicMaterial({ color: 0x191c22, fog: false }));
+      new THREE.MeshBasicMaterial({ color: 0x191c22, fog: false, transparent: true, opacity: 1 }));
     fixture.position.set(0, lampY + 0.25, 0);
     _scene.add(fixture);
     var bulb = new THREE.Mesh(
@@ -1573,6 +1999,16 @@ window.TankMenu = (function(){
     }));
     beam.position.set(0, lampY, 0);
     _scene.add(beam);
+
+    /* What the top-down camera would have to look through. The lamp fixture,
+       its bulb and the beam cone fade as the camera climbs past them; the
+       SpotLight and the pool on the floor stay, so the tank's lighting does
+       not change when you tilt. */
+    _lampParts = [
+      { obj: fixture, op: 1 },
+      { obj: bulb,    op: 0.95 },
+      { obj: beam,    op: 0.10 }
+    ];
 
     /* The light area on the ground — a soft warm patch under the tank. */
     var pool = new THREE.Mesh(
@@ -1650,12 +2086,20 @@ window.TankMenu = (function(){
          refreshes into the real controls. */
       if(window.TankStyles){
         TankStyles.setPreviewTank(_currentTank);
-        TankStyles.applyToPreview(_tankGroup, _currentTank).then(function(){
+        /* applyStyleToPreview, not applyToPreview: the model can land AFTER a
+           paint has been clicked, and the try-on has to survive that. */
+        applyStyleToPreview().then(function(){
           var st = document.querySelector('#menu-tank .tm-cosmo-tab.active');
           if(st && st.dataset.cosmo === 'style'){
             renderStylesTab(document.getElementById('tm-cosmo-body'));
           }
+          if(st && st.dataset.cosmo === 'paint'){
+            renderPaintTab(document.getElementById('tm-cosmo-body'));
+            highlightPart(_paintPart);
+          }
         });
+      } else {
+        applyPaintsToPreview();
       }
       if(loading) loading.style.display = 'none';
       /* The tab body was rendered before the tank existed — refresh it so the
@@ -1709,6 +2153,10 @@ window.TankMenu = (function(){
     _rotY = 0;
     _velX = 0;
     _autoRotate = false;
+    /* Every tank opens on the framing the screen has always used: the old far
+       distance, the old three-quarter angle. The freedom is there to use. */
+    _zoom = _zoomTarget = _ZOOM_HOME;
+    _camPitch = _CAM_PITCH_HOME;
 
     /* Drag events — on the whole screen, not just the canvas. A press that
        starts on a control is filtered out inside onDragStart(). */
@@ -1725,7 +2173,12 @@ window.TankMenu = (function(){
        it would be, before the click is spent. Assigned rather than added, so a
        reopened viewer replaces the handler instead of queueing a second one. */
     host.onmousemove = onHover;
-    host.onmouseleave = function(){ hideGhost(); };
+    host.onmouseleave = function(){
+      hideGhost();
+      /* Leaving the tank puts the highlight back on the part the shelf is
+         currently painting, so the screen never sits there unlit. */
+      if(paintTabActive()) highlightPart(_paintPart);
+    };
     /* The stat column ends where the bottom block begins.
 
        The bottom block grows and shrinks with the cosmetics panel, and the
@@ -1796,6 +2249,7 @@ window.TankMenu = (function(){
     if(!dragAllowed(e.target)) return;
     _dragging = true;
     _lastX = e.clientX;
+    _lastY = e.clientY;
     _velX = 0;
     _dragStartX = e.clientX;
     _dragStartY = e.clientY;
@@ -1805,15 +2259,43 @@ window.TankMenu = (function(){
     e.preventDefault();
     _dragging = true;
     _lastX = e.touches[0].clientX;
+    _lastY = e.touches[0].clientY;
     _velX = 0;
     _dragStartX = e.touches[0].clientX;
     _dragStartY = e.touches[0].clientY;
   }
-  function onDragMove(e){ if(!_dragging) return; var dx=e.clientX-_lastX; _rotY+=dx*0.008; _velX=dx*0.008; _lastX=e.clientX; }
-  function onTouchMove(e){ if(!_dragging||e.touches.length!==1) return; e.preventDefault(); var dx=e.touches[0].clientX-_lastX; _rotY+=dx*0.008; _velX=dx*0.008; _lastX=e.touches[0].clientX; }
+  /* HORIZONTAL IS THE TURNTABLE, VERTICAL IS THE ELEVATION.
+
+     The drag used to read X only, so the camera was locked to one elevation
+     and the top of the tank could not be seen at all -- on a model whose
+     roof, hatch and turret top are half its character. Dragging down now
+     climbs toward a straight-down view (the same direction as OrbitControls:
+     pull the front of the model toward you and you end up looking at its
+     top), dragging up comes back down to hull height. */
+  function _dragBy(dx, dy){
+    _rotY += dx * 0.008;
+    _velX = dx * 0.008;
+    _camPitch = Math.max(_CAM_PITCH_MIN, Math.min(_CAM_PITCH_MAX, _camPitch + dy * 0.006));
+  }
+  function onDragMove(e){ if(!_dragging) return; var dx=e.clientX-_lastX, dy=e.clientY-_lastY; _dragBy(dx, dy); _lastX=e.clientX; _lastY=e.clientY; }
+  function onTouchMove(e){ if(!_dragging||e.touches.length!==1) return; e.preventDefault(); var dx=e.touches[0].clientX-_lastX, dy=e.touches[0].clientY-_lastY; _dragBy(dx, dy); _lastX=e.touches[0].clientX; _lastY=e.touches[0].clientY; }
   function onDragEnd(){ _dragging=false; }
 
   function onClick(e){
+    /* PAINT TAB: clicking the tank picks the part to paint. */
+    if(paintTabActive() && _previewTank && window.TankPaints){
+      if(Math.hypot(e.clientX - _dragStartX, e.clientY - _dragStartY) > _clickThreshold) return;
+      var pk = raycastTank(e.clientX, e.clientY);
+      if(!pk || pk.refused) return;
+      var part = TankPaints.partOfMesh(pk.hit.object, _previewTank);
+      if(part !== _paintPart){
+        _paintPart = part;
+        renderPaintTab(document.getElementById('tm-cosmo-body'));
+        highlightPart(part);
+        try { Audio.click(); }catch(err){}
+      }
+      return;
+    }
     if(!_placeMode || !_selectedSpray || !_previewTank) return;
     /* A drag is a turn of the turntable, not a stamp. */
     if(Math.hypot(e.clientX - _dragStartX, e.clientY - _dragStartY) > _clickThreshold) return;
@@ -1836,7 +2318,11 @@ window.TankMenu = (function(){
   /* Zoom: wheel */
   function onWheel(e){
     e.preventDefault();
-    _zoomTarget += e.deltaY > 0 ? -0.15 : 0.15;
+    /* A tenth of the slider per notch: ten notches from the farthest stop to
+       the closest. The distance changes by a constant RATIO each notch (see
+       _ZOOM_IN/_ZOOM_OUT), because the range is now four times as long as it
+       used to be and a fixed linear step would make the far half feel dead. */
+    _zoomTarget += e.deltaY > 0 ? -0.1 : 0.1;
     _zoomTarget = Math.max(0, Math.min(1, _zoomTarget));
   }
 
@@ -1865,12 +2351,30 @@ window.TankMenu = (function(){
     _pinchDist = d;
   }
 
-  /* Camera positions: default vs zoomed in. Both are recomputed by
-     frameCamera() once the preview tank is known — the box build and a real
-     GLB are wildly different sizes. */
-  var _camFar  = { x:12, y:5, z:12 };
-  var _camNear = { x:7, y:3.2, z:7 };
+  /* Camera: ONE distance (set by frameCamera() once the preview tank is known
+     — the box build and a real GLB are wildly different sizes) and two angles.
+
+     It used to be two hard-coded POINTS, far and near, and the animation slid
+     the camera along the straight line between them. That made the elevation a
+     constant: the only two views the screen could ever show were both from the
+     same 16-degree three-quarter angle, a little closer or a little farther.
+
+     Now the camera orbits a target at (0, _lookY, 0): _CAM_AZIMUTH is the fixed
+     three-quarter yaw the screen has always used, _camPitch is the elevation
+     the player drags, and the distance comes from the zoom slider. The opening
+     view is identical to the old one. */
+  var _baseDist = 17.7;              /* replaces the old far vector's length */
   var _lookY = 0.8;
+  var _CAM_AZIMUTH = Math.PI / 4;    /* the 45-degree three-quarter view */
+  var _CAM_PITCH_HOME = 0.287;       /* the elevation it has always opened at */
+  var _CAM_PITCH_MIN = 0.03;         /* essentially level with the hull */
+  var _CAM_PITCH_MAX = 1.536;        /* 88 degrees: straight down at the tank */
+  var _camPitch = _CAM_PITCH_HOME;
+  /* Lamp parts that can sit between a high camera and the tank. See _fadeLamp. */
+  var _lampParts = null;
+  /* The tank's own box in turntable-local space, and the guard that stops the
+     closest zoom from ending up inside the hull. See _hullClearance. */
+  var _tankBox = null;
 
   /* Fit the camera to whatever the preview tank turned out to be. Tank.boxOf
      skips invisible nodes, so the hidden nameplate and drown bar cannot drag
@@ -1885,8 +2389,22 @@ window.TankMenu = (function(){
     if(!isFinite(r) || r <= 0) return;
     var halfFov = (36 * Math.PI / 180) / 2;
     var d = Math.max(17.26, r / Math.tan(halfFov) * 0.85);
-    _camFar  = { x: d * 0.695, y: d * 0.290, z: d * 0.695 };
-    _camNear = { x: d * 0.404, y: d * 0.185, z: d * 0.404 };
+    /* 1.0247 is the length of the old (0.695, 0.290, 0.695) far vector, so the
+       opening framing distance is exactly what it was. */
+    _baseDist = d * 1.0247;
+    /* Cache the hull box in the turntable's own frame. Measured with the
+       turntable rotation temporarily at zero, because Tank.boxOf returns a
+       WORLD box and the group's yaw would bake the current angle into it.
+       Once per tank; _hullClearance() re-rotates it per frame instead. */
+    try {
+      var yaw = _tankGroup.rotation.y;
+      _tankGroup.rotation.y = 0;
+      _tankGroup.updateMatrixWorld(true);
+      _tankBox = Tank.boxOf(_tankGroup, true);
+      _tankGroup.rotation.y = yaw;
+      _tankGroup.updateMatrixWorld(true);
+      if(_tankBox.isEmpty()) _tankBox = null;
+    } catch(e){ _tankBox = null; }
     if(_usingModel){
       var c = box.getCenter(new THREE.Vector3());
       _lookY = Math.max(0.8, c.y * 0.9);
@@ -1915,6 +2433,74 @@ window.TankMenu = (function(){
     return _gunBox.containsPoint(p);
   }
 
+  /* Distance along the view ray at which it leaves the hull box, or Infinity
+     when the ray misses it. Slab method; the origin is the look point, which
+     sits inside the hull on every preview tank. */
+  function _boxExitT(box, ox, oy, oz, dx, dy, dz){
+    var o = [ox, oy, oz], d = [dx, dy, dz];
+    var lo = [box.min.x, box.min.y, box.min.z], hi = [box.max.x, box.max.y, box.max.z];
+    var tmin = -Infinity, tmax = Infinity;
+    for(var i = 0; i < 3; i++){
+      if(Math.abs(d[i]) < 1e-6){
+        if(o[i] < lo[i] || o[i] > hi[i]) return Infinity;
+        continue;
+      }
+      var t1 = (lo[i] - o[i]) / d[i], t2 = (hi[i] - o[i]) / d[i];
+      if(t1 > t2){ var tt = t1; t1 = t2; t2 = tt; }
+      if(t1 > tmin) tmin = t1;
+      if(t2 < tmax) tmax = t2;
+      if(tmin > tmax) return Infinity;
+    }
+    return tmax;
+  }
+
+  /* KEEP THE CAMERA OUT OF THE HULL.
+
+     The closest zoom stop is twice as close as the old one, and the old one was
+     never inside the model because the camera only ever travelled along a line
+     that started well outside it. A tank is not a sphere: its bounding box is
+     ~10 units long and ~6 wide, and the turntable lets it turn so that the long
+     axis points at the camera. At full zoom that would put the near plane inside
+     the hull, i.e. the view fills with the inside of the turret.
+
+     So the zoom distance is floored at the point where the view ray leaves the
+     tank's own box, in the box's frame. The camera still reaches the 2x stop on
+     any tank where there is room (a side-on hull usually leaves plenty) and
+     simply stops short when the nose is pointed at it. 0.35 units of margin
+     keeps the near plane clear of the surface. */
+  function _hullClearance(ux, uy, uz){
+    if(!_tankBox) return 0;
+    /* Rotate the view direction into the turntable's frame rather than rotating
+       the box: the group's yaw is the only transform between them. This is the
+       INVERSE of THREE's Y rotation (world x = lx·cos + lz·sin, world z =
+       -lx·sin + lz·cos), so the signs are the transpose of it -- rotating the
+       direction the same way as the tank would test the mirrored angle. */
+    var cy = Math.cos(_rotY), sy = Math.sin(_rotY);
+    var lx = ux * cy - uz * sy;
+    var lz = ux * sy + uz * cy;
+    var t = _boxExitT(_tankBox, 0, _lookY, 0, lx, uy, lz);
+    if(!isFinite(t) || t <= 0) return 0;
+    return t + 0.35;
+  }
+
+  /* The lamp hangs at y = 13 directly over the tank, so any camera that climbs
+     past it is looking THROUGH it — straight down, the fixture sits in the
+     middle of the frame and covers the roof the player tilted up to see. The
+     fixture, bulb and beam fade out as the camera passes the fixture; the
+     SpotLight itself keeps shining, so the tank is lit exactly the same.
+     Faded on height, not pitch, because the zoom range moves the camera's
+     height as well — at 2x out, a 40-degree tilt is already above the lamp. */
+  function _fadeLamp(){
+    if(!_lampParts || !_camera) return;
+    var k = 1 - THREE.MathUtils.smoothstep(_camera.position.y, 9.5, 13.0);
+    for(var i = 0; i < _lampParts.length; i++){
+      var p = _lampParts[i];
+      if(!p || !p.obj) continue;
+      p.obj.visible = k > 0.02;
+      if(p.obj.material) p.obj.material.opacity = p.op * k;
+    }
+  }
+
   function animate(){
     _loopId = requestAnimationFrame(animate);
     if(!_renderer||!_scene||!_camera) return;
@@ -1925,19 +2511,23 @@ window.TankMenu = (function(){
     if(Math.abs(_velX) < 0.00005) _velX = 0;
     if(_tankGroup) _tankGroup.rotation.y = _rotY;
 
-    /* Smooth zoom interpolation */
+    /* Smooth zoom interpolation, then a geometric distance out of it. */
     _zoom += (_zoomTarget - _zoom) * 0.08;
-    var cx = _camFar.x + (_camNear.x - _camFar.x) * _zoom;
-    var cy = _camFar.y + (_camNear.y - _camFar.y) * _zoom;
-    var cz = _camFar.z + (_camNear.z - _camFar.z) * _zoom;
-    _camera.position.set(cx, cy, cz);
+    var dist = _baseDist * Math.pow(_ZOOM_OUT, 1 - _zoom) * Math.pow(_ZOOM_IN, _zoom);
+    var cp = Math.cos(_camPitch), sp = Math.sin(_camPitch);
+    var ux = Math.sin(_CAM_AZIMUTH) * cp, uy = sp, uz = Math.cos(_CAM_AZIMUTH) * cp;
+    var clear = _hullClearance(ux, uy, uz);
+    if(clear > dist) dist = clear;
+    _camera.position.set(ux * dist, _lookY + uy * dist, uz * dist);
     _camera.lookAt(0, _lookY, 0);
+    _fadeLamp();
 
     _renderer.render(_scene, _camera);
   }
 
   function destroy(){
     _viewerToken++;              /* any model still loading now bails out */
+    _viewStyle = null;           /* the try-on never outlives the screen */
     _tankReady = false;
     _usingModel = false;
     _gunBox = null;
@@ -1948,6 +2538,7 @@ window.TankMenu = (function(){
        the life of the page. Tank.dispose() frees exactly what this tank
        owns and skips the shared model geometry, the shared outline material
        and the shared spray materials — which are all flagged for it. */
+    clearPaintHighlight();
     if(_previewTank){
       try{ _previewTank.dispose(); }catch(e){}
       _previewTank = null;
@@ -1962,7 +2553,8 @@ window.TankMenu = (function(){
     _sprayGhost=null; _ghostQuad=null; _ghostFrame=null; _ghostArrow=null;
     _ghostTexFor=null; _ghostOn=false; _lastPointer=null;
     _placeMode=false;
-    _dragging=false; _autoRotate=false; _zoom=0; _zoomTarget=0;
+    _dragging=false; _autoRotate=false; _zoom=_ZOOM_HOME; _zoomTarget=_ZOOM_HOME;
+    _camPitch=_CAM_PITCH_HOME; _lampParts=null; _tankBox=null;
     window.removeEventListener('resize', onResize);
     if(_dragRoot){
       _dragRoot.removeEventListener('mousedown',onDragStart);
@@ -1985,5 +2577,15 @@ window.TankMenu = (function(){
     window.removeEventListener('touchmove',onPinchMove);
   }
 
-  return { show:show, destroy:destroy, getMechanics:getMechanics, MECHANICS:MECHANICS, TANK_MECHANICS:TANK_MECHANICS };
+  return {
+    show:show, destroy:destroy, getMechanics:getMechanics, MECHANICS:MECHANICS, TANK_MECHANICS:TANK_MECHANICS,
+    /* Diagnose: which preview tank is up, which part the paint shelf is aimed
+       at, and how many highlight overlays are attached to it. */
+    debug: function(){
+      return { tank: _previewTank, tankId: _currentTank, part: _paintPart, hlPart: _hlPart, hlCount: _hlUsed.length,
+        zoom: _zoom, zoomTarget: _zoomTarget, pitch: _camPitch, baseDist: _baseDist, lookY: _lookY,
+        cam: _camera ? { x: _camera.position.x, y: _camera.position.y, z: _camera.position.z } : null,
+        hullBox: _tankBox ? { min: _tankBox.min.toArray(), max: _tankBox.max.toArray() } : null };
+    },
+  };
 })();

@@ -12,21 +12,36 @@ function _backdropColor(hex){
   return new THREE.Color(inv(c.r), inv(c.g), inv(c.b));
 }
 
-/* THE VOID FLOOR — the plain that sits under every GLB map.
+/* THE VOID BEHIND A GLB MAP.
 
-   Named here rather than buried in hideDefaults() because it is a look, not a
-   detail: the floor has to read as the bottom of the world, far below the
-   terrain, instead of as a second ground surface crowded just underneath it.
+   A battle map is an island: it has its own floor and its own sky. Everything
+   around and under it is OUTSIDE the world, and it has to LOOK outside the
+   world — empty.
 
-   -300 is well below the deepest shipped model (Kaukaz bottoms out at -41.7),
-   and 8x covers the widest arena this game can load without rebuilding the
-   plane geometry that was made once at CONFIG.WORLD_SIZE. */
-const VOID_FLOOR_Y = -300;
-const VOID_FLOOR_SCALE = 8;
+   What used to be here was worse than nothing to look at, and it is exactly
+   what players kept reporting: the default arena floor was parked 300 units
+   below the map and scaled 8x, so all around every battlefield there was a
+   huge tiled PLANE. From the top-down camera that plane covered the whole
+   frame in a repeating grid, and the default arena's little water disc kept
+   getting re-shown on top of the map at its centre — "a plane grid in the void
+   and a circle with a fancy shader on it".
+
+   So the default arena floor and lake are now hidden outright while a GLB map
+   is loaded, and the backdrop behind the island is a deep, near-black blue
+   instead of daylight sky. That is the void: one flat colour, nothing drawn.
+
+   ARENA_BACKDROP is the colour the default (map-less) arena has always used, so
+   showDefaults() can put the daylight world back for modes that want it. */
+const VOID_BACKDROP = 0x0d1119;
+const ARENA_BACKDROP = 0xc8ddf0;
 
 class World {
   constructor(scene){
     this.scene = scene;
+    /* True while a GLB battle map owns the arena. Cleared by Game._resetArena()
+       (and by nothing else) so the daylight default arena comes back for the
+       modes that still use it. */
+    this._glbMapActive = false;
     this.walls = [];
     this.trees = [];
     this.bushes = [];
@@ -232,7 +247,7 @@ class World {
   }
 
   _makeSkybox(){
-    this.scene.background = _backdropColor(0xc8ddf0);
+    this.scene.background = _backdropColor(this._glbMapActive ? VOID_BACKDROP : ARENA_BACKDROP);
     /* NO FOG. It was Fog(colour, 350, 500) -- near 350, far 500.
 
        Those numbers were written for a map whose arena is ~300 units across, so
@@ -427,12 +442,23 @@ class World {
     /* Maps that bring their own floor (spacestation, prototype) must never
        re-show the default grid plane / lake on top of the GLB. */
     if(this._defaultsLockedHidden) return;
+    /* NOR MUST A MAP THAT IS ALREADY LOADED.
+
+       Several mode starters call showDefaults() after an awaited map load —
+       they were written to put the old backdrop back because hideDefaults()
+       used to run only once, early. With a real map in the scene that call is
+       not a backdrop, it is a bug: it re-shows the default arena floor AT y=0,
+       on top of the map's own terrain, and the little water disc at the arena
+       centre. That is where the grid and the shader circle players kept
+       seeing around the battlefield came from. */
+    if(this._glbMapActive) return;
     if(this.ground){
       this.ground.position.y = 0;
       this.ground.scale.set(1, 1, 1);
       this.ground.visible = true;
     }
     if(this._lakeMesh) this._lakeMesh.visible = true;
+    if(this.scene) this.scene.background = _backdropColor(ARENA_BACKDROP);
   }
 
   _makeWalls(){
@@ -1536,28 +1562,14 @@ class World {
   }
 
   hideDefaults(){
-    if(this._defaultsLockedHidden && this.ground){
-      this.ground.visible = false;
-    }
-    if(this.ground){
-      /* THE VOID FLOOR. A GLB map brings its own floor, but that floor does not
-         reach the edge of the arena, and past the edge was raw sky — a hole in
-         the world rather than an edge to it.
-
-         It used to sit at y = -45, which on a deep map is only ~3 units under
-         the terrain (Kaukaz's model bottom is -41.7), so it read as a second
-         ground surface crowding the map rather than as the bottom of the world.
-         It is now dropped a long way down and scaled up, so falling off a map
-         falls into a huge, distant plain instead of into nothing. */
-      this.ground.position.y = VOID_FLOOR_Y;
-      /* The plane geometry is built once at CONFIG.WORLD_SIZE, but boundaries
-         now follow each map's own terrain, and several are far wider than the
-         default — a 1000-unit plane under a 1900-unit arena left sky at the
-         corners. Scaling the mesh covers any arena without rebuilding it. */
-      this.ground.scale.set(VOID_FLOOR_SCALE, 1, VOID_FLOOR_SCALE);
-      this.ground.visible = true;
-    }
+    /* A GLB map has arrived: the default arena floor, its walls and its lake
+       are NOT the backdrop of this battle, they are the remains of another
+       one. All three go away completely — see the VOID_BACKDROP comment at the
+       top of this file for what used to be visible here. */
+    this._glbMapActive = true;
+    if(this.ground) this.ground.visible = false;
     if(this._lakeMesh) this._lakeMesh.visible = false;
+    if(this.scene) this.scene.background = _backdropColor(VOID_BACKDROP);
     this.walls.forEach(w => { if(w.mesh) w.mesh.visible = false; });
     this.walls = [];
     this.bushes = [];
@@ -1640,7 +1652,10 @@ class World {
       if(!o.isMesh) return;
       const nameLower = (o.name || '').toLowerCase();
       if(nameLower.includes('bush') || nameLower.includes('pine') || nameLower.includes('tree') || nameLower.includes('forest')) return;
-      if(o.userData && o.userData.isCollider) return;
+      if(o.userData && (o.userData.isCollider || o.userData.noPhysics)) return;
+      // Helper / trigger meshes must never become cover walls (and therefore
+      // never become solid Rapier boxes in the middle of the arena).
+      if(/barrier|void|collider|hitbox|detection|zone|trigger|sensor|spawn|cube/i.test(nameLower)) return;
       let root = o;
       while(root.parent && root.parent !== grp) root = root.parent;
       if(visited.has(root)) return;
@@ -1659,8 +1674,11 @@ class World {
       if(Math.max(sz.x, sz.z) > 40) return;
       const cx = (lb.min.x + lb.max.x) / 2;
       const cz = (lb.min.z + lb.max.z) / 2;
-      const w = sz.x + 2;
-      const d = sz.z + 2;
+      // No padding: the collider must match the mesh footprint exactly, so
+      // there is no invisible solid extension around a piece of cover (the
+      // "barrier at the centre" players kept hitting).
+      const w = sz.x;
+      const d = sz.z;
       this.walls.push({ x: cx, z: cz, w, d, mesh: root, glbCover: true });
     });
     /* New cover walls just landed in this.walls. */
@@ -1812,9 +1830,68 @@ grp.traverse(o => {
            identical parts still batch into single draw calls. The async
            grass-mask blend below only swaps MATERIALS, so it stays valid. */
         try { if(typeof Toon !== 'undefined' && Toon.flatten) Toon.flatten(grp); } catch(_e){}
-        // Barrier meshes are collision-only helpers authored into these maps;
-        // they must never be seen.
-        try { grp.traverse(o => { if(o && o.isMesh && o.name && /barrier/i.test(o.name)) o.visible = false; }); } catch(e){}
+        /* Barrier / helper meshes are authored into these maps as authoring
+           helpers, not as geometry: a big cage to mark the playable volume, a
+           flat plane for the kill zone, a cube bounding a bot's patrol area.
+           They must never be seen, never enter the physics trimesh, never be
+           cover, and -- the part that was missing -- never become a SOLID box.
+
+           There are two different things under the old single regex, and
+           conflating them is what put an invisible wall in the middle of the
+           map:
+
+             collider / hitbox  a real collision proxy. Blender authors these
+                                in place of a 10,000-triangle wall, so they are
+                                meant to be solid: noPhysics keeps them out of
+                                the trimesh, isCollider turns them into the one
+                                cheap box collider _sandboxBuildTrimesh builds.
+
+             barrier / void / zone / trigger / sensor / spawn / detection
+                                pure helpers. Rapier built a 10-unit-tall box
+                                around every one of them, and they are not
+                                small: Spacestation's BARRIER is 218 x 114 x 218
+                                world units sitting on the arena centre, and
+                                Prototype's is 247 x 48 x 240. A tank spawning
+                                inside one is inside a solid block; driving
+                                across the map, it is the wall players hit with
+                                nothing in front of them. Testgrounds' bot
+                                detection cube (47 units, ~40 units off centre)
+                                is the one they hit in the tutorial.
+
+           So only the proxy names get isCollider. Helpers get noPhysics alone,
+           which every consumer already respects: the trimesh skips them, the
+           cover list skips them (noPhysics || isCollider), and the box-collider
+           registration has nothing to build. */
+        try { grp.traverse(o => {
+          if(!o || !o.isMesh || !o.name) return;
+          const nm = o.name;
+          const isProxy = /collider|hitbox/i.test(nm);
+          const isHelper = /barrier|void|detection|zone|trigger|sensor|spawn/i.test(nm);
+          if(!isProxy && !isHelper) return;
+          o.visible = false;
+          o.castShadow = false; o.receiveShadow = false;
+          o.userData = o.userData || {};
+          o.userData.noPhysics = true;
+          if(isProxy) o.userData.isCollider = true;
+          o.traverse(c => {
+            if(!c.isMesh) return;
+            c.visible = false; c.castShadow = false; c.receiveShadow = false;
+            c.userData = c.userData || {};
+            c.userData.noPhysics = true;
+            if(isProxy) c.userData.isCollider = true;
+          });
+        }); } catch(e){}
+        // `Cube` is the generic Blender name for the tutorial zone helper (and
+        // similar authoring helpers). It must not be solid physics, but we keep
+        // it visible so a genuinely authored cube building is not silently
+        // hidden.
+        try { grp.traverse(o => {
+          if(!o || !o.isMesh || !o.name) return;
+          if(!/^cube(\.\d+)?$/i.test(o.name.trim())) return;
+          o.userData = o.userData || {};
+          o.userData.noPhysics = true;
+          o.traverse(c => { if(c.isMesh){ c.userData = c.userData || {}; c.userData.noPhysics = true; } });
+        }); } catch(e){}
         // Replace the previous map only now that the replacement is ready, so
         // the arena is never empty between maps. hideDefaults() is deliberately
         // here too (not in the mode-start functions): hiding the default arena
