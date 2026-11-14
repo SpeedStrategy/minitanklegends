@@ -229,7 +229,41 @@ const CONFIG = {
   IMPULSE_PELLET_FRAC:  0.30,  // ...and per shotgun pellet (ten land, tiny each)
   IMPULSE_BLAST:        0.055, // dv per splash point at the blast centre, linear falloff
   IMPULSE_BLAST_HOP:    1.1,   // small vertical pop at the centre (physics tanks only)
-  RECOIL_DELTA_V:       0.55,  // self-shove on firing a standard shell
+  RECOIL_DELTA_V:       0.55,  // (legacy, unused: see SHOT_RECOIL)
+
+  /* THE GUN PUSHES ITS OWN TANK BACK (Tank.applyShotRecoil).
+     Velocity units per shot, before the tank's own recoilResist divides it.
+     Burst kicks hardest, Grom a step below, everything else well under Grom.
+     In the air the shove is multiplied by AIR_MULT and is not worn away by
+     the tracks, so a mid-air shot really throws the tank. */
+  SHOT_RECOIL: {
+    base: 1.5,
+    byTank: { burst: 8.5, grom: 6.0, mortar: 2.4, double: 1.1, demolisher: 2.0, predator: 1.8 },
+    AIR_MULT: 2,        // airborne shots shove this many times harder
+    MAX_SPEED: 45,      // no chain of shots can push a tank faster than this
+    MAX_LIFT: 6,        // most upward speed a downward shot may give
+    ROCK: 0.05,         // hull rock per unit of shove
+  },
+
+  /* ONE ENGINE PER TANK (Tank._engine). Multipliers on the numbers a tank's
+     mass, accel and turn already give it; anything not listed stays 1.
+     power/brake/coast/sideGrip/turnAccel/turnBrake/airControl/airDrag/
+     tilt (soft suspension = more) /suspDamp/stability/slopeLoss/recoilResist. */
+  TANK_ENGINES: {
+    ghost:      { power: 1.25, brake: 1.2, coast: 0.8, sideGrip: 0.75, turnAccel: 1.3, airControl: 1.5, tilt: 1.3, stability: 0.8, slopeLoss: 0.8, recoilResist: 0.8 },
+    burst:      { power: 1.15, coast: 0.85, sideGrip: 0.85, turnAccel: 1.15, airControl: 1.2, tilt: 1.15, stability: 0.9, recoilResist: 0.75 },
+    hellfire:   { power: 1.1, sideGrip: 0.9, turnAccel: 1.1, airControl: 1.1, tilt: 1.1 },
+    grom:       { power: 0.95, brake: 1.05, sideGrip: 1.05, tilt: 0.95, suspDamp: 1.1, recoilResist: 0.9 },
+    demolisher: { power: 0.9, brake: 0.9, coast: 1.1, sideGrip: 1.15, turnAccel: 0.9, airControl: 0.7, stability: 1.15, recoilResist: 1.2 },
+    predator:   { power: 1.0, brake: 1.15, sideGrip: 1.2, turnAccel: 1.05, suspDamp: 1.2, stability: 1.1 },
+    helix:      { power: 0.95, brake: 1.0, sideGrip: 1.1, turnBrake: 1.15, stability: 1.1, slopeLoss: 0.9 },
+    striker:    { power: 1.05, brake: 1.1, sideGrip: 1.0, turnAccel: 0.95, tilt: 0.9, suspDamp: 1.15 },
+    striker2:   { power: 1.0, coast: 1.15, sideGrip: 1.1, turnAccel: 0.9, stability: 1.2 },
+    bradley:    { power: 0.9, brake: 0.95, coast: 1.2, sideGrip: 1.25, turnAccel: 0.85, airControl: 0.6, tilt: 0.85, stability: 1.25, slopeLoss: 0.85, recoilResist: 1.2 },
+    double:     { power: 0.8, brake: 0.85, coast: 1.25, sideGrip: 1.35, turnAccel: 0.75, turnBrake: 0.85, airControl: 0.4, tilt: 0.7, suspDamp: 1.3, stability: 1.4, slopeLoss: 0.8, recoilResist: 1.5 },
+    mortar:     { power: 0.85, brake: 0.9, sideGrip: 1.2, turnAccel: 0.8, airControl: 0.5, tilt: 0.8, stability: 1.3, recoilResist: 1.3 },
+    sturmratte: { power: 1.1, brake: 1.1, sideGrip: 0.95, turnAccel: 1.1, airControl: 1.1, slopeLoss: 0.85 },
+  },
 
   // Combat
   SHELL_SPEED:     90,

@@ -16374,6 +16374,8 @@ _initMortarMarker(){
        So use the muzzle. The bounds test is a guard, not the normal path: a
        rig that reports its muzzle underground (or absurdly high) still falls
        back to the hitbox centre rather than firing from inside the terrain. */
+    /* The gun pushes its own tank back, through the real body. */
+    if(tank.applyShotRecoil && tank.def.shellType !== 'flame') tank.applyShotRecoil(dir.x, dir.y, dir.z);
     const rootY = tank.root ? tank.root.position.y : 0;
     const hitMidY = rootY + (tank.colOffY || 0);
     const muzzleLow = rootY + 0.15;

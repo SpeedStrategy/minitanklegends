@@ -157,3 +157,6 @@ myself are marked *(mine)*.
 | 90 | Platoon voice never connected: no peer answered incoming calls. | Fixed |
 | 91 | A tank in a dip fogged its whole view: fog rays stopped at the surrounding slope. | Fixed |
 | 92 | Third dev merge: missing `}` in style.css silently disabled every rule after `.ts-nav-btn`; duplicate `#hp-wrap` line closed `#hud` early so HUD parts lived outside it. | Fixed |
+| 93 | Hull tilt was only a drawing: the box collider lay flat on the ground and could not pitch or roll. Replaced by four spring rays (`_suspension`); the body now really tilts. | Fixed |
+| 94 | Gravity maps multiplied every drive rate by 2.5 (`slopeMul`): 0→top in 0.3 s, stop in 0.25 s. Removed; per-tank engines in `CONFIG.TANK_ENGINES`. | Fixed |
+| 95 | Airborne tanks were still driven as if on the ground (velocity rewritten along the hull every frame). Air now keeps momentum; shots in the air kick 2x. | Fixed |

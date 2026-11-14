@@ -3879,14 +3879,213 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     const d = this.def;
     const heavy = Math.max(0, Math.min(1, ((d.mass || 30) - 14) / 46));   /* 0 light .. 1 heavy */
     const turn = d.turn || 1.8, accel = d.accel || 18;
-    return (this._eng = {
-      power:     accel,
-      brake:     d.brakeAccel || accel * (3.2 - 1.2 * heavy),
-      coast:     d.coastDecel || accel * (1.3 - 0.5 * heavy),
+    /* EVERY TANK HAS ITS OWN ENGINE. The base numbers follow from the tank's
+       mass, accel and turn; CONFIG.TANK_ENGINES[id] then multiplies any of
+       them (a character sheet per tank), and `def.engine` can set absolute
+       values. Balance lives in config.js, never in this file.
+
+         power      pull, units/s^2            brake     opposite-direction stop
+         coast      roll-out with no input     sideGrip  how fast a slide dies
+         turnAccel  wind-up into a turn        turnBrake stopping a turn
+         airControl 0..1 of ground authority   airDrag   horizontal loss in air
+         tilt       weight transfer (soft suspension = more)
+         suspDamp   how fast hull rock settles stability self-righting, landings
+         slopeLoss  top speed lost per unit of climb
+         recoilResist  divides the shove from its own gun                    */
+    const base = {
+      power:     accel * 1.25,
+      brake:     d.brakeAccel || accel * (2.6 - 1.0 * heavy),
+      coast:     d.coastDecel || accel * (0.75 - 0.3 * heavy),
       sideGrip:  d.sideGrip   || (15 - 8 * heavy),
       turnAccel: d.turnAccel  || turn * (9 - 5 * heavy),
       turnBrake: d.turnBrake  || turn * (14 - 6 * heavy),
-    });
+      airControl: 0.28 - 0.2 * heavy,
+      airDrag:    0.12,
+      tilt:       0.055 - 0.025 * heavy,
+      suspDamp:   8 + 4 * heavy,
+      stability:  0.85 + 0.5 * heavy,
+      slopeLoss:  1.1 + 0.7 * heavy,
+      recoilResist: 0.8 + 0.6 * heavy,
+    };
+    const C = (typeof CONFIG !== 'undefined' && CONFIG) || {};
+    const mul = (C.TANK_ENGINES && C.TANK_ENGINES[d.id]) || null;
+    if(mul) for(const k in mul) if(base[k] != null && isFinite(mul[k])) base[k] *= mul[k];
+    if(d.engine) for(const k in d.engine) if(isFinite(d.engine[k])) base[k] = d.engine[k];
+    base.airControl = Math.max(0, Math.min(1, base.airControl));
+    return (this._eng = base);
+  }
+
+  /* IS THE TANK ON THE GROUND, AND HOW IS THE HULL SITTING?
+
+     One ray straight down from the hitbox centre, every step. It used to be
+     guessed from vertical speed alone, so a tank at the top of a jump (vy = 0)
+     counted as driving on a road, and one rolling down a steep ramp counted as
+     flying. The hull's real attitude is read from the body here too: `_fwdY`
+     is how far the nose points up, `_upY` how upright the hull is. The drive
+     uses both, so the way the hull sits changes how the tank moves. */
+  _probeGround(dt){
+    const b = this._physBody, w = this._physWorld;
+    let q;
+    try { q = b.rotation(); } catch(e){ this._onGround = true; this._fwdY = 0; this._upY = 1; return; }
+    this._fwdY = 2 * (q.y * q.z - q.w * q.x);
+    this._upY = 1 - 2 * (q.x * q.x + q.z * q.z);
+    if(!this._allowFall || !w || typeof RAPIER === 'undefined'){ this._onGround = true; return; }
+    let p;
+    try { p = this._physCollider ? this._physCollider.translation() : b.translation(); } catch(e){ p = b.translation(); }
+    let ray = this._gRay;
+    if(!ray) ray = this._gRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
+    const hh = this.colHalfH || 1;
+    ray.origin.x = p.x; ray.origin.y = p.y; ray.origin.z = p.z;
+    let on = (this._suspHits || 0) >= 2;
+    if(!on){ try { on = !!w.castRay(ray, hh * 1.3 + 0.55, true, undefined, undefined, undefined, b); } catch(e){ on = true; } }
+    const vy = this._vy || 0;
+    /* Resting on an edge or a ledge the centre ray misses is still standing. */
+    if(!on && Math.abs(vy) < 1.2){
+      this._restT = (this._restT || 0) + dt;
+      if(this._restT > 0.2) on = true;
+    } else this._restT = 0;
+    if(on && this._onGround === false && (this._airT || 0) > 0.12){
+      this._landImpact = Math.max(0, -(this._lastVy || 0));
+    }
+    this._airT = on ? 0 : (this._airT || 0) + dt;
+    this._lastVy = vy;
+    this._onGround = on;
+  }
+
+  /* SUSPENSION. Four spring rays under the hull's corners carry the body
+     instead of its box resting flat on the ground: a box on a floor cannot
+     pitch or roll at all, which is why the old hull tilt was only a drawing.
+     Each spring pushes up at its own corner by how far it is compressed, with
+     damping against the corner's own vertical speed, so the body really noses
+     down under braking, lifts off the line, leans out of a turn, lies along a
+     slope and sinks on a landing. The box collider stays, a hand's width
+     above the ground, as the bump stop and the wall contact. Stiffness follows
+     the tank's mass (half travel at rest); `tilt` softens it, `suspDamp`
+     settles it. Only on gravity maps, only while the tank is alive. */
+  _suspension(dt){
+    const b = this._physBody, w = this._physWorld;
+    if(!b || !w || !this._allowFall || typeof RAPIER === 'undefined' || this.dying) return 0;
+    const eng = this._engine();
+    /* The collider's own size and seat on the body: authored hitboxes sit on
+       the body origin while colOff* describe the model, so never guess here. */
+    const col = this._physCollider;
+    let he = null, lt = null;
+    try {
+      if(col){
+        he = col.halfExtents ? col.halfExtents() : null;
+        if(col.translationWrtParent) lt = col.translationWrtParent();
+        else {
+          /* This Rapier build has no local getter: bring the world offset back
+             into the body's frame (R^T * (collider - body)) every call. */
+          const cw = col.translation(), bw = b.translation(), q0 = b.rotation();
+          const dx = cw.x - bw.x, dy = cw.y - bw.y, dz = cw.z - bw.z;
+          const r00 = 1 - 2 * (q0.y * q0.y + q0.z * q0.z), r01 = 2 * (q0.x * q0.y - q0.w * q0.z), r02 = 2 * (q0.x * q0.z + q0.w * q0.y);
+          const r10 = 2 * (q0.x * q0.y + q0.w * q0.z), r11 = 1 - 2 * (q0.x * q0.x + q0.z * q0.z), r12 = 2 * (q0.y * q0.z - q0.w * q0.x);
+          const r20 = 2 * (q0.x * q0.z - q0.w * q0.y), r21 = 2 * (q0.y * q0.z + q0.w * q0.x), r22 = 1 - 2 * (q0.x * q0.x + q0.y * q0.y);
+          lt = this._sLocal || (this._sLocal = { x: 0, y: 0, z: 0 });
+          lt.x = r00 * dx + r10 * dy + r20 * dz;
+          lt.y = r01 * dx + r11 * dy + r21 * dz;
+          lt.z = r02 * dx + r12 * dy + r22 * dz;
+        }
+      }
+    } catch(e){}
+    const hw = (he ? he.x : (this.colHalfW || 1.5)) * 0.8, hl = (he ? he.z : (this.colHalfL || 3)) * 0.85, hh = he ? he.y : (this.colHalfH || 1);
+    const travel = 0.6, rest = travel * 0.5;
+    let q, p, lv, av;
+    try { q = b.rotation(); p = b.translation(); lv = b.linvel(); av = b.angvel(); } catch(e){ return 0; }
+    /* Hull axes from the body's rotation. */
+    const rx = 1 - 2 * (q.y * q.y + q.z * q.z), ry = 2 * (q.x * q.y + q.w * q.z), rz = 2 * (q.x * q.z - q.w * q.y);
+    const ux = 2 * (q.x * q.y - q.w * q.z), uy = 1 - 2 * (q.x * q.x + q.z * q.z), uz = 2 * (q.y * q.z + q.w * q.x);
+    const fx = 2 * (q.x * q.z + q.w * q.y), fy = 2 * (q.y * q.z - q.w * q.x), fz = 1 - 2 * (q.x * q.x + q.y * q.y);
+    const ox = lt ? lt.x : (this.colOffX || 0), oy = (lt ? lt.y : (this.colOffY || 0)) - hh, oz = lt ? lt.z : (this.colOffZ || 0);
+    const mass = this.mass || 30;
+    const g = Math.abs((w.gravity && w.gravity.y) || 12);
+    const k = (mass * g) / (4 * rest) / Math.max(0.5, eng.tilt / 0.04);
+    const c = 2 * Math.sqrt(k * mass / 4) * Math.min(1.2, 0.35 + eng.suspDamp / 20);
+    let ray = this._sRay;
+    if(!ray) ray = this._sRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: -1, z: 0 });
+    ray.dir.x = -ux; ray.dir.y = -uy; ray.dir.z = -uz;
+    let hits = 0, maxComp = 0;
+    const imp = this._sImp || (this._sImp = { x: 0, y: 0, z: 0 });
+    const pt = this._sPt || (this._sPt = { x: 0, y: 0, z: 0 });
+    for(let i = 0; i < 4; i++){
+      const sx = (i & 1) ? hw : -hw, sz = (i & 2) ? hl : -hl;
+      /* Cast from the hull's centre height so the ray never starts inside the
+         ground the box is resting on; distances are measured from the bottom. */
+      const lx = ox + sx, ly = oy + hh, lz = oz + sz;
+      pt.x = p.x + rx * lx + ux * ly + fx * lz;
+      pt.y = p.y + ry * lx + uy * ly + fy * lz;
+      pt.z = p.z + rz * lx + uz * ly + fz * lz;
+      ray.origin.x = pt.x; ray.origin.y = pt.y; ray.origin.z = pt.z;
+      let hit = null;
+      try { hit = w.castRay(ray, hh + travel, true, undefined, undefined, undefined, b); } catch(e){ hit = null; }
+      if(!hit) continue;
+      const dist = (hit.toi != null ? hit.toi : hit.timeOfImpact) - hh;
+      const comp = Math.min(travel, travel - dist);
+      if(comp <= 0) continue;
+      hits++;
+      if(comp > maxComp) maxComp = comp;
+      /* Vertical speed of this corner: v + omega x r. */
+      const rX = pt.x - p.x, rY = pt.y - p.y, rZ = pt.z - p.z;
+      const cvx = lv.x + av.y * rZ - av.z * rY, cvy = lv.y + av.z * rX - av.x * rZ, cvz = lv.z + av.x * rY - av.y * rX;
+      const vUp = cvx * ux + cvy * uy + cvz * uz;
+      let F = k * comp - c * vUp;
+      /* The spring is a strut: it pushes, it never pulls the hull down. */
+      if(F < 0) F = 0;
+      if(F > mass * g * 1.5) F = mass * g * 1.5;
+      const J = F * dt;
+      imp.x = ux * J; imp.y = uy * J; imp.z = uz * J;
+      try { b.applyImpulseAtPoint(imp, pt, true); } catch(e){}
+    }
+    this._suspHits = hits;
+    return hits;
+  }
+
+  /* THE GUN PUSHES BACK. Called once per shot with the shot's direction.
+
+     The shove comes from CONFIG.SHOT_RECOIL (per tank, so Burst kicks hardest,
+     Grom a step below, everything else lighter), is divided by the tank's own
+     recoil resistance, and goes into the real body: on the ground as a slide
+     the tracks wear away, in the air straight into the body's velocity, times
+     AIR_MULT (2), where nothing wears it away. The barrel sits above the centre
+     of mass, so the same shot also rocks the hull back. */
+  applyShotRecoil(dx, dy, dz){
+    if(this.dying || !this.alive || this.netDriven) return;
+    const C = (typeof CONFIG !== 'undefined' && CONFIG) || {};
+    const R = C.SHOT_RECOIL;
+    if(!R) return;
+    const len = Math.hypot(dx, dz);
+    if(!(len > 1e-6)) return;
+    const eng = this._engine();
+    let dv = ((R.byTank && R.byTank[this.def.id] != null) ? R.byTank[this.def.id] : (R.base || 0)) / eng.recoilResist;
+    if(!dv) return;
+    const air = this._allowFall && this._onGround === false;
+    if(air) dv *= (R.AIR_MULT != null ? R.AIR_MULT : 2);
+    const nx = -dx / len, nz = -dz / len;
+    const b = this._physBody;
+    if(!b){ this.vx = (this.vx || 0) + nx * dv; this.vz = (this.vz || 0) + nz * dv; return; }
+    try {
+      if(air){
+        const lv = b.linvel();
+        let vx = lv.x + nx * dv, vz = lv.z + nz * dv;
+        /* Firing downward lifts, upward presses down: a little, never a rocket. */
+        let vy = lv.y - (dy || 0) * dv;
+        const cap = R.MAX_SPEED || 45, sp = Math.hypot(vx, vz);
+        if(sp > cap){ vx *= cap / sp; vz *= cap / sp; }
+        vy = Math.min(vy, Math.max(lv.y, R.MAX_LIFT || 6));
+        b.setLinvel({ x: vx, y: vy, z: vz }, true);
+      } else {
+        const cap = (R.MAX_SPEED || 45) * 0.5;
+        let ex = (this._extVX || 0) + nx * dv, ez = (this._extVZ || 0) + nz * dv;
+        const sp = Math.hypot(ex, ez);
+        if(sp > cap){ ex *= cap / sp; ez *= cap / sp; }
+        this._extVX = ex; this._extVZ = ez;
+      }
+      /* Torque of a push at barrel height: r x F with r = (0,h,0). */
+      const rock = dv * (R.ROCK != null ? R.ROCK : 0.05) * (eng.tilt / 0.04) * (air ? 1.6 : 1);
+      const av = b.angvel();
+      b.setAngvel({ x: av.x + nz * rock, y: av.y, z: av.z - nx * rock }, true);
+    } catch(e){}
   }
 
   /* White chevron on the hull: which way is the front. */
@@ -4276,13 +4475,25 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     if(this._physBody){
       const fwdX = Math.sin(this.heading);
       const fwdZ = Math.cos(this.heading);
-      var speedDeficit = target - this.speed;
+      const eng = this._engine();
+      this._suspension(dt);
+      this._probeGround(dt);
+      /* In the air the tracks touch nothing: no drive, no grip, no brakes. */
+      const air = this._allowFall && !this._onGround;
+      /* A hull that is tipped over has less track on the ground. */
+      const traction = air ? 0 : Math.max(0.25, Math.min(1, (this._upY - 0.55) / 0.35));
+      /* Climbing costs top speed, by this engine's strength; downhill gives a little. */
+      let _slopeT = target;
+      if(!air && this._allowFall && target){
+        const pen = Math.max(-0.15, Math.min(0.6, this._fwdY * (target > 0 ? 1 : -1) * eng.slopeLoss));
+        _slopeT = target * (1 - pen);
+      }
+      var speedDeficit = _slopeT - this.speed;
       speedDeficit = Math.max(-speedCap * 2, Math.min(speedCap * 2, speedDeficit));
       /* THE ENGINE. Three separate rates instead of one: pulling power, the hard
          braking of pressing the opposite direction, and rolling to a stop when
          nothing is pressed. See _engine(): every tank's come from its own stats. */
-      const eng = this._engine();
-      var slopeMul = this._allowFall ? 2.5 : 1.0;
+      var slopeMul = air ? 1 : traction;
       const opposing = (target < -0.01 && this.speed > 0.05) || (target > 0.01 && this.speed < -0.05);
       const accel = slopeMul * (opposing ? eng.brake
         : (Math.abs(target) < 0.01 || Math.abs(this.speed) > Math.abs(target)) ? eng.coast : eng.power);
@@ -4290,13 +4501,23 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       var clampedDeficit = Math.max(-maxDelta, Math.min(maxDelta, speedDeficit));
       var desiredSpeed = this.speed + clampedDeficit;
       desiredSpeed = Math.max(-speedCap * REVERSE_FRAC, Math.min(speedCap, desiredSpeed));
+      /* LANDING. The hit takes speed off, less for a stable hull; the same
+         impact rocks the nose down further below. */
+      let _landRock = 0;
+      if(this._landImpact){
+        const hit = this._landImpact; this._landImpact = 0;
+        if(hit > 4){
+          desiredSpeed *= 1 - Math.min(0.45, (hit - 4) * 0.02 / eng.stability);
+          _landRock = Math.min(1.6, (hit - 4) * 0.06 / eng.stability);
+        }
+      }
       const curVel = this._physBody.linvel();
       /* MOMENTUM. The velocity used to be rewritten to lie exactly along the hull
          every frame, so a tank went wherever its nose pointed at once. Sideways
          motion now survives and is only worn away by the tracks' grip, so a fast
          light hull slides a little through a turn and a shove carries. */
       const _rightX = fwdZ, _rightZ = -fwdX;
-      const _latGrip = this.drifting ? eng.sideGrip * 0.2 : eng.sideGrip;
+      const _latGrip = (this.drifting ? eng.sideGrip * 0.2 : eng.sideGrip) * traction;
       let _lat = (curVel.x - (this._extVX || 0)) * _rightX + (curVel.z - (this._extVZ || 0)) * _rightZ;
       _lat = Math.max(-speedCap, Math.min(speedCap, _lat)) * Math.exp(-_latGrip * dt);
       const newVelX = fwdX * desiredSpeed + _rightX * _lat;
@@ -4316,9 +4537,28 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       const _snag = this._snagAssist(dt, curVel, newVelX, newVelZ);
       if(_snag){ _driveX = _snag.x; _driveZ = _snag.z; }
       const _snagKX = this._snagKX || 0, _snagKZ = this._snagKZ || 0;
-      this._tmpLinvel.x = _driveX + _extX + _snagKX;
-      this._tmpLinvel.y = curVel.y + (this._hopOnce || 0);
-      this._tmpLinvel.z = _driveZ + _extZ + _snagKZ;
+      if(air){
+        /* AIRBORNE: the body keeps the velocity it left the ground with.
+           Nothing is rewritten along the hull; air drag wears a little off,
+           and the throttle only nudges, by this tank's air control. A shove
+           received in the air is spent into the body once and stays there. */
+        const drag = Math.exp(-eng.airDrag * dt);
+        let ax = curVel.x * drag, az = curVel.z * drag;
+        if(Math.abs(effThrottle) > 0.05 && eng.airControl > 0){
+          const along = ax * fwdX + az * fwdZ;
+          const push = Math.max(-1, Math.min(1, (target - along) / Math.max(1, speedCap)))
+                     * eng.power * eng.airControl * dt;
+          ax += fwdX * push; az += fwdZ * push;
+        }
+        this._tmpLinvel.x = ax + _extX;
+        this._tmpLinvel.y = curVel.y + (this._hopOnce || 0);
+        this._tmpLinvel.z = az + _extZ;
+        this._extVX = 0; this._extVZ = 0;
+      } else {
+        this._tmpLinvel.x = _driveX + _extX + _snagKX;
+        this._tmpLinvel.y = curVel.y + (this._hopOnce || 0);
+        this._tmpLinvel.z = _driveZ + _extZ + _snagKZ;
+      }
 
       if(this._allowFall){
         const pitchAngle = this._tmpEuler ? this._tmpEuler.x : 0;
@@ -4337,7 +4577,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
          the noise floor it is zeroed outright so the buffer never holds a
          permanent half-unit nudge. */
       this._hopOnce = 0;
-      if(_extX || _extZ){
+      if(!air && (_extX || _extZ)){
         const dcy = Math.exp(-(((CONFIG && CONFIG.IMPULSE_EXT_DECAY) != null) ? CONFIG.IMPULSE_EXT_DECAY : 3.5) * dt);
         this._extVX = Math.abs(_extX * dcy) < 0.02 ? 0 : _extX * dcy;
         this._extVZ = Math.abs(_extZ * dcy) < 0.02 ? 0 : _extZ * dcy;
@@ -4375,9 +4615,12 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
       const effectiveTurn = turnRate * (this.drifting ? 1 : _grip);
       /* The hull winds up into a turn and is stopped by the opposite track, not
          snapped: a heavy tank takes visibly longer than a light one. */
-      const _wantYaw = hasTurn ? inp.turn * effectiveTurn : 0;
+      /* In the air a spin carries: the tracks can neither start nor stop it
+         beyond what air control allows. */
+      const _airYaw = air ? Math.min(1, eng.airControl * 1.5) : 1;
+      const _wantYaw = hasTurn ? inp.turn * effectiveTurn * (air ? Math.max(0.4, _airYaw) : 1) : (air ? (this._yawVel || 0) * 0.98 : 0);
       const _yaw0 = this._yawVel || 0;
-      const _yawRate = (!hasTurn || _wantYaw * _yaw0 < 0) ? eng.turnBrake : eng.turnAccel;
+      const _yawRate = ((!hasTurn || _wantYaw * _yaw0 < 0) ? eng.turnBrake : eng.turnAccel) * _airYaw * (air ? 1 : traction);
       const _yawStep = _yawRate * dt;
       const targetAngVel = this._yawVel = _yaw0 + Math.max(-_yawStep, Math.min(_yawStep, _wantYaw - _yaw0));
       const curAng = this._physBody.angvel();
@@ -4402,8 +4645,8 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
         if(!this._airborneTimer) this._airborneTimer = 0;
         const falling = curVelY < -2.5;
         const rising = curVelY > 2.5;
-        if(falling || rising) this._airborneTimer += dt;
-        else this._airborneTimer = Math.max(0, this._airborneTimer - dt * 4);
+        if(air) this._airborneTimer += dt;
+        else this._airborneTimer = 0;
 
         const grounded = this._airborneTimer < 0.05;
 
@@ -4421,15 +4664,28 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
         }
 
         if(!grounded && this._airborneTimer > 0.3 && Math.abs(curVelY) < 8){
-          const pitchTorque = -throttle * 1.2 * Math.min(1, horizSpeed / Math.max(1, speedCap));
+          const pitchTorque = -throttle * 1.2 * (eng.airControl / 0.2) * Math.min(1, horizSpeed / Math.max(1, speedCap));
           this._tmpAngvel.x = curAng.x + pitchTorque * dt;
           this._tmpAngvel.x = Math.max(-Math.PI*0.18, Math.min(Math.PI*0.18, this._tmpAngvel.x));
           this._tmpAngvel.z = curAng.z * Math.max(0, 1 - 2.5 * dt);
         } else {
-          const accelKick = (grounded && Math.abs(throttle) > 0.5 && speedFrac < 0.4)
-            ? throttle * (1 - speedFrac) * 0.6 : 0;
-          this._tmpAngvel.x = curAng.x * Math.max(0, 1 - 10 * dt) + accelKick * dt;
-          this._tmpAngvel.z = curAng.z * Math.max(0, 1 - 10 * dt);
+          /* WEIGHT TRANSFER, ON THE BODY ITSELF. Pulling away lifts the nose,
+             braking dips it, a turn at speed rolls the hull outward, a landing
+             slams the nose down. These are spins about the hull's own side
+             and forward axes (not the world's), so they are right at every
+             heading, and because the body really tips, traction above really
+             drops while it does. Softer suspension (`tilt`) tips further;
+             `suspDamp` settles it. In the air the rock is left alone. */
+          const damp = Math.max(0, 1 - (grounded ? eng.suspDamp : 1.2) * dt);
+          let pk = 0, rk = 0;
+          if(grounded){
+            const longAcc = Math.max(-60, Math.min(60, (desiredSpeed - this.speed) / Math.max(dt, 1e-3)));
+            const latAcc = Math.max(-45, Math.min(45, this.speed * targetAngVel));
+            pk = -longAcc * eng.tilt * dt + _landRock;
+            rk = latAcc * eng.tilt * 0.7 * dt;
+          }
+          this._tmpAngvel.x = curAng.x * damp + _rightX * pk + fwdX * rk;
+          this._tmpAngvel.z = curAng.z * damp + _rightZ * pk + fwdZ * rk;
         }
         this._physBody.setAngvel(this._tmpAngvel, true);
       }
@@ -5322,7 +5578,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     }
     /* Restoring spin about (up x worldUp) = (-uz, 0, ux), stronger the further
        over the hull is; existing roll/pitch spin is damped so it cannot fight it. */
-    const k = 7 * (1 - uy);
+    const k = 7 * (1 - uy) * this._engine().stability;
     const av = b.angvel();
     b.setAngvel({ x: av.x * 0.6 - uz * k, y: av.y, z: av.z * 0.6 + ux * k }, true);
   }
