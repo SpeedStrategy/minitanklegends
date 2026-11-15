@@ -47,6 +47,12 @@
 
 <link rel="apple-touch-icon" href="assets/icons/favicon.webp">
 
+<!-- PWA: lets Android Chrome offer "Install app" (home-screen icon that opens
+     the game fullscreen, landscape, no browser UI). manifest.json + sw.js are
+     the two halves; the registration script is at the end of <body>. -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0b0c0e">
+
 <title>Mini Tank Legends Cline</title>
 
 <!-- Google Fonts: Lilita One / Fredoka / Nunito = the game's display font. DO NOT remove. -->
@@ -3069,6 +3075,18 @@
     <p class="rotate-lock-text">Tank Legends is played sideways. Rotate your device to landscape and the battle carries on.</p>
   </div>
 </div>
+
+<!-- PWA service worker registration (Android install support). Registered on
+     window load so it never competes with the game's boot downloads. Any
+     failure is swallowed: without the SW the game still runs, it just is not
+     installable. -->
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('/sw.js').catch(function () {});
+  });
+}
+</script>
 </body>
 
 </html>
