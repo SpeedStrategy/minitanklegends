@@ -340,6 +340,18 @@ const Xray = (() => {
       }
       T.Discard(T.lessThan(m, 0.5));
 
+      /* THE SAME TIE-BREAK AS THE GLSL VERTEX STAGE (uBias there).
+
+         Pull every stripe fragment 0.35 world units toward the camera before
+         the depth test. Without it, a stripe at the same depth as its own hull
+         is a coin flip under GreaterDepth, and on WebGPU it won most of those
+         flips: the whole visible tank was drawn over with stripes and looked
+         washed out. vertexNode is the clip-space output, which is where a
+         view-space offset has to go (positionNode is local space). */
+      const uBias = T.uniform(0.35);
+      const mv = T.modelViewMatrix.mul(T.vec4(T.positionGeometry, 1.0));
+      mat.vertexNode = T.cameraProjectionMatrix.mul(mv.add(T.vec4(0, 0, uBias, 0)));
+
       mat.colorNode = T.vec4(uColor, uOpacity);
       mat.transparent = true;
       mat.depthTest   = true;
@@ -356,7 +368,7 @@ const Xray = (() => {
       mat.stencilFail  = THREE.KeepStencilOp;
       mat.stencilZFail = THREE.KeepStencilOp;
       mat.stencilZPass = THREE.KeepStencilOp;
-      return { mat, uniforms: { uColor, uOpacity, uTime, uRes } };
+      return { mat, uniforms: { uColor, uOpacity, uTime, uRes, uBias } };
     } catch(e){
       console.warn('[Xray] node material failed, falling back:', e);
       return null;

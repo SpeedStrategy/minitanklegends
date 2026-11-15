@@ -361,7 +361,7 @@ const CONFIG = {
      2026-11-09 without a bump, so every browser that had seen v=8 kept drawing
      the old meshes for up to the 7-day cache window -- which reads exactly like
      "the model is right in Blender and wrong in the game". */
-  MODEL_VER:   9,
+  MODEL_VER:   10,  // 10: ghost/burst/helix replaced with production models; ark/predator/hellfire/bradley/striker added
 
   // Supers
   /* Supers charge by DEALING DAMAGE: this much fills the bar on a tank with the

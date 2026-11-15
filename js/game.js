@@ -781,6 +781,11 @@ class Game {
         canvas,
         antialias: devicePixelRatio <= 1,
         alpha: false,
+        /* The x-ray pass stamps the player's own visible tank into the stencil
+           buffer and draws stripes only where nothing was stamped. The WebGL
+           renderer asks for a stencil buffer for exactly this; without one here
+           the stamp had nowhere to go and the stripes covered the tank. */
+        stencil: true,
         /* Ask the browser for the discrete/dedicated GPU rather than whatever
            it defaults to. On phones and hybrid-graphics laptops the default is
            frequently the low-power adapter, which is a slower game with the

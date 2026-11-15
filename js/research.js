@@ -507,7 +507,7 @@
         try {
           const preview = Object.assign({}, def);
           preview.playAnims = false;
-          tank = new Tank(preview, { physicsWorld: null });
+          tank = new Tank(preview, { physicsWorld: null, preview: true });
         } catch (e) { tank = null; }
         if (!tank || !tank.root) return null;
         if (tank._overlayGroup) tank._overlayGroup.visible = false;

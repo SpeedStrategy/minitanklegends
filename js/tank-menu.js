@@ -2122,7 +2122,7 @@ window.TankMenu = (function(){
            cannot aim a stamp at, and the rest pose is the one battle sprays
            are authored against. */
         previewDef.playAnims = false;
-        t = new Tank(previewDef, { physicsWorld: null });
+        t = new Tank(previewDef, { physicsWorld: null, preview: true });
       }catch(err){
         console.warn('Menu tank build failed:', err);
         t = null;

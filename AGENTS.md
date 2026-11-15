@@ -792,3 +792,17 @@ Production (the other copy's c52591d) was pulled twice this pass and is the base
 3. **Ground state** (`Tank._probeGround`): ≥2 springs touching, else a centre ray, else a 0.2 s rest rule. In the air: no drive rewrite, velocity kept, `airDrag`, throttle only nudges by `airControl`, spins carry, a landing takes speed off and rocks the nose by `stability`.
 4. **Shot recoil on the real body** (`Tank.applyShotRecoil`, called from `Game.spawnShot`): `CONFIG.SHOT_RECOIL` — base 1.5, burst 8.5, grom 6.0, mortar 2.4, others ≤2; divided by `recoilResist`; ×`AIR_MULT` (2) when airborne and then written straight into the body's velocity (no track decay); on the ground it goes through `_extVX/Z`. Capped by `MAX_SPEED`; the hull rocks by `ROCK`. Verified: coolbuddy air shot dv 2.97, ground 1.49.
 5. Tests were scripted through `game.input.keys` in the local browser (TDM, 14 tanks): acceleration curve, roll-out, brake, turn, a 14-unit drop landing upright, air recoil, 54 fps with 244 draw calls, zero errors. Not tested: multiplayer (netDriven tanks skip `update`, so unchanged), real player feel on every map.
+
+---
+
+## 2026-11-15, twentieth pass (Claude Code) — WEBGPU THAT ACTUALLY WORKS
+
+WebGPU support already existed (Settings > renderer: Auto = WebGL 2, WebGPU opt-in; `_createWebGPURenderer` with an 8 s init timeout and a real-backend check, fallback to WebGL 2). In this repo it could not work, and on a real NVIDIA WebGPU adapter it was broken in three ways. Fixed and verified in the browser on both backends:
+
+1. **`vendor/three/three.webgpu.js` + `three.tsl.min.js` were missing from this repo** (production had them). The import map points at them; without them `loadTSL()` fails and WebGPU can never start on our dev deploys. Same r185 build as `three.core.js` (md5-checked).
+2. **Preview renderers got WebGPU materials.** Every menu/garage/results/research/editor preview has its own `THREE.WebGLRenderer`; the shared tank outline was a node material when the game ran on WebGPU, so the main-menu preview threw in `resolveIncludes` every frame (45+ errors per match start). `Tank._outlineMaterial(t, glsl)` now keeps one pool per backend; `new Tank(def, {preview: true})` and `Tank.createOutlineMesh(mesh, t, true)` take the GLSL one. Remote players' tanks also have no physics body, so "no physicsWorld" is NOT a preview signal — the flag is explicit.
+3. **X-ray stripes covered the visible tank on WebGPU.** The TSL transcription lacked the GLSL vertex bias (pull 0.35 units toward the camera before `GreaterDepth`), and `WebGPURenderer` was created without `stencil: true`, so the own-tank stencil mask had nowhere to write. Both added; measured: open tank pixels identical with/without the x-ray layer, tank behind a box gets stripes.
+4. **cartoon-fx outlines** used `onBeforeCompile`, which WebGPU never runs (outlines vanished). The push along the normal is now baked into a geometry copy once (`pushedGeometry`): same shape, both backends, zero per-frame cost.
+5. **Tank models**: ark/predator/hellfire/bradley/striker.glb were missing (drawn as boxes) and burst/ghost/helix.glb were stale (Ghost rendered ~5x too big against production's modelScale). All taken from production; `CONFIG.MODEL_VER` 9 -> 10 so cached copies refresh. Every tank now measures 5-11 units (Cool Buddy 10.5).
+
+Testing note: the preview pane's screenshot cannot see a WebGPU canvas; render, `toDataURL()`, and show it in an `<img>` to look at a frame. Not tested: phones, other GPU vendors, frame-time comparison under load (the pane is throttled when unfocused).

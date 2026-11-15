@@ -126,6 +126,9 @@ class Tank {
     /* Only the LOCAL player's tank wears the tree. It used to apply to every
        tank of the same type, so upgrading Cool Buddy upgraded every bot Cool
        Buddy too. The tree is saved on this machine and belongs to this player. */
+    /* A preview tank (menu, garage, results, research, editor) is drawn by its
+       own WebGL renderer, never the game's: it must not get WebGPU materials. */
+    this._preview = !!opts.preview;
     const upStats = (window.Progression && def && def.id && opts.isLocal) ? window.Progression.tankStats(def.id) : null;
     if (window.Progression && opts.isLocal) def = window.Progression.defWithUpgrades(def);
     this.upStats = upStats && upStats.anyBought ? upStats : null;
@@ -1469,7 +1472,13 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
      back faces of the inflated hull are drawn, so what survives is the rim that
      pokes out past the real surface. One material, one program, N meshes.
      ============================================================================ */
-  static _outlineMaterial(thickness){
+  /* `glsl`: the caller is drawn by a WebGL renderer even though the game may
+     be on WebGPU. Every menu, garage and results preview owns its own
+     THREE.WebGLRenderer, and a node material handed to one of those throws in
+     three's resolveIncludes on every frame (the WebGPU-mode menu preview did
+     exactly that: 45 errors per match start and a dead preview). So there are
+     two pools, one per backend, and previews always take the GLSL one. */
+  static _outlineMaterial(thickness, glsl){
     /* ONE material for the entire game.
 
        Keying the pool on the authored thickness was always wrong: the width is
@@ -1478,7 +1487,8 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
        a material built for one tank's authored width is immediately overwritten
        with a width chosen for another. */
     const pool = Tank._outlinePool || (Tank._outlinePool = new Map());
-    const hit = pool.get('shared');
+    const key = glsl ? 'glsl' : 'shared';
+    const hit = pool.get(key);
     if(hit) return hit;
 
     /* Seeded with the real world width. The value here only matters for the
@@ -1571,7 +1581,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
        undefined vertexShader and throws inside resolveIncludes on EVERY FRAME.
        The HUD keeps drawing, the 3D view is frozen — the game looks crashed.
        So the material is only node-based when the ACTIVE RENDERER is WebGPU. */
-    if((typeof window !== 'undefined') && window.__isWebGPU && window.WebGPU && window.TSL){
+    if(!glsl && (typeof window !== 'undefined') && window.__isWebGPU && window.WebGPU && window.TSL){
       try {
         const T = window.TSL, W = window.WebGPU;
         const uT = T.uniform(t);
@@ -1616,11 +1626,12 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
        under the other nine, and every surviving tank would lose its outline for
        the rest of the round. */
     mat.userData.sharedWithCache = true;
-    pool.set('shared', mat);
+    pool.set(key, mat);
     return mat;
   }
 
-  static createOutlineMesh(mesh, thickness){
+  /* `glsl` forces the WebGL outline; see _outlineMaterial. */
+  static createOutlineMesh(mesh, thickness, glsl){
     const t = thickness != null ? thickness : 0.04;
     if(!mesh.geometry) return null;
     /* The source mesh may have no normals; the hull needs them. Computed onto
@@ -1628,7 +1639,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     if(!mesh.geometry.attributes.normal) mesh.geometry.computeVertexNormals();
 
     /* Pooled, not allocated: see Tank._outlineMaterial. */
-    const mat = Tank._outlineMaterial(t);
+    const mat = Tank._outlineMaterial(t, glsl);
 
     /* SHARED geometry — this is the whole point. */
     const outline = new THREE.Mesh(mesh.geometry, mat);
@@ -1774,7 +1785,7 @@ this._modelYaw = (def && def.modelYaw != null) ? def.modelYaw * Math.PI / 180 : 
     // turretAngle, and the outline must follow instead of staying fixed as a
     // group sibling.
     if(!this._wantsOutline()) return;
-    const outline = Tank.createOutlineMesh(mesh, thickness);
+    const outline = Tank.createOutlineMesh(mesh, thickness, this._preview);
     /* Remembered on the tank so the per-frame width update walks a flat array
        instead of traversing the whole model every frame. */
     if(outline) (this._outlineList || (this._outlineList = [])).push(outline);

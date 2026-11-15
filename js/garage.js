@@ -206,7 +206,7 @@ window.Garage = (function(){
     bodyMesh.position.y = b.h / 2;
     bodyMesh.castShadow = true;
     tank.add(bodyMesh);
-    try{ tank.add(Tank.createOutlineMesh(bodyMesh)); }catch(e){}
+    try{ tank.add(Tank.createOutlineMesh(bodyMesh, undefined, true)); }catch(e){}
 
     const treadMat = Toon.mat({color: 0x222226});
     [-1, 1].forEach(s => {
@@ -223,7 +223,7 @@ window.Garage = (function(){
     turretMesh.position.y = tDef.h / 2;
     turretMesh.castShadow = true;
     turretGroup.add(turretMesh);
-    try{ turretGroup.add(Tank.createOutlineMesh(turretMesh)); }catch(e){}
+    try{ turretGroup.add(Tank.createOutlineMesh(turretMesh, undefined, true)); }catch(e){}
 
     const barrelMat = Toon.mat({color: 0x2a2a2e});
     const barrel = new THREE.Mesh(new THREE.CylinderGeometry(def.barrelR, def.barrelR, def.barrelLen, 10), barrelMat);

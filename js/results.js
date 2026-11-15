@@ -1968,6 +1968,7 @@
         let tank = null;
         try {
           tank = new Tank(def, {
+            preview:     true,
             id:          'res_slot_' + i,
             name:        row.name || 'Tank',
             team:        row.side === 'theirs' ? 'red' : 'blue',

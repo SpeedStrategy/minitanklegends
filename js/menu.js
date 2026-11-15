@@ -1748,7 +1748,7 @@ const Menu = {
     bodyMesh.castShadow = true;
     bodyMesh.receiveShadow = true;
     previewTank.add(bodyMesh);
-    try{ previewTank.add(Tank.createOutlineMesh(bodyMesh)); }catch(e){}
+    try{ previewTank.add(Tank.createOutlineMesh(bodyMesh, undefined, true)); }catch(e){}
     // Treads
     const treadMat = Toon.mat({color: 0x222226});
     [-1, 1].forEach(s => {
@@ -1768,7 +1768,7 @@ const Menu = {
     turretMesh.position.y = tDef.h/2;
     turretMesh.castShadow = true;
     turretGroup.add(turretMesh);
-    try{ turretGroup.add(Tank.createOutlineMesh(turretMesh)); }catch(e){}
+    try{ turretGroup.add(Tank.createOutlineMesh(turretMesh, undefined, true)); }catch(e){}
 
     // Barrel
     const barrelMat = Toon.mat({color: 0x2a2a2e});
@@ -1953,7 +1953,7 @@ const Menu = {
     let modelLoaded = false;
     let tankObj = null;
     try {
-      tankObj = new Tank(Object.assign({}, def, { playAnims: false }), { physicsWorld: null });
+      tankObj = new Tank(Object.assign({}, def, { playAnims: false }), { physicsWorld: null, preview: true });
     } catch(err){ console.warn('Preview tank build failed:', err); tankObj = null; }
     if(tankObj && tankObj.root){
       this._mainPreviewTankObj = tankObj;
@@ -1990,7 +1990,7 @@ const Menu = {
       bodyMesh.position.y = b.h/2;
       bodyMesh.castShadow = true;
       previewTank.add(bodyMesh);
-      try{ previewTank.add(Tank.createOutlineMesh(bodyMesh)); }catch(e){}
+      try{ previewTank.add(Tank.createOutlineMesh(bodyMesh, undefined, true)); }catch(e){}
     }
     
     scene.add(previewTank);

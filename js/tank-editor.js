@@ -1156,7 +1156,7 @@ window.TankEditor = (function(){
            resize gizmo ended up reporting a size that did not match the number
            it stored. */
         state.loadedModelScale = previewDef.modelScale;
-        t = new Tank(previewDef, { physicsWorld: null });
+        t = new Tank(previewDef, { physicsWorld: null, preview: true });
         t.root.position.set(0, 0, 0);
         if(t._overlayGroup) t._overlayGroup.visible = false;
         if(state._buildGen !== myGen){

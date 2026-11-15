@@ -29,14 +29,28 @@ const CartoonFX = (() => {
   const _z = new THREE.Vector3(0, 0, 1), _v = new THREE.Vector3(), _c = new THREE.Color(), _e = new THREE.Euler();
 
   /* Black hull outline that shares the puffs' instance matrices: same draw
-     data, pushed out along the normal, back faces only. */
+     data, pushed out along the normal, back faces only.
+
+     The push is baked into a copy of the geometry ONCE, on the CPU, instead
+     of being done in a shader hook. It is the same maths the old
+     onBeforeCompile line did (vertex += normal * width, in the geometry's own
+     space, before the instance matrix), so the outline still grows and shrinks
+     with each puff. The difference is that a plain material works on both
+     backends: WebGPU never runs onBeforeCompile, so on WebGPU the old outline
+     was the same size as the puff and simply vanished. */
+  function pushedGeometry(geo, width){
+    const g = geo.clone();
+    const p = g.attributes.position, n = g.attributes.normal;
+    for(let i = 0; i < p.count; i++){
+      p.setXYZ(i, p.getX(i) + n.getX(i) * width, p.getY(i) + n.getY(i) * width, p.getZ(i) + n.getZ(i) * width);
+    }
+    p.needsUpdate = true;
+    g.computeBoundingSphere();
+    return g;
+  }
   function outlineOf(src, geo, max, width){
     const mat = new THREE.MeshBasicMaterial({ color: 0x0b0c0e, side: THREE.BackSide, transparent: true, depthWrite: false });
-    mat.onBeforeCompile = (sh) => {
-      sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>',
-        '#include <begin_vertex>\n transformed += normal * ' + width.toFixed(3) + ';');
-    };
-    const m = new THREE.InstancedMesh(geo, mat, max);
+    const m = new THREE.InstancedMesh(pushedGeometry(geo, width), mat, max);
     m.instanceMatrix = src.instanceMatrix;
     m.count = 0; m.frustumCulled = false; m.renderOrder = 5;
     return m;
@@ -93,6 +107,8 @@ const CartoonFX = (() => {
       if(!m) continue;
       if(m.parent) m.parent.remove(m);
       try { m.material.dispose(); } catch(e){}
+      /* Outline meshes own their pushed geometry copy. */
+      if(m === sparkLine || m === fireLine || m === smokeLine){ try { m.geometry.dispose(); } catch(e){} }
     }
     try { sparkMesh.geometry.dispose(); fireMesh.geometry.dispose(); debrisMesh.geometry.dispose(); ringMesh.geometry.dispose(); } catch(e){}
     sparks.length = fire.length = smoke.length = debris.length = rings.length = 0;

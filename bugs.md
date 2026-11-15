@@ -160,3 +160,8 @@ myself are marked *(mine)*.
 | 93 | Hull tilt was only a drawing: the box collider lay flat on the ground and could not pitch or roll. Replaced by four spring rays (`_suspension`); the body now really tilts. | Fixed |
 | 94 | Gravity maps multiplied every drive rate by 2.5 (`slopeMul`): 0→top in 0.3 s, stop in 0.25 s. Removed; per-tank engines in `CONFIG.TANK_ENGINES`. | Fixed |
 | 95 | Airborne tanks were still driven as if on the ground (velocity rewritten along the hull every frame). Air now keeps momentum; shots in the air kick 2x. | Fixed |
+| 96 | WebGPU could never start from this repo: three.webgpu.js / three.tsl.min.js missing from vendor/three. | Fixed |
+| 97 | WebGPU mode: main-menu preview (own WebGL renderer) received the WebGPU tank outline material and threw every frame. Per-backend outline pools + explicit `preview` flag. | Fixed |
+| 98 | WebGPU mode: x-ray stripes drawn over the player's visible tank (no vertex bias in TSL, no stencil buffer). | Fixed |
+| 99 | WebGPU mode: explosion/spark outlines missing (onBeforeCompile ignored). Outline push baked into geometry. | Fixed |
+| 100 | Five tank models missing (box tanks) and three stale (Ghost 5x too big). Synced from production, MODEL_VER 10. | Fixed |
